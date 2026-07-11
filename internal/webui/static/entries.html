@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tagged · Time entries</title>
+  <link rel="stylesheet" href="{{PREFIX}}style.css">
+  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <script>window.TT_PREFIX = "{{PREFIX}}";</script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <img class="logo" src="{{PREFIX}}images/Taggd-Colored.svg" alt="Tagged logo">
+        <span class="brandmark" style="letter-spacing:.12em;color:var(--text-1)">Tagged</span>
+      </div>
+      <nav class="nav">
+        <a href="{{PREFIX}}">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a class="active" href="{{PREFIX}}entries">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span>Time entries</span>
+        </a>
+        <a href="{{PREFIX}}tags">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+          <span>Tags</span>
+        </a>
+        <a href="{{PREFIX}}account">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
+          <span>Settings</span>
+        </a>
+        <a id="nav-admin" href="{{PREFIX}}admin" style="display:none">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Admin</span>
+        </a>
+      </nav>
+      <div class="side-foot">
+        <a class="side-user" href="{{PREFIX}}account">
+          <span class="avatar" id="avatar">?</span>
+          <span class="name" id="side-user">…</span>
+        </a>
+        <button class="icon-btn" id="logout" title="Log out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <div class="content single">
+      <div class="main-col" style="width:100%">
+        <div class="page-head">
+          <h1>Time entries</h1>
+          <div class="head-actions">
+            <button id="new-entry">＋ New entry</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="week-head">
+            <button class="icon-btn" id="week-prev" title="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="wtitle">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+              <span id="week-title">—</span>
+            </span>
+            <button class="icon-btn" id="week-next" title="Next week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+          <div class="week-days" id="week-days"></div>
+          <div class="week-total"><span>Total</span><span class="wt-val" id="week-total">0h 00m</span></div>
+        </div>
+
+        <div>
+          <div class="day-head"><span id="day-title">—</span><span id="day-total">0h 00m</span></div>
+          <div class="te-list" id="te-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="entry-modal" hidden>
+    <div class="sheet">
+      <div class="sheet-title" id="em-title">Edit Entry</div>
+
+      <div class="sheet-section">
+        <div class="sheet-label">Description</div>
+        <input id="em-desc" class="em-input" type="text" placeholder="What did you work on?" autocomplete="off">
+      </div>
+
+      <div class="sheet-section">
+        <div class="sheet-section-head">
+          <span class="sheet-label">Tags</span>
+          <button id="em-add-tag" class="link-accent" type="button">＋ Add</button>
+        </div>
+        <div class="em-tags" id="em-tags"></div>
+        <div id="em-add-wrap" hidden>
+          <div class="em-add-row">
+            <input id="em-tag-input" type="text" placeholder="type a tag and press Enter" autocomplete="off">
+            <button id="em-tag-add-btn" class="btn-sm" type="button">Add</button>
+          </div>
+          <div class="em-suggest" id="em-suggest"></div>
+        </div>
+      </div>
+
+      <div class="sheet-section">
+        <div class="sheet-label" style="margin-bottom:4px">Time</div>
+        <div class="time-row">
+          <span class="tr-label">Start</span>
+          <div class="tr-inputs"><input type="date" id="em-start-date"><input type="time" id="em-start-time"></div>
+        </div>
+        <div class="time-row">
+          <span class="tr-label">End</span>
+          <div class="tr-inputs"><input type="date" id="em-end-date"><input type="time" id="em-end-time"></div>
+        </div>
+      </div>
+
+      <div class="em-msg" id="em-msg"></div>
+      <div class="sheet-actions">
+        <button id="em-delete" class="danger-btn" type="button" hidden>Delete</button>
+        <div class="spacer"></div>
+        <button id="em-cancel" class="secondary" type="button">Cancel</button>
+        <button id="em-save" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{PREFIX}}app.js"></script>
+</body>
+</html>

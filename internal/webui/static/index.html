@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tagged · Dashboard</title>
+  <link rel="stylesheet" href="{{PREFIX}}style.css">
+  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <script>window.TT_PREFIX = "{{PREFIX}}";</script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <img class="logo" src="{{PREFIX}}images/Taggd-Colored.svg" alt="Tagged logo">
+        <span class="brandmark" style="letter-spacing:.12em;color:var(--text-1)">Tagged</span>
+      </div>
+      <nav class="nav">
+        <a class="active" href="{{PREFIX}}">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a href="{{PREFIX}}entries">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span>Time entries</span>
+        </a>
+        <a href="{{PREFIX}}tags">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+          <span>Tags</span>
+        </a>
+        <a href="{{PREFIX}}account">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
+          <span>Settings</span>
+        </a>
+        <a id="nav-admin" href="{{PREFIX}}admin" style="display:none">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Admin</span>
+        </a>
+      </nav>
+      <div class="side-foot">
+        <a class="side-user" href="{{PREFIX}}account">
+          <span class="avatar" id="avatar">?</span>
+          <span class="name" id="side-user">…</span>
+        </a>
+        <button class="icon-btn" id="logout" title="Log out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <div class="content">
+      <div class="main-col">
+        <div class="page-head">
+          <h1>Dashboard</h1>
+          <div class="date-nav">
+            <button class="pill-btn" id="today-btn">Today</button>
+            <button class="icon-btn" id="prev-day" title="Previous day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <button class="icon-btn" id="next-day" title="Next day"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+        </div>
+
+        <div class="tiles">
+          <div class="tile">
+            <div class="k">Total (<span id="tile-scope">today</span>)</div>
+            <div class="v" id="tile-total">0h 00m</div>
+            <div class="sub" id="tile-total-goal">Goal 8h 00m</div>
+            <div class="bar"><span id="tile-total-bar" style="width:0%"></span></div>
+          </div>
+          <div class="tile">
+            <div class="k">Entries</div>
+            <div class="v" id="tile-entries">0</div>
+            <div class="sub" id="tile-entries-delta">—</div>
+          </div>
+          <div class="tile">
+            <div class="k">Longest block</div>
+            <div class="v" id="tile-longest">0h 00m</div>
+            <div class="sub" id="tile-longest-range">—</div>
+          </div>
+          <div class="tile">
+            <div class="k">Most active tag</div>
+            <div class="v" style="font-size:1rem;margin-top:10px"><span class="badge" id="tile-toptag" style="background:var(--accent-dim);color:var(--accent)">—</span></div>
+            <div class="sub"><span id="tile-toptag-dur">0h 00m</span> · <span id="tile-toptag-pct">0%</span></div>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-allocation">
+          <div class="panel-head"><h3>Time allocation</h3><span class="sub">By tags</span></div>
+          <div class="alloc">
+            <div class="donut-wrap">
+              <svg id="donut" viewBox="0 0 42 42" width="150" height="150"></svg>
+              <div class="donut-center"><div><div class="d-total" id="donut-total">0h 00m</div><div class="d-label">Total</div></div></div>
+            </div>
+            <div class="legend" id="alloc-legend"></div>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-entries">
+          <div class="panel-head"><h3>Entries</h3><a class="link" href="{{PREFIX}}entries">View all</a></div>
+          <div id="entries-list"></div>
+        </div>
+      </div>
+
+      <div class="side-col">
+        <div class="panel" id="panel-calendar">
+          <div class="cal-head">
+            <button class="icon-btn" id="cal-prev" title="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="m" id="cal-title">—</span>
+            <button class="icon-btn" id="cal-next" title="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+          <div class="cal-foot"><span class="l">Duration</span><span class="v" id="cal-duration">0h 00m</span></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head" id="panel-tags"><h3>Tags</h3></div>
+          <div id="tags-list"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Goals</h3><a class="link" href="{{PREFIX}}account">Edit</a></div>
+          <div class="goal">
+            <div class="goal-top"><span class="g-name">Daily goal</span><span class="g-target" id="goal-daily-target">8h 00m</span></div>
+            <div class="bar green" style="margin-top:8px"><span id="goal-daily-bar" style="width:0%"></span></div>
+            <div class="goal-sub green" id="goal-daily-sub">0h 00m / 8h 00m</div>
+          </div>
+          <div class="goal">
+            <div class="goal-top"><span class="g-name">Weekly goal</span><span class="g-target" id="goal-weekly-target">40h 00m</span></div>
+            <div class="bar" style="margin-top:8px"><span id="goal-weekly-bar" style="width:0%"></span></div>
+            <div class="goal-sub gold" id="goal-weekly-sub">0h 00m / 40h 00m</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{PREFIX}}app.js"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create account · Tagged</title>
+  <link rel="stylesheet" href="{{PREFIX}}style.css">
+  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <script>window.TT_PREFIX = "{{PREFIX}}";</script>
+</head>
+<body>
+  <div class="center-page">
+    <div class="card narrow">
+      <div class="auth-head">
+        <img class="auth-logo" src="{{PREFIX}}images/Taggd-Colored.svg" alt="Tagged logo">
+        <div class="brandmark lg">Tagged</div>
+        <p class="subtitle">Create a new account</p>
+      </div>
+      <form id="register-form">
+        <label for="username">Username</label>
+        <input id="username" type="text" autocomplete="username" required>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="new-password" required>
+        <label for="password2">Confirm password</label>
+        <input id="password2" type="password" autocomplete="new-password" required>
+        <button class="block" type="submit">Create account</button>
+      </form>
+      <div id="msg" class="msg"></div>
+      <p class="alt">Already have an account? <a href="{{PREFIX}}login">Log in</a></p>
+    </div>
+  </div>
+  <script src="{{PREFIX}}app.js"></script>
+</body>
+</html>

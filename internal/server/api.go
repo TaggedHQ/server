@@ -1,0 +1,639 @@
+package server
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/TaggedHQ/server/internal/store"
+)
+
+const (
+	strMax  = 256
+	jsonMax = 8192
+)
+
+var falsyValues = map[string]struct{}{
+	"false": {}, "off": {}, "no": {}, "n": {}, "0": {},
+}
+
+// request is a thin wrapper over *http.Request providing the conveniences the
+// Python handlers rely on (querydict, headers, body/json).
+type request struct {
+	r        *http.Request
+	query    url.Values
+	body     []byte
+	bodyRead bool
+}
+
+func newRequest(r *http.Request) *request {
+	return &request{r: r, query: r.URL.Query()}
+}
+
+func (req *request) method() string          { return req.r.Method }
+func (req *request) header(name string) string { return req.r.Header.Get(name) }
+func (req *request) queryGet(key string) string { return req.query.Get(key) }
+
+func (req *request) getBody(limit int64) ([]byte, error) {
+	if req.bodyRead {
+		return req.body, nil
+	}
+	defer req.r.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(req.r.Body, limit))
+	if err != nil {
+		return nil, err
+	}
+	req.body = b
+	req.bodyRead = true
+	return b, nil
+}
+
+// apiHandler ports __main__.api_handler: it handles unauthenticated endpoints,
+// authenticates, and delegates to the triage.
+func (s *Server) apiHandler(r *http.Request, path string) response {
+	req := newRequest(r)
+
+	if path == "" && req.method() == "GET" {
+		return textResp(200, "See https://timetagger.readthedocs.io")
+	}
+	if path == "bootstrap_authentication" {
+		return s.getWebtokenBootstrap(req)
+	}
+	if path == "register" {
+		return s.registerHandler(req)
+	}
+
+	authInfo, db, err := s.authenticate(req)
+	if err != nil {
+		if ae, ok := err.(*AuthError); ok {
+			return textResp(401, "unauthorized: "+ae.Error())
+		}
+		return textResp(500, "internal error: "+err.Error())
+	}
+	defer db.Close()
+
+	if s.cfg.ProxyAuthEnabled {
+		if err := s.validateAuth(req, authInfo); err != nil {
+			if ae, ok := err.(*AuthError); ok {
+				return textResp(401, "unauthorized: "+ae.Error())
+			}
+			return textResp(500, "internal error: "+err.Error())
+		}
+	}
+
+	return s.apiHandlerTriage(req, path, authInfo, db)
+}
+
+// apiHandlerTriage ports _apiserver.api_handler_triage.
+func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string]any, db *store.ItemDB) response {
+	m := req.method()
+
+	username, _ := authInfo["username"].(string)
+
+	// Identity + admin-only user management.
+	if path == "whoami" {
+		if m == "GET" {
+			return s.whoamiHandler(username, db)
+		}
+		return textResp(405, "method not allowed: /whoami can only be used with GET")
+	}
+	if path == "admin" || strings.HasPrefix(path, "admin/") {
+		if !s.isAdmin(username, db) {
+			return textResp(403, "forbidden: admin access required")
+		}
+		return s.adminHandler(req, strings.TrimPrefix(path, "admin"), username)
+	}
+
+	switch path {
+	case "version":
+		if m == "GET" {
+			return s.getVersion()
+		}
+		return textResp(405, "method not allowed: /version can only be used with GET")
+	case "updates":
+		if m == "GET" {
+			return s.getUpdates(req, db)
+		}
+		return textResp(405, "method not allowed: /updates can only be used with GET")
+	case "records":
+		if m == "GET" {
+			return s.getRecords(req, db)
+		} else if m == "PUT" {
+			return s.pushItems(req, db, "records")
+		}
+		return textResp(405, "method not allowed: /records can only be used with GET and PUT")
+	case "settings":
+		if m == "GET" {
+			return s.getSettings(db)
+		} else if m == "PUT" {
+			return s.pushItems(req, db, "settings")
+		}
+		return textResp(405, "method not allowed: /settings can only be used with GET and PUT")
+	case "forcereset":
+		if m == "PUT" {
+			return s.putForcereset(db)
+		}
+		return textResp(405, "method not allowed: /forcereset can only be used with PUT")
+	case "webtoken":
+		if m == "GET" {
+			return s.getWebtokenEndpoint(req, authInfo, db)
+		}
+		return textResp(405, "method not allowed: /webtoken can only be used with GET")
+	case "apitoken":
+		if m == "GET" {
+			return s.getApitokenEndpoint(req, authInfo, db)
+		}
+		return textResp(405, "method not allowed: /apitoken can only be used with GET")
+	case "password":
+		if m == "PUT" {
+			return s.changePasswordEndpoint(req, db)
+		}
+		return textResp(405, "method not allowed: /password can only be used with PUT")
+	default:
+		return textResp(404, "not found: /"+path+" is not a valid API path")
+	}
+}
+
+// sqlQuote wraps s in single quotes as a SQL string literal, doubling any
+// embedded single quotes to keep the literal injection-safe.
+func sqlQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+func parseReset(raw string) bool {
+	raw = strings.ToLower(raw)
+	if raw == "" {
+		return false
+	}
+	_, falsy := falsyValues[raw]
+	return !falsy
+}
+
+func (s *Server) getVersion() response {
+	return jsonResp(200, map[string]any{"version": Version})
+}
+
+func (s *Server) getWebtokenEndpoint(req *request, authInfo map[string]any, db *store.ItemDB) response {
+	reset := parseReset(req.queryGet("reset"))
+	if toFloat(authInfo["expires"]) > now()+webtokenLifetime {
+		return textResp(403, "forbidden: /webtoken needs auth with a web-token")
+	}
+	resp, err := s.getAnyToken(db, authInfo, "webtoken", reset)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	return resp
+}
+
+func (s *Server) getApitokenEndpoint(req *request, authInfo map[string]any, db *store.ItemDB) response {
+	reset := parseReset(req.queryGet("reset"))
+	if toFloat(authInfo["expires"]) > now()+webtokenLifetime {
+		return textResp(403, "forbidden: /apitoken needs auth with a web-token")
+	}
+	resp, err := s.getAnyToken(db, authInfo, "apitoken", reset)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	return resp
+}
+
+func (s *Server) getUpdates(req *request, db *store.ItemDB) response {
+	sinceStr := strings.TrimSpace(req.queryGet("since"))
+	if sinceStr == "" {
+		return textResp(400, "bad request: /updates needs since")
+	}
+	since, err := strconv.ParseFloat(sinceStr, 64)
+	if err != nil {
+		return textResp(400, "bad request: /updates since needs a number (timestamp)")
+	}
+
+	serverTime := now()
+
+	// Early exit: file untouched since the client's last sync. Uses a 0.2s
+	// margin for getmtime resolution. reset:0 (not false) matches the tests.
+	if db.Mtime()+0.2 < since {
+		return jsonResp(200, map[string]any{
+			"server_time": serverTime,
+			"reset":       0,
+			"records":     []any{},
+			"settings":    []any{},
+		})
+	}
+
+	ob, err := db.SelectOne(db.DB(), "userinfo", "key == 'reset_time'")
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	resetTime := float64(-1)
+	if ob != nil {
+		resetTime = toFloat(ob["value"])
+	}
+	reset := since <= resetTime
+
+	var records, settings []store.Item
+	if reset {
+		if records, err = db.SelectAll(db.DB(), "records"); err != nil {
+			return textResp(500, "internal error: "+err.Error())
+		}
+		if settings, err = db.SelectAll(db.DB(), "settings"); err != nil {
+			return textResp(500, "internal error: "+err.Error())
+		}
+	} else {
+		query := "st >= " + strconv.FormatFloat(since, 'f', -1, 64)
+		if records, err = db.Select(db.DB(), "records", query); err != nil {
+			return textResp(500, "internal error: "+err.Error())
+		}
+		if settings, err = db.Select(db.DB(), "settings", query); err != nil {
+			return textResp(500, "internal error: "+err.Error())
+		}
+	}
+
+	return jsonResp(200, map[string]any{
+		"server_time": serverTime,
+		"reset":       reset,
+		"records":     orEmpty(records),
+		"settings":    orEmpty(settings),
+	})
+}
+
+func (s *Server) getRecords(req *request, db *store.ItemDB) response {
+	timerangeStr := strings.TrimSpace(req.queryGet("timerange"))
+	if timerangeStr == "" {
+		return textResp(400, "bad request: /records needs timerange (2 timestamps)")
+	}
+	parts := strings.Split(timerangeStr, "-")
+	if len(parts) != 2 {
+		return textResp(400, "bad request: /records timerange needs 2 numbers (timestamps)")
+	}
+	f0, err0 := strconv.ParseFloat(parts[0], 64)
+	f1, err1 := strconv.ParseFloat(parts[1], 64)
+	if err0 != nil || err1 != nil {
+		return textResp(400, "bad request: /records timerange needs 2 numbers (timestamps)")
+	}
+	tr1 := int64(math.Trunc(f0))
+	tr2 := int64(math.Trunc(f1))
+
+	running := parseTriState(req.queryGet("running"))
+	hidden := parseTriState(req.queryGet("hidden"))
+
+	// Parse tag option (same escaping as the Python version).
+	tagStr := strings.TrimSpace(req.queryGet("tag"))
+	var tags []string
+	if tagStr != "" {
+		tagStr = strings.ReplaceAll(tagStr, "#", "")
+		tagStr = strings.ReplaceAll(tagStr, "\\", "\\\\")
+		tagStr = strings.ReplaceAll(tagStr, "%", "\\%")
+		tagStr = strings.ReplaceAll(tagStr, "_", "\\_")
+		for _, t := range strings.Split(tagStr, ",") {
+			tags = append(tags, strings.TrimSpace(t))
+		}
+	}
+
+	var queryParts []string
+	queryParts = append(queryParts, fmt.Sprintf(
+		"(t2 >= %d AND t1 <= %d) OR (t1 == t2 AND t1 <= %d)", tr1, tr2, tr2))
+	for _, tag := range tags {
+		// The Python server binds the LIKE pattern as a parameter, but
+		// modernc.org/sqlite mishandles a bound pattern on the RHS of LIKE
+		// (it only matches literal patterns). The tag has already had the
+		// LIKE metacharacters %, _ and \ escaped upstream; we additionally
+		// escape single quotes so the pattern is safe to embed as a literal,
+		// which preserves the exact LIKE + ESCAPE semantics.
+		p1 := sqlQuote("%#" + tag + " %")
+		p2 := sqlQuote("%#" + tag)
+		queryParts = append(queryParts, fmt.Sprintf(
+			"json_extract(_ob, '$.ds') LIKE %s ESCAPE '\\' OR json_extract(_ob, '$.ds') LIKE %s ESCAPE '\\'",
+			p1, p2))
+	}
+	if running != nil && *running {
+		queryParts = append(queryParts, "t1 == t2")
+	}
+	if running != nil && !*running {
+		queryParts = append(queryParts, "t1 != t2")
+	}
+	if hidden != nil && *hidden {
+		queryParts = append(queryParts, "json_extract(_ob, '$.ds') LIKE 'HIDDEN%'")
+	}
+	if hidden != nil && !*hidden {
+		queryParts = append(queryParts, "json_extract(_ob, '$.ds') NOT LIKE 'HIDDEN%'")
+	}
+	for i, p := range queryParts {
+		queryParts[i] = "(" + p + ")"
+	}
+	query := strings.Join(queryParts, " AND ")
+
+	records, err := db.Select(db.DB(), "records", query)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	return jsonResp(200, map[string]any{"records": orEmpty(records)})
+}
+
+// parseTriState returns nil for empty, false for falsy values, else true —
+// matching the running/hidden option parsing in get_records.
+func parseTriState(raw string) *bool {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return nil
+	}
+	v := true
+	if _, falsy := falsyValues[raw]; falsy {
+		v = false
+	}
+	return &v
+}
+
+func (s *Server) getSettings(db *store.ItemDB) response {
+	settings, err := db.SelectAll(db.DB(), "settings")
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	return jsonResp(200, map[string]any{"settings": orEmpty(settings)})
+}
+
+func (s *Server) putForcereset(db *store.ItemDB) response {
+	st := now()
+	tx, err := db.Begin()
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	if err := db.PutOne(tx, "userinfo", store.Item{"key": "reset_time", "st": st, "mt": st, "value": st}); err != nil {
+		tx.Rollback()
+		return textResp(500, "internal error: "+err.Error())
+	}
+	if err := tx.Commit(); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	return jsonResp(200, map[string]any{"status": "ok"})
+}
+
+// specField pairs a field name with its converter, preserving order.
+type specField struct {
+	name string
+	conv func(any) (any, error)
+}
+
+func recordSpec() []specField {
+	return []specField{
+		{"key", toStr}, {"mt", toIntVal}, {"t1", toIntVal}, {"t2", toIntVal}, {"ds", toStr},
+	}
+}
+func settingSpec() []specField {
+	return []specField{
+		{"key", toStr}, {"mt", toIntVal}, {"value", toJsonable},
+	}
+}
+
+func specFor(what string) ([]specField, []string) {
+	if what == "records" {
+		return recordSpec(), []string{"key", "mt", "t1", "t2"}
+	}
+	return settingSpec(), []string{"key", "mt", "value"}
+}
+
+// pushItems ports _apiserver._push_items — the eventual-consistency write path.
+func (s *Server) pushItems(req *request, db *store.ItemDB, what string) response {
+	raw, err := req.getBody(10 * 1024 * 1024)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	var items []any
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return textResp(500, fmt.Sprintf("List of %s must be a list", what))
+	}
+
+	serverTime := now()
+	spec, reqFields := specFor(what)
+
+	var accepted, failed, errs, errs2 []string
+
+	tx, err := db.Begin()
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+
+	ob, err := db.SelectOne(tx, "userinfo", "key == 'reset_time'")
+	if err != nil {
+		tx.Rollback()
+		return textResp(500, "internal error: "+err.Error())
+	}
+	resetTime := float64(-1)
+	if ob != nil {
+		resetTime = toFloat(ob["value"])
+	}
+
+	for _, rawItem := range items {
+		itemIn, ok := rawItem.(map[string]any)
+		var keyStr string
+		keyOk := false
+		if ok {
+			if k, kok := itemIn["key"].(string); kok {
+				keyStr = k
+				keyOk = true
+			}
+		}
+		if !ok || !keyOk {
+			errs2 = append(errs2, "Got item that is not a dict with str 'key' field.")
+			continue
+		}
+
+		curItem, err := db.SelectOne(tx, what, "key == ?", keyStr)
+		if err != nil {
+			tx.Rollback()
+			return textResp(500, "internal error: "+err.Error())
+		}
+
+		item, verr := validateItem(itemIn, spec, reqFields, resetTime, what)
+		if verr != nil {
+			failed = append(failed, keyStr)
+			errs = append(errs, verr.Error())
+			if curItem != nil {
+				item = curItem
+			} else {
+				continue
+			}
+		} else {
+			accepted = append(accepted, keyStr)
+		}
+
+		// Keep the newer item if the stored one is newer.
+		if curItem != nil && toFloat(curItem["mt"]) > toFloat(item["mt"]) {
+			item = curItem
+		}
+
+		// Ensure st strictly increases so eventual consistency holds.
+		if curItem != nil {
+			item["st"] = math.Max(serverTime, toFloat(curItem["st"])+0.0001)
+		} else {
+			item["st"] = serverTime
+		}
+
+		if err := db.Put(tx, what, item); err != nil {
+			tx.Rollback()
+			return textResp(500, "internal error: "+err.Error())
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+
+	return jsonResp(200, map[string]any{
+		"accepted": orEmptyStr(accepted),
+		"failed":   orEmptyStr(failed),
+		"errors":   orEmptyStr(append(append([]string{}, errs...), errs2...)),
+	})
+}
+
+// validateItem copies and converts the known fields per spec, checks required
+// fields, and rejects items modified before a reset. Mirrors the inline logic
+// in _push_items.
+func validateItem(itemIn map[string]any, spec []specField, reqFields []string, resetTime float64, what string) (map[string]any, error) {
+	out := map[string]any{}
+	for _, f := range spec {
+		if v, ok := itemIn[f.name]; ok {
+			cv, err := f.conv(v)
+			if err != nil {
+				return nil, err
+			}
+			out[f.name] = cv
+		}
+	}
+	var missing []string
+	for _, rq := range reqFields {
+		if _, ok := out[rq]; !ok {
+			missing = append(missing, rq)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("A %s is missing required fields: {%s}", what, strings.Join(quoteAll(missing), ", "))
+	}
+	if toFloat(out["mt"]) < resetTime {
+		return nil, fmt.Errorf("Item was modified after a reset")
+	}
+	return out, nil
+}
+
+func quoteAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = "'" + s + "'"
+	}
+	return out
+}
+
+// ---- spec converters (to_str / to_int / to_jsonable) ------------------------
+
+func toStr(v any) (any, error) {
+	s := pyStr(v)
+	if utf8.RuneCountInString(s) >= strMax {
+		return nil, fmt.Errorf("String values must be less than 256 chars.")
+	}
+	return s, nil
+}
+
+func toIntVal(v any) (any, error) {
+	switch x := v.(type) {
+	case float64:
+		return int64(math.Trunc(x)), nil
+	case bool:
+		if x {
+			return int64(1), nil
+		}
+		return int64(0), nil
+	case string:
+		n, err := strconv.ParseInt(strings.TrimSpace(x), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid literal for int: %q", x)
+		}
+		return n, nil
+	case json.Number:
+		n, err := x.Int64()
+		if err != nil {
+			f, ferr := x.Float64()
+			if ferr != nil {
+				return nil, ferr
+			}
+			return int64(math.Trunc(f)), nil
+		}
+		return n, nil
+	default:
+		return nil, fmt.Errorf("invalid value for int")
+	}
+}
+
+func toJsonable(v any) (any, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	if len(b) >= jsonMax {
+		return nil, fmt.Errorf("Values must be less than 256 chars when jsonized.")
+	}
+	return v, nil
+}
+
+// pyStr approximates Python's str() for the value types JSON can produce.
+func pyStr(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case bool:
+		if x {
+			return "True"
+		}
+		return "False"
+	case nil:
+		return "None"
+	case float64:
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	default:
+		return fmt.Sprint(x)
+	}
+}
+
+// ---- numeric + slice helpers ------------------------------------------------
+
+func toFloat(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case int64:
+		return float64(x)
+	case int:
+		return float64(x)
+	case json.Number:
+		f, _ := x.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(x, 64)
+		return f
+	case bool:
+		if x {
+			return 1
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+func orEmpty(items []store.Item) []store.Item {
+	if items == nil {
+		return []store.Item{}
+	}
+	return items
+}
+
+func orEmptyStr(ss []string) []string {
+	if ss == nil {
+		return []string{}
+	}
+	return ss
+}

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tagged · Tags</title>
+  <link rel="stylesheet" href="{{PREFIX}}style.css">
+  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <script>window.TT_PREFIX = "{{PREFIX}}";</script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <img class="logo" src="{{PREFIX}}images/Taggd-Colored.svg" alt="Tagged logo">
+        <span class="brandmark" style="letter-spacing:.12em;color:var(--text-1)">Tagged</span>
+      </div>
+      <nav class="nav">
+        <a href="{{PREFIX}}">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a href="{{PREFIX}}entries">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span>Time entries</span>
+        </a>
+        <a class="active" href="{{PREFIX}}tags">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+          <span>Tags</span>
+        </a>
+        <a href="{{PREFIX}}account">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
+          <span>Settings</span>
+        </a>
+        <a id="nav-admin" href="{{PREFIX}}admin" style="display:none">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Admin</span>
+        </a>
+      </nav>
+      <div class="side-foot">
+        <a class="side-user" href="{{PREFIX}}account">
+          <span class="avatar" id="avatar">?</span>
+          <span class="name" id="side-user">…</span>
+        </a>
+        <button class="icon-btn" id="logout" title="Log out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <div class="content single">
+      <div class="main-col" style="width:100%">
+        <div class="page-head"><h1>Tags</h1></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Manage tags</h3>
+            <span class="sub">Colors sync with your other Tagged apps</span>
+          </div>
+          <p class="hint">Pick a color for each tag. Click a preset swatch or use the color wheel for a custom shade.</p>
+          <div id="tags-manage">
+            <div class="tm-row"><span class="tm-stats">Loading…</span></div>
+          </div>
+          <div id="tags-msg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{PREFIX}}app.js"></script>
+</body>
+</html>
