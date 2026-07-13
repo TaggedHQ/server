@@ -103,8 +103,20 @@ function relDay(epoch) {
 // Tags are grouped case-insensitively (so "#Work" and "#work" are one tag),
 // keyed by the lowercased name and displayed with the first-seen casing.
 const OTHER_KEY = "other";
-function tagKeyOf(ds) { const m = (ds || "").match(/#(\S+)/); return m ? m[1].toLowerCase() : OTHER_KEY; }
-function rawTagOf(ds) { const m = (ds || "").match(/#(\S+)/); return m ? m[1] : OTHER; }
+
+// A valid tag is "#" followed by one or more of: letters, digits, "-", "_", "/",
+// or any non-ASCII char (code point > 127). This mirrors the upstream TimeTagger
+// rules (utils.is_valid_tag_charcode / get_tags_and_parts_from_string) that the
+// macOS app follows, so a tag the app sends matches an existing one here instead
+// of duplicating. A tag ends at the first character outside this set (a space,
+// punctuation like "." or ",", another "#", etc.).
+const TAG_CLASS = "0-9A-Za-z_/\\u0080-\\uFFFF-";
+const RE_TAG_G = new RegExp("#[" + TAG_CLASS + "]+", "g"); // all tags (with "#")
+const RE_TAG_1 = new RegExp("#[" + TAG_CLASS + "]+");      // first tag (with "#")
+const RE_NON_TAG_CHAR = new RegExp("[^" + TAG_CLASS + "]", "g");
+
+function tagKeyOf(ds) { const m = (ds || "").match(RE_TAG_1); return m ? m[0].slice(1).toLowerCase() : OTHER_KEY; }
+function rawTagOf(ds) { const m = (ds || "").match(RE_TAG_1); return m ? m[0].slice(1) : OTHER; }
 function recDur(r) { return Math.max(0, r.t2 - r.t1); }
 
 let ALL = [];          // all records
@@ -114,7 +126,7 @@ let TAGCOLORS = {};    // tag key -> stored color (from settings, wins over auto
 let TAGINFO_RAW = {};  // tag key -> full taginfo object (preserved when saving)
 let GOALS = { daily: 8, weekly: 40 };
 
-function allTagsOf(ds) { return (ds || "").match(/#(\S+)/g) || []; }
+function allTagsOf(ds) { return (ds || "").match(RE_TAG_G) || []; }
 
 function buildTagMeta(records) {
   LABELS = { [OTHER_KEY]: OTHER };
@@ -887,7 +899,7 @@ async function putRecord(obj) {
 }
 
 function entryCard(r) {
-  const descText = (r.ds || "").replace(/#\S+/g, "").trim();
+  const descText = (r.ds || "").replace(RE_TAG_G, "").trim();
   const tags = allTagsOf(r.ds);
   const dotColor = tags.length ? colorFor(tags[0].slice(1).toLowerCase()) : "var(--accent)";
   const tagBadges = tags.map((t) => badge(t.slice(1).toLowerCase())).join("");
@@ -972,7 +984,7 @@ let emTags = [];    // tag keys currently on the entry
 let emAdding = false;
 
 function normalizeTag(s) {
-  s = (s || "").trim().replace(/^#+/, "").toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+  s = (s || "").trim().replace(/^#+/, "").toLowerCase().replace(RE_NON_TAG_CHAR, "");
   return s.length >= 2 ? s : "";
 }
 function dateInputVal(epoch) { const d = new Date(epoch * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
@@ -1064,7 +1076,7 @@ function openEntryModal(rec) {
   emError("");
   document.getElementById("em-title").textContent = rec ? "Edit Entry" : "New Entry";
   const ds = rec ? (rec.ds || "") : "";
-  document.getElementById("em-desc").value = ds.replace(/#\S+/g, "").trim();
+  document.getElementById("em-desc").value = ds.replace(RE_TAG_G, "").trim();
   emTags = rec ? [...new Set(allTagsOf(ds).map((t) => t.slice(1).toLowerCase()))] : [];
 
   let t1, t2;
@@ -1199,7 +1211,7 @@ function reportRows(t1, t2) {
     const tags = allTagsOf(r.ds);
     return {
       key: r.key, t1: r.t1, t2: r.t2,
-      ds: (r.ds || "").replace(/#\S+/g, "").trim(),
+      ds: (r.ds || "").replace(RE_TAG_G, "").trim(),
       tagz: tags.map((x) => x.slice(1).toLowerCase()).sort().join(" "),
       tagsDisp: tags.join(" "),
       dur: fmt.round(Math.max(0, Math.min(t2, r.t2) - Math.max(t1, r.t1))),
@@ -1670,7 +1682,9 @@ async function renameTag(oldKey, newKey, newRaw) {
   const re = new RegExp("#" + oldKey.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&") + "\\b", "gi");
   for (const r of ALL) {
     if (!allTagsOf(r.ds).some((t) => t.slice(1).toLowerCase() === oldKey)) continue;
-    const ds = (r.ds || "").replace(re, "#" + newRaw);
+    // Write the lowercased tag into the description (matching the app / upstream
+    // convention); the display casing is kept in the taginfo "title" field.
+    const ds = (r.ds || "").replace(re, "#" + newKey);
     const ok = await putRecord({ key: r.key, mt: Math.floor(Date.now() / 1000), t1: r.t1, t2: r.t2, ds });
     if (!ok) return false;
   }
@@ -2074,7 +2088,7 @@ function importAnalyse() {
     const descRaw = (rawObj.description || "").replace(/[\t\r\n]+/g, " ");
     for (const t of allTagsOf(descRaw)) tagKeys.push(t.slice(1).toLowerCase());
     const uniqTags = Array.from(new Set(tagKeys));
-    const textOnly = descRaw.replace(/#\S+/g, "").replace(/\s+/g, " ").trim();
+    const textOnly = descRaw.replace(RE_TAG_G, "").replace(/\s+/g, " ").trim();
     const ds = (uniqTags.map((t) => "#" + t).join(" ") + (textOnly ? " " + textOnly : "")).trim();
 
     let key = (rawObj.key || "").trim();
