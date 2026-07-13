@@ -28,16 +28,13 @@ func (s *Server) registerUser(username, password string) (int, error) {
 		return 400, fmt.Errorf("password must be at least 4 characters")
 	}
 
-	db, err := store.Open(s.userDBPath(username))
+	db, err := s.openUserDB(username)
 	if err != nil {
 		return 500, err
 	}
 	defer db.Close()
-	if err := db.EnsureTable("userinfo", "!key", "st"); err != nil {
-		return 500, err
-	}
 
-	existing, err := db.SelectOne(db.DB(), "userinfo", "key = ?", passwordHashKey)
+	existing, err := db.Get("userinfo", passwordHashKey)
 	if err != nil {
 		return 500, err
 	}
@@ -54,28 +51,22 @@ func (s *Server) registerUser(username, password string) (int, error) {
 }
 
 // storePasswordHash writes a bcrypt hash of password into the userinfo table.
-func storePasswordHash(db *store.ItemDB, password string) error {
+func storePasswordHash(db store.UserDB, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 	st := now()
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	if err := db.PutOne(tx, "userinfo", store.Item{
-		"key": passwordHashKey, "st": st, "mt": st, "value": string(hash),
-	}); err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit()
+	return db.Write(func(tx store.WTx) error {
+		return tx.Upsert("userinfo", store.Item{
+			"key": passwordHashKey, "st": st, "mt": st, "value": string(hash),
+		})
+	})
 }
 
 // changePassword updates the password for an already-authenticated user, using
 // their open database. Returns an HTTP status and error.
-func (s *Server) changePassword(db *store.ItemDB, password string) (int, error) {
+func (s *Server) changePassword(db store.UserDB, password string) (int, error) {
 	if len(password) < 4 {
 		return 400, fmt.Errorf("password must be at least 4 characters")
 	}
@@ -88,15 +79,12 @@ func (s *Server) changePassword(db *store.ItemDB, password string) (int, error) 
 // checkUserPassword verifies a password against the account's stored hash.
 // Returns true only if an account exists and the password matches.
 func (s *Server) checkUserPassword(username, password string) bool {
-	db, err := store.Open(s.userDBPath(username))
+	db, err := s.openUserDB(username)
 	if err != nil {
 		return false
 	}
 	defer db.Close()
-	if err := db.EnsureTable("userinfo", "!key", "st"); err != nil {
-		return false
-	}
-	ob, err := db.SelectOne(db.DB(), "userinfo", "key = ?", passwordHashKey)
+	ob, err := db.Get("userinfo", passwordHashKey)
 	if err != nil || ob == nil {
 		return false
 	}

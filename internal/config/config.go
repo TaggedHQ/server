@@ -23,7 +23,17 @@ type Config struct {
 	TLSCert          string
 	TLSKey           string
 	Admins           string
+	DBBackend        string // "sqlite" (Simple Server) or "postgres" (Performance Server)
+	DBURL            string // Postgres DSN, used when DBBackend == "postgres"
+
+	// explicit records which config items were provided via CLI/env (vs. left at
+	// their default), so the setup wizard knows when the backend is operator-pinned.
+	explicit map[string]bool
 }
+
+// IsExplicit reports whether the named config item (snake_case, e.g. "db_backend")
+// was set via a CLI flag or environment variable rather than left at its default.
+func (c *Config) IsExplicit(name string) bool { return c.explicit[name] }
 
 // item describes a single config field: its struct pointer resolver, the env/CLI
 // name (snake_case, matching Python attribute names), and how to convert a raw
@@ -69,13 +79,15 @@ func items() []item {
 		{"tls_cert", func(c *Config, v string) error { c.TLSCert = v; return nil }, func(c *Config) { c.TLSCert = "" }},
 		{"tls_key", func(c *Config, v string) error { c.TLSKey = v; return nil }, func(c *Config) { c.TLSKey = "" }},
 		{"admins", func(c *Config, v string) error { c.Admins = v; return nil }, func(c *Config) { c.Admins = "" }},
+		{"db_backend", func(c *Config, v string) error { c.DBBackend = strings.ToLower(strings.TrimSpace(v)); return nil }, func(c *Config) { c.DBBackend = "sqlite" }},
+		{"db_url", func(c *Config, v string) error { c.DBURL = v; return nil }, func(c *Config) { c.DBURL = "" }},
 	}
 }
 
 // New builds a Config from defaults, then CLI args, then environment variables,
 // in that order (matching set_config in _config.py).
 func New(argv []string, env []string) (*Config, error) {
-	c := &Config{}
+	c := &Config{explicit: map[string]bool{}}
 	its := items()
 	for _, it := range its {
 		it.setDflt(c)
@@ -118,6 +130,7 @@ func updateFromArgv(c *Config, its []item, argv []string) error {
 			if err := it.set(c, raw); err != nil {
 				return fmt.Errorf("could not set config.%s: %w", it.name, err)
 			}
+			c.explicit[it.name] = true
 			break
 		}
 	}
@@ -142,6 +155,7 @@ func updateFromEnv(c *Config, its []item, env []string) error {
 			if err := it.set(c, raw); err != nil {
 				return fmt.Errorf("could not set config.%s: %w", it.name, err)
 			}
+			c.explicit[it.name] = true
 		}
 	}
 	return nil

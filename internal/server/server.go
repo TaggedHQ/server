@@ -17,9 +17,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/TaggedHQ/server/internal/config"
-	"github.com/TaggedHQ/server/internal/util"
+	"github.com/TaggedHQ/server/internal/store"
 	"github.com/TaggedHQ/server/internal/webui"
 )
 
@@ -38,6 +39,13 @@ type Server struct {
 	credentials map[string]string // username -> bcrypt hash
 	trusted     *ipRangeList
 	admins      map[string]bool // usernames with admin rights
+
+	// storeMu guards store/backendKind, which the setup wizard can swap at runtime
+	// when the backend is not operator-pinned.
+	storeMu       sync.RWMutex
+	store         store.Backend
+	backendKind   string
+	backendLocked bool // db_backend/db_url pinned via CLI/env: wizard can't switch
 }
 
 // New constructs a Server, creating the data directory and loading (or creating)
@@ -56,15 +64,82 @@ func New(cfg *config.Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Effective backend: an operator-pinned choice (CLI/env) wins and locks the
+	// wizard; otherwise a persisted setup.json wins; otherwise the sqlite default.
+	locked := cfg.IsExplicit("db_backend") || cfg.IsExplicit("db_url")
+	kind, dbURL := cfg.DBBackend, cfg.DBURL
+	if !locked {
+		if s, err := loadSetup(rootTTDir); err != nil {
+			return nil, fmt.Errorf("could not read %s: %w", setupFile, err)
+		} else if s != nil {
+			kind, dbURL = s.Backend, s.DBURL
+		}
+	}
+	backend, err := store.NewBackend(kind, rootUserDir, dbURL)
+	if err != nil {
+		return nil, err
+	}
 	return &Server{
-		cfg:         cfg,
-		rootTTDir:   rootTTDir,
-		rootUserDir: rootUserDir,
-		jwtKey:      jwtKey,
-		credentials: loadCredentials(cfg.Credentials),
-		trusted:     trusted,
-		admins:      loadAdmins(cfg.Admins),
+		cfg:           cfg,
+		rootTTDir:     rootTTDir,
+		rootUserDir:   rootUserDir,
+		store:         backend,
+		backendKind:   kind,
+		backendLocked: locked,
+		jwtKey:        jwtKey,
+		credentials:   loadCredentials(cfg.Credentials),
+		trusted:       trusted,
+		admins:        loadAdmins(cfg.Admins),
 	}, nil
+}
+
+// getStore returns the current backend under a read lock, so the setup wizard can
+// swap it without racing in-flight requests.
+func (s *Server) getStore() store.Backend {
+	s.storeMu.RLock()
+	defer s.storeMu.RUnlock()
+	return s.store
+}
+
+// currentBackend reports the active backend kind ("sqlite"/"postgres").
+func (s *Server) currentBackend() string {
+	s.storeMu.RLock()
+	defer s.storeMu.RUnlock()
+	return s.backendKind
+}
+
+// BackendLabel is a human-readable name for the active backend, for startup logs.
+func (s *Server) BackendLabel() string {
+	if s.currentBackend() == "postgres" {
+		return "Performance Server (Postgres)"
+	}
+	return "Simple Server (SQLite)"
+}
+
+// reconfigureBackend builds a new backend (validating the connection for
+// Postgres), persists the choice, and swaps it in atomically. It is a no-op-safe
+// error if the backend is operator-pinned.
+func (s *Server) reconfigureBackend(kind, dbURL string) error {
+	if s.backendLocked {
+		return fmt.Errorf("the storage backend is fixed by server configuration")
+	}
+	backend, err := store.NewBackend(kind, s.rootUserDir, dbURL)
+	if err != nil {
+		return err
+	}
+	if err := saveSetup(s.rootTTDir, setupState{Backend: kind, DBURL: dbURL}); err != nil {
+		backend.Close()
+		return err
+	}
+	s.storeMu.Lock()
+	old := s.store
+	s.store = backend
+	s.backendKind = kind
+	s.storeMu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+	return nil
 }
 
 // loadAdmins parses "user1,user2" (';' also allowed) into a set of admin usernames.
@@ -251,8 +326,3 @@ func requestHost(r *http.Request) string {
 
 // Log is a tiny helper so main can share the logger style.
 func Log(format string, args ...any) { log.Printf(format, args...) }
-
-// userDBPath returns the db filename for a username.
-func (s *Server) userDBPath(username string) string {
-	return util.User2Filename(s.rootUserDir, username)
-}

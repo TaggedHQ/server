@@ -1,0 +1,35 @@
+# Performance Server override: run Tagged against a bundled Postgres.
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# Standalone, this file also provides a throwaway Postgres for the store tests:
+#   docker compose -f docker-compose.postgres.yml up -d postgres
+#   TAGGED_TEST_PG_URL=postgres://tagged:tagged@localhost:5432/tagged?sslmode=disable \
+#     go test ./internal/store/
+services:
+  tagged:
+    environment:
+      TAGGED_DB_BACKEND: postgres
+      TAGGED_DB_URL: postgres://tagged:tagged@postgres:5432/tagged?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tagged
+      POSTGRES_PASSWORD: tagged
+      POSTGRES_DB: tagged
+    ports:
+      - "5432:5432"
+    volumes:
+      - tagged_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tagged -d tagged"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  tagged_pgdata:

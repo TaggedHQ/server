@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+graphify-out/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+qr.txt
+ttgo
+tagged
+data/
+.DS_Store
+docker-compose*.yml
+Dockerfile
+README.md

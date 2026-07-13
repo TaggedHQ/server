@@ -68,6 +68,12 @@ func (s *Server) apiHandler(r *http.Request, path string) response {
 	if path == "register" {
 		return s.registerHandler(req)
 	}
+	if path == "setup_status" {
+		return s.setupStatusHandler()
+	}
+	if path == "setup" {
+		return s.setupHandler(req)
+	}
 
 	authInfo, db, err := s.authenticate(req)
 	if err != nil {
@@ -91,7 +97,7 @@ func (s *Server) apiHandler(r *http.Request, path string) response {
 }
 
 // apiHandlerTriage ports _apiserver.api_handler_triage.
-func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string]any, db *store.ItemDB) response {
+func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string]any, db store.UserDB) response {
 	m := req.method()
 
 	username, _ := authInfo["username"].(string)
@@ -155,15 +161,24 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 			return s.changePasswordEndpoint(req, db)
 		}
 		return textResp(405, "method not allowed: /password can only be used with PUT")
+	case "totp/setup", "totp/enable", "totp/disable":
+		if m != "POST" {
+			return textResp(405, "method not allowed: /"+path+" can only be used with POST")
+		}
+		if !isWebtoken(authInfo) {
+			return textResp(403, "forbidden: /"+path+" needs auth with a web-token")
+		}
+		switch path {
+		case "totp/setup":
+			return s.totpSetup(authInfo, db)
+		case "totp/enable":
+			return s.totpEnable(req, db)
+		default:
+			return s.totpDisable(req, db)
+		}
 	default:
 		return textResp(404, "not found: /"+path+" is not a valid API path")
 	}
-}
-
-// sqlQuote wraps s in single quotes as a SQL string literal, doubling any
-// embedded single quotes to keep the literal injection-safe.
-func sqlQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func parseReset(raw string) bool {
@@ -179,7 +194,7 @@ func (s *Server) getVersion() response {
 	return jsonResp(200, map[string]any{"version": Version})
 }
 
-func (s *Server) getWebtokenEndpoint(req *request, authInfo map[string]any, db *store.ItemDB) response {
+func (s *Server) getWebtokenEndpoint(req *request, authInfo map[string]any, db store.UserDB) response {
 	reset := parseReset(req.queryGet("reset"))
 	if toFloat(authInfo["expires"]) > now()+webtokenLifetime {
 		return textResp(403, "forbidden: /webtoken needs auth with a web-token")
@@ -191,7 +206,7 @@ func (s *Server) getWebtokenEndpoint(req *request, authInfo map[string]any, db *
 	return resp
 }
 
-func (s *Server) getApitokenEndpoint(req *request, authInfo map[string]any, db *store.ItemDB) response {
+func (s *Server) getApitokenEndpoint(req *request, authInfo map[string]any, db store.UserDB) response {
 	reset := parseReset(req.queryGet("reset"))
 	if toFloat(authInfo["expires"]) > now()+webtokenLifetime {
 		return textResp(403, "forbidden: /apitoken needs auth with a web-token")
@@ -203,7 +218,7 @@ func (s *Server) getApitokenEndpoint(req *request, authInfo map[string]any, db *
 	return resp
 }
 
-func (s *Server) getUpdates(req *request, db *store.ItemDB) response {
+func (s *Server) getUpdates(req *request, db store.UserDB) response {
 	sinceStr := strings.TrimSpace(req.queryGet("since"))
 	if sinceStr == "" {
 		return textResp(400, "bad request: /updates needs since")
@@ -226,7 +241,7 @@ func (s *Server) getUpdates(req *request, db *store.ItemDB) response {
 		})
 	}
 
-	ob, err := db.SelectOne(db.DB(), "userinfo", "key == 'reset_time'")
+	ob, err := db.Get("userinfo", "reset_time")
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
@@ -238,18 +253,17 @@ func (s *Server) getUpdates(req *request, db *store.ItemDB) response {
 
 	var records, settings []store.Item
 	if reset {
-		if records, err = db.SelectAll(db.DB(), "records"); err != nil {
+		if records, err = db.All("records"); err != nil {
 			return textResp(500, "internal error: "+err.Error())
 		}
-		if settings, err = db.SelectAll(db.DB(), "settings"); err != nil {
+		if settings, err = db.All("settings"); err != nil {
 			return textResp(500, "internal error: "+err.Error())
 		}
 	} else {
-		query := "st >= " + strconv.FormatFloat(since, 'f', -1, 64)
-		if records, err = db.Select(db.DB(), "records", query); err != nil {
+		if records, err = db.ItemsSince("records", since); err != nil {
 			return textResp(500, "internal error: "+err.Error())
 		}
-		if settings, err = db.Select(db.DB(), "settings", query); err != nil {
+		if settings, err = db.ItemsSince("settings", since); err != nil {
 			return textResp(500, "internal error: "+err.Error())
 		}
 	}
@@ -262,7 +276,7 @@ func (s *Server) getUpdates(req *request, db *store.ItemDB) response {
 	})
 }
 
-func (s *Server) getRecords(req *request, db *store.ItemDB) response {
+func (s *Server) getRecords(req *request, db store.UserDB) response {
 	timerangeStr := strings.TrimSpace(req.queryGet("timerange"))
 	if timerangeStr == "" {
 		return textResp(400, "bad request: /records needs timerange (2 timestamps)")
@@ -276,59 +290,25 @@ func (s *Server) getRecords(req *request, db *store.ItemDB) response {
 	if err0 != nil || err1 != nil {
 		return textResp(400, "bad request: /records timerange needs 2 numbers (timestamps)")
 	}
-	tr1 := int64(math.Trunc(f0))
-	tr2 := int64(math.Trunc(f1))
 
-	running := parseTriState(req.queryGet("running"))
-	hidden := parseTriState(req.queryGet("hidden"))
-
-	// Parse tag option (same escaping as the Python version).
+	// Parse the tag option: strip '#' and split on commas. LIKE-escaping and the
+	// dialect-specific query are handled by the backend.
 	tagStr := strings.TrimSpace(req.queryGet("tag"))
 	var tags []string
 	if tagStr != "" {
 		tagStr = strings.ReplaceAll(tagStr, "#", "")
-		tagStr = strings.ReplaceAll(tagStr, "\\", "\\\\")
-		tagStr = strings.ReplaceAll(tagStr, "%", "\\%")
-		tagStr = strings.ReplaceAll(tagStr, "_", "\\_")
 		for _, t := range strings.Split(tagStr, ",") {
 			tags = append(tags, strings.TrimSpace(t))
 		}
 	}
 
-	var queryParts []string
-	queryParts = append(queryParts, fmt.Sprintf(
-		"(t2 >= %d AND t1 <= %d) OR (t1 == t2 AND t1 <= %d)", tr1, tr2, tr2))
-	for _, tag := range tags {
-		// The Python server binds the LIKE pattern as a parameter, but
-		// modernc.org/sqlite mishandles a bound pattern on the RHS of LIKE
-		// (it only matches literal patterns). The tag has already had the
-		// LIKE metacharacters %, _ and \ escaped upstream; we additionally
-		// escape single quotes so the pattern is safe to embed as a literal,
-		// which preserves the exact LIKE + ESCAPE semantics.
-		p1 := sqlQuote("%#" + tag + " %")
-		p2 := sqlQuote("%#" + tag)
-		queryParts = append(queryParts, fmt.Sprintf(
-			"json_extract(_ob, '$.ds') LIKE %s ESCAPE '\\' OR json_extract(_ob, '$.ds') LIKE %s ESCAPE '\\'",
-			p1, p2))
-	}
-	if running != nil && *running {
-		queryParts = append(queryParts, "t1 == t2")
-	}
-	if running != nil && !*running {
-		queryParts = append(queryParts, "t1 != t2")
-	}
-	if hidden != nil && *hidden {
-		queryParts = append(queryParts, "json_extract(_ob, '$.ds') LIKE 'HIDDEN%'")
-	}
-	if hidden != nil && !*hidden {
-		queryParts = append(queryParts, "json_extract(_ob, '$.ds') NOT LIKE 'HIDDEN%'")
-	}
-	for i, p := range queryParts {
-		queryParts[i] = "(" + p + ")"
-	}
-	query := strings.Join(queryParts, " AND ")
-
-	records, err := db.Select(db.DB(), "records", query)
+	records, err := db.QueryRecords(store.RecordFilter{
+		T1:      int64(math.Trunc(f0)),
+		T2:      int64(math.Trunc(f1)),
+		Tags:    tags,
+		Running: parseTriState(req.queryGet("running")),
+		Hidden:  parseTriState(req.queryGet("hidden")),
+	})
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
@@ -349,25 +329,19 @@ func parseTriState(raw string) *bool {
 	return &v
 }
 
-func (s *Server) getSettings(db *store.ItemDB) response {
-	settings, err := db.SelectAll(db.DB(), "settings")
+func (s *Server) getSettings(db store.UserDB) response {
+	settings, err := db.All("settings")
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"settings": orEmpty(settings)})
 }
 
-func (s *Server) putForcereset(db *store.ItemDB) response {
+func (s *Server) putForcereset(db store.UserDB) response {
 	st := now()
-	tx, err := db.Begin()
-	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
-	}
-	if err := db.PutOne(tx, "userinfo", store.Item{"key": "reset_time", "st": st, "mt": st, "value": st}); err != nil {
-		tx.Rollback()
-		return textResp(500, "internal error: "+err.Error())
-	}
-	if err := tx.Commit(); err != nil {
+	if err := db.Write(func(tx store.WTx) error {
+		return tx.Upsert("userinfo", store.Item{"key": "reset_time", "st": st, "mt": st, "value": st})
+	}); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"status": "ok"})
@@ -398,7 +372,7 @@ func specFor(what string) ([]specField, []string) {
 }
 
 // pushItems ports _apiserver._push_items — the eventual-consistency write path.
-func (s *Server) pushItems(req *request, db *store.ItemDB, what string) response {
+func (s *Server) pushItems(req *request, db store.UserDB, what string) response {
 	raw, err := req.getBody(10 * 1024 * 1024)
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())
@@ -413,75 +387,69 @@ func (s *Server) pushItems(req *request, db *store.ItemDB, what string) response
 
 	var accepted, failed, errs, errs2 []string
 
-	tx, err := db.Begin()
-	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
-	}
-
-	ob, err := db.SelectOne(tx, "userinfo", "key == 'reset_time'")
-	if err != nil {
-		tx.Rollback()
-		return textResp(500, "internal error: "+err.Error())
-	}
-	resetTime := float64(-1)
-	if ob != nil {
-		resetTime = toFloat(ob["value"])
-	}
-
-	for _, rawItem := range items {
-		itemIn, ok := rawItem.(map[string]any)
-		var keyStr string
-		keyOk := false
-		if ok {
-			if k, kok := itemIn["key"].(string); kok {
-				keyStr = k
-				keyOk = true
-			}
-		}
-		if !ok || !keyOk {
-			errs2 = append(errs2, "Got item that is not a dict with str 'key' field.")
-			continue
-		}
-
-		curItem, err := db.SelectOne(tx, what, "key == ?", keyStr)
+	werr := db.Write(func(tx store.WTx) error {
+		ob, err := tx.Get("userinfo", "reset_time")
 		if err != nil {
-			tx.Rollback()
-			return textResp(500, "internal error: "+err.Error())
+			return err
+		}
+		resetTime := float64(-1)
+		if ob != nil {
+			resetTime = toFloat(ob["value"])
 		}
 
-		item, verr := validateItem(itemIn, spec, reqFields, resetTime, what)
-		if verr != nil {
-			failed = append(failed, keyStr)
-			errs = append(errs, verr.Error())
-			if curItem != nil {
-				item = curItem
-			} else {
+		for _, rawItem := range items {
+			itemIn, ok := rawItem.(map[string]any)
+			var keyStr string
+			keyOk := false
+			if ok {
+				if k, kok := itemIn["key"].(string); kok {
+					keyStr = k
+					keyOk = true
+				}
+			}
+			if !ok || !keyOk {
+				errs2 = append(errs2, "Got item that is not a dict with str 'key' field.")
 				continue
 			}
-		} else {
-			accepted = append(accepted, keyStr)
-		}
 
-		// Keep the newer item if the stored one is newer.
-		if curItem != nil && toFloat(curItem["mt"]) > toFloat(item["mt"]) {
-			item = curItem
-		}
+			curItem, err := tx.Get(what, keyStr)
+			if err != nil {
+				return err
+			}
 
-		// Ensure st strictly increases so eventual consistency holds.
-		if curItem != nil {
-			item["st"] = math.Max(serverTime, toFloat(curItem["st"])+0.0001)
-		} else {
-			item["st"] = serverTime
-		}
+			item, verr := validateItem(itemIn, spec, reqFields, resetTime, what)
+			if verr != nil {
+				failed = append(failed, keyStr)
+				errs = append(errs, verr.Error())
+				if curItem != nil {
+					item = curItem
+				} else {
+					continue
+				}
+			} else {
+				accepted = append(accepted, keyStr)
+			}
 
-		if err := db.Put(tx, what, item); err != nil {
-			tx.Rollback()
-			return textResp(500, "internal error: "+err.Error())
-		}
-	}
+			// Keep the newer item if the stored one is newer.
+			if curItem != nil && toFloat(curItem["mt"]) > toFloat(item["mt"]) {
+				item = curItem
+			}
 
-	if err := tx.Commit(); err != nil {
-		return textResp(500, "internal error: "+err.Error())
+			// Ensure st strictly increases so eventual consistency holds.
+			if curItem != nil {
+				item["st"] = math.Max(serverTime, toFloat(curItem["st"])+0.0001)
+			} else {
+				item["st"] = serverTime
+			}
+
+			if err := tx.Upsert(what, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if werr != nil {
+		return textResp(500, "internal error: "+werr.Error())
 	}
 
 	return jsonResp(200, map[string]any{

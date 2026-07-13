@@ -23,6 +23,10 @@ jwt.key
 *.key
 *.crt
 
+# Generated artifacts
+graphify-out/
+qr.txt
+
 # OS & editor cruft
 .DS_Store
 Thumbs.db

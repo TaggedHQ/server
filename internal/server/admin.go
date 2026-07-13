@@ -2,21 +2,19 @@ package server
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"errors"
 	"sort"
 	"strings"
 
 	"github.com/TaggedHQ/server/internal/store"
-	"github.com/TaggedHQ/server/internal/util"
 )
 
 // adminFlagKey is the userinfo key holding a per-user stored admin role.
 const adminFlagKey = "is_admin"
 
 // dbAdminFlag reads the stored admin role from an already-open user database.
-func dbAdminFlag(db *store.ItemDB) bool {
-	ob, err := db.SelectOne(db.DB(), "userinfo", "key = ?", adminFlagKey)
+func dbAdminFlag(db store.UserDB) bool {
+	ob, err := db.Get("userinfo", adminFlagKey)
 	if err != nil || ob == nil {
 		return false
 	}
@@ -26,7 +24,7 @@ func dbAdminFlag(db *store.ItemDB) bool {
 
 // isAdmin reports effective admin rights: config ("root") admin OR the stored
 // per-user role in the given (open) database.
-func (s *Server) isAdmin(username string, db *store.ItemDB) bool {
+func (s *Server) isAdmin(username string, db store.UserDB) bool {
 	if s.isConfigAdmin(username) {
 		return true
 	}
@@ -36,10 +34,12 @@ func (s *Server) isAdmin(username string, db *store.ItemDB) bool {
 // whoamiHandler reports the current user's identity and admin status. Available
 // to any authenticated user; the UI uses it to decide whether to show the admin
 // menu.
-func (s *Server) whoamiHandler(username string, db *store.ItemDB) response {
+func (s *Server) whoamiHandler(username string, db store.UserDB) response {
 	return jsonResp(200, map[string]any{
-		"username": username,
-		"is_admin": s.isAdmin(username, db),
+		"username":               username,
+		"is_admin":               s.isAdmin(username, db),
+		"totp_enabled":           totpEnabled(db),
+		"backup_codes_remaining": len(backupHashes(db)),
 	})
 }
 
@@ -87,27 +87,20 @@ type userRow struct {
 }
 
 func (s *Server) adminListUsers() response {
-	entries, err := os.ReadDir(s.rootUserDir)
+	metas, err := s.getStore().ListUsers()
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	var users []userRow
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".db") {
-			continue // skip -wal/-shm/-journal siblings and dirs
+	for _, m := range metas {
+		configAdmin := s.isConfigAdmin(m.Username)
+		row := userRow{
+			Username:    m.Username,
+			ConfigAdmin: configAdmin,
+			SizeBytes:   m.SizeBytes,
+			Modified:    m.Modified,
 		}
-		username, err := util.Filename2User(name)
-		if err != nil {
-			continue
-		}
-		configAdmin := s.isConfigAdmin(username)
-		row := userRow{Username: username, ConfigAdmin: configAdmin}
-		if info, err := e.Info(); err == nil {
-			row.SizeBytes = info.Size()
-			row.Modified = info.ModTime().Unix()
-		}
-		registered, storedAdmin := s.userFlags(filepath.Join(s.rootUserDir, name))
+		registered, storedAdmin := s.userFlags(m.Username)
 		row.Registered = registered
 		row.IsAdmin = configAdmin || storedAdmin
 		users = append(users, row)
@@ -121,16 +114,13 @@ func (s *Server) adminListUsers() response {
 
 // userFlags opens a user DB once and reports whether it has a password set and
 // whether it carries the stored admin role.
-func (s *Server) userFlags(dbPath string) (registered, storedAdmin bool) {
-	db, err := store.Open(dbPath)
+func (s *Server) userFlags(username string) (registered, storedAdmin bool) {
+	db, err := s.openUserDB(username)
 	if err != nil {
 		return false, false
 	}
 	defer db.Close()
-	if err := db.EnsureTable("userinfo", "!key", "st"); err != nil {
-		return false, false
-	}
-	if ob, err := db.SelectOne(db.DB(), "userinfo", "key = ?", passwordHashKey); err == nil && ob != nil {
+	if ob, err := db.Get("userinfo", passwordHashKey); err == nil && ob != nil {
 		if v, _ := ob["value"].(string); v != "" {
 			registered = true
 		}
@@ -177,14 +167,11 @@ func (s *Server) adminResetPassword(req *request) response {
 	if len(body.Password) < 4 {
 		return textResp(400, "password must be at least 4 characters")
 	}
-	db, err := store.Open(s.userDBPath(username))
+	db, err := s.openUserDB(username)
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	defer db.Close()
-	if err := db.EnsureTable("userinfo", "!key", "st"); err != nil {
-		return textResp(500, "internal error: "+err.Error())
-	}
 	if err := storePasswordHash(db, body.Password); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
@@ -209,20 +196,11 @@ func (s *Server) adminDeleteUser(req *request, adminUser string) response {
 	if username == adminUser {
 		return textResp(400, "you cannot delete your own account")
 	}
-	base := s.userDBPath(username)
-	// Remove the database and its SQLite sidecar files.
-	found := false
-	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
-		if err := os.Remove(base + suffix); err == nil {
-			if suffix == "" {
-				found = true
-			}
-		} else if suffix == "" && !os.IsNotExist(err) {
-			return textResp(500, "internal error: "+err.Error())
+	if err := s.getStore().DeleteUser(username); err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			return textResp(404, "user not found")
 		}
-	}
-	if !found {
-		return textResp(404, "user not found")
+		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"status": "ok"})
 }
@@ -252,25 +230,22 @@ func (s *Server) adminSetAdmin(req *request, adminUser string) response {
 	if s.isConfigAdmin(username) {
 		return textResp(400, "this user is a config-defined admin and cannot be changed here")
 	}
-	db, err := store.Open(s.userDBPath(username))
-	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
-	}
-	defer db.Close()
-	if err := db.EnsureTable("userinfo", "!key", "st"); err != nil {
-		return textResp(500, "internal error: "+err.Error())
-	}
-	st := now()
-	tx, err := db.Begin()
-	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
-	}
-	if err := db.PutOne(tx, "userinfo", store.Item{"key": adminFlagKey, "st": st, "mt": st, "value": body.IsAdmin}); err != nil {
-		tx.Rollback()
-		return textResp(500, "internal error: "+err.Error())
-	}
-	if err := tx.Commit(); err != nil {
+	if err := s.setStoredAdmin(username, body.IsAdmin); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"status": "ok"})
+}
+
+// setStoredAdmin sets (or clears) the per-user stored admin role in the user's
+// database.
+func (s *Server) setStoredAdmin(username string, isAdmin bool) error {
+	db, err := s.openUserDB(username)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	st := now()
+	return db.Write(func(tx store.WTx) error {
+		return tx.Upsert("userinfo", store.Item{"key": adminFlagKey, "st": st, "mt": st, "value": isAdmin})
+	})
 }

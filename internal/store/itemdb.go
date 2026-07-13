@@ -24,9 +24,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Item is a single stored object.
-type Item = map[string]any
-
 // executor abstracts *sql.DB and *sql.Tx so read/write helpers work with either.
 type executor interface {
 	Query(query string, args ...any) (*sql.Rows, error)

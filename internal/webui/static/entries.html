@@ -28,6 +28,10 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
           <span>Tags</span>
         </a>
+        <a href="{{PREFIX}}impexp">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
+          <span>Import / Export</span>
+        </a>
         <a href="{{PREFIX}}account">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
           <span>Settings</span>
@@ -53,6 +57,7 @@
         <div class="page-head">
           <h1>Time entries</h1>
           <div class="head-actions">
+            <button id="open-report" class="secondary">▤ Report</button>
             <button id="new-entry">＋ New entry</button>
           </div>
         </div>
@@ -90,15 +95,17 @@
       <div class="sheet-section">
         <div class="sheet-section-head">
           <span class="sheet-label">Tags</span>
-          <button id="em-add-tag" class="link-accent" type="button">＋ Add</button>
+          <div class="em-add-anchor">
+            <button id="em-add-tag" class="link-accent" type="button">＋ Add</button>
+            <div class="menu-pop em-tag-menu" id="em-tag-menu"></div>
+          </div>
         </div>
         <div class="em-tags" id="em-tags"></div>
         <div id="em-add-wrap" hidden>
           <div class="em-add-row">
-            <input id="em-tag-input" type="text" placeholder="type a tag and press Enter" autocomplete="off">
+            <input id="em-tag-input" type="text" placeholder="New tag name" autocomplete="off">
             <button id="em-tag-add-btn" class="btn-sm" type="button">Add</button>
           </div>
-          <div class="em-suggest" id="em-suggest"></div>
         </div>
       </div>
 
@@ -120,6 +127,79 @@
         <div class="spacer"></div>
         <button id="em-cancel" class="secondary" type="button">Cancel</button>
         <button id="em-save" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="report-modal" hidden>
+    <div class="sheet report">
+      <div class="sheet-title">Report</div>
+
+      <div class="sheet-section">
+        <div class="rep-grid">
+          <label class="rep-field">
+            <span class="sheet-label">From</span>
+            <input type="date" id="rp-from">
+          </label>
+          <label class="rep-field">
+            <span class="sheet-label">To</span>
+            <input type="date" id="rp-to">
+          </label>
+          <label class="rep-field">
+            <span class="sheet-label">Grouping</span>
+            <select class="set-select" id="rp-grouping">
+              <option value="none">None</option>
+              <option value="tags">Tags</option>
+              <option value="ds">Description</option>
+            </select>
+          </label>
+          <label class="rep-field">
+            <span class="sheet-label">Group by period</span>
+            <select class="set-select" id="rp-period">
+              <option value="none">None</option>
+              <option value="day">Day</option>
+              <option value="week">Week</option>
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="year">Year</option>
+            </select>
+          </label>
+          <label class="rep-field">
+            <span class="sheet-label">Duration format</span>
+            <select class="set-select" id="rp-format">
+              <option value="hm">9:07</option>
+              <option value="hms">9:07:24</option>
+              <option value="h0">9</option>
+              <option value="h1">9.1</option>
+              <option value="h2">9.12</option>
+              <option value="h3">9.123</option>
+            </select>
+          </label>
+          <label class="rep-field rep-check">
+            <span class="sheet-label">Details</span>
+            <label class="rep-inline"><input type="checkbox" id="rp-records" checked> Show records</label>
+          </label>
+        </div>
+      </div>
+
+      <div class="sheet-section">
+        <div class="sheet-label" style="margin-bottom:10px">Export as file</div>
+        <div class="rep-export">
+          <input type="text" id="rp-filename" class="rep-filename" placeholder="filename" autocomplete="off" spellcheck="false">
+          <div class="rep-export-btns">
+            <button type="button" class="secondary btn-sm" id="rp-csv">⬇ CSV</button>
+            <button type="button" class="secondary btn-sm" id="rp-pdf">⬇ PDF</button>
+            <button type="button" class="secondary btn-sm" id="rp-copy">⧉ Copy table</button>
+          </div>
+        </div>
+        <div class="rep-msg" id="rp-msg"></div>
+      </div>
+
+      <div class="rep-preview" id="rp-preview"></div>
+
+      <div class="sheet-actions">
+        <div class="spacer"></div>
+        <button type="button" class="secondary" id="rp-close">Close</button>
       </div>
     </div>
   </div>

@@ -78,6 +78,17 @@ func (s *Server) getWebtokenUsernamePassword(req *request, authInfo map[string]a
 	hash := s.credentials[user]
 	configOK := user != "" && hash != "" && bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)) == nil
 	if configOK || (user != "" && s.checkUserPassword(user, pw)) {
+		// Password is correct. If the account has a second factor enabled,
+		// require a valid TOTP (or backup) code before issuing a token.
+		if s.userMFAEnabled(user) {
+			code, _ := authInfo["totp"].(string)
+			if strings.TrimSpace(code) == "" {
+				return jsonResp(200, map[string]any{"mfa_required": "totp"})
+			}
+			if !s.verifyMFACode(user, code) {
+				return textResp(403, "Invalid two-factor code")
+			}
+		}
 		token, err := s.getWebtokenUnsafe(user, false)
 		if err != nil {
 			return textResp(500, "internal error: "+err.Error())
@@ -113,7 +124,7 @@ func (s *Server) registerHandler(req *request) response {
 
 // changePasswordEndpoint updates the authenticated user's password. Body is JSON
 // {"password": ...}.
-func (s *Server) changePasswordEndpoint(req *request, db *store.ItemDB) response {
+func (s *Server) changePasswordEndpoint(req *request, db store.UserDB) response {
 	raw, err := req.getBody(64 * 1024)
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())

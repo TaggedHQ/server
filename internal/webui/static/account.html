@@ -28,6 +28,10 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
           <span>Tags</span>
         </a>
+        <a href="{{PREFIX}}impexp">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
+          <span>Import / Export</span>
+        </a>
         <a class="active" href="{{PREFIX}}account">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
           <span>Settings</span>
@@ -78,6 +82,55 @@
         </div>
 
         <div class="panel">
+          <div class="panel-head"><h3>Entries</h3></div>
+          <div class="set-row">
+            <span class="set-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+            </span>
+            <span class="set-label">Week Starts On</span>
+            <select id="set-week-start" class="set-select">
+              <option value="1">Monday</option>
+              <option value="0">Sunday</option>
+              <option value="6">Saturday</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <span class="set-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18"/></svg>
+            </span>
+            <span class="set-label">Workdays</span>
+            <select id="set-workdays" class="set-select">
+              <option value="mon-fri">Monday – Friday</option>
+              <option value="mon-sat">Monday – Saturday</option>
+              <option value="sun-thu">Sunday – Thursday</option>
+              <option value="everyday">Every day</option>
+            </select>
+          </div>
+          <p class="hint" style="margin:12px 0 0">Controls how the entries overview lays out each week.</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Region &amp; language</h3></div>
+          <div class="set-row">
+            <span class="set-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+            </span>
+            <span class="set-label">Time zone</span>
+            <select id="set-timezone" class="set-select"></select>
+          </div>
+          <div class="set-row">
+            <span class="set-ic">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h9M9 3v2M6 5c0 6-2 8-4 10M5 9c0 3 3 5 6 6"/><path d="M13 20l4-9 4 9M14.5 17h5"/></svg>
+            </span>
+            <span class="set-label">Language</span>
+            <select id="set-language" class="set-select">
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div id="prefs-msg" class="msg"></div>
+        </div>
+
+        <div class="panel">
           <div class="panel-head"><h3>Change password</h3></div>
           <form id="pw-form">
             <label for="pw1">New password</label>
@@ -90,13 +143,59 @@
         </div>
 
         <div class="panel">
+          <div class="panel-head"><h3>Two-factor authentication</h3></div>
+          <p class="hint">Add a second step at login using a time-based code from an authenticator app (1Password, Google Authenticator, Authy…).</p>
+
+          <div id="mfa-status" class="mfa-status"></div>
+
+          <div id="mfa-setup" hidden>
+            <div class="mfa-setup-grid">
+              <img id="mfa-qr" class="mfa-qr" alt="TOTP QR code">
+              <div class="mfa-setup-side">
+                <p class="hint" style="margin:0 0 6px">Scan the QR code, or enter this key manually:</p>
+                <code id="mfa-secret" class="mfa-secret"></code>
+                <label for="mfa-code-in" style="margin:14px 0 0">Enter the 6-digit code to confirm</label>
+                <div class="token-pw-row" style="margin-top:8px">
+                  <input id="mfa-code-in" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
+                  <button class="btn-sm" id="mfa-confirm" type="button">Verify &amp; enable</button>
+                  <button class="secondary btn-sm" id="mfa-cancel" type="button">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="mfa-backup" hidden>
+            <p class="hint" style="margin-bottom:10px"><strong>Save these backup codes.</strong> Each works once if you lose access to your authenticator app.</p>
+            <div id="mfa-backup-codes" class="mfa-codes"></div>
+            <div class="token-actions" style="margin-top:12px">
+              <button class="secondary btn-sm" id="mfa-backup-copy" type="button">Copy codes</button>
+              <button class="btn-sm" id="mfa-backup-done" type="button">Done</button>
+            </div>
+          </div>
+
+          <div id="mfa-msg" class="msg"></div>
+        </div>
+
+        <div class="panel">
           <div class="panel-head"><h3>API token</h3></div>
           <p class="hint">Use this token as the <code>authtoken</code> header for API access. Regenerating invalidates the previous one.</p>
-          <div class="token-actions">
-            <button id="gen-token">Generate API token</button>
+          <div class="token-field">
+            <input id="token-input" class="token-secret" type="password" value="" placeholder="••••••••••••••••••••" readonly>
+            <button class="secondary btn-sm" id="token-show" type="button">Show</button>
+            <button class="secondary btn-sm" id="token-copy" type="button" hidden>Copy</button>
+          </div>
+          <div id="token-pw" class="token-pw" hidden>
+            <span class="token-pw-label">Enter your password to reveal the token:</span>
+            <div class="token-pw-row">
+              <input id="token-pw-input" type="password" placeholder="Your password" autocomplete="current-password">
+              <button class="btn-sm" id="token-pw-verify" type="button">Reveal</button>
+              <button class="secondary btn-sm" id="token-pw-cancel" type="button">Cancel</button>
+            </div>
+          </div>
+          <div class="token-actions" style="margin-top:14px">
             <button class="secondary" id="regen-token">Regenerate</button>
           </div>
-          <div id="token-box" class="token-box"></div>
+          <div id="token-msg" class="msg"></div>
         </div>
 
         <div class="panel">

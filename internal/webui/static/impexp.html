@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tagged · Import / Export</title>
+  <link rel="stylesheet" href="{{PREFIX}}style.css">
+  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <script>window.TT_PREFIX = "{{PREFIX}}";</script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <img class="logo" src="{{PREFIX}}images/Taggd-Colored.svg" alt="Tagged logo">
+        <span class="brandmark" style="letter-spacing:.12em;color:var(--text-1)">Tagged</span>
+      </div>
+      <nav class="nav">
+        <a href="{{PREFIX}}">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Dashboard</span>
+        </a>
+        <a href="{{PREFIX}}entries">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span>Time entries</span>
+        </a>
+        <a href="{{PREFIX}}tags">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+          <span>Tags</span>
+        </a>
+        <a class="active" href="{{PREFIX}}impexp">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
+          <span>Import / Export</span>
+        </a>
+        <a href="{{PREFIX}}account">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
+          <span>Settings</span>
+        </a>
+        <a id="nav-admin" href="{{PREFIX}}admin" style="display:none">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Admin</span>
+        </a>
+      </nav>
+      <div class="side-foot">
+        <a class="side-user" href="{{PREFIX}}account">
+          <span class="avatar" id="avatar">?</span>
+          <span class="name" id="side-user">…</span>
+        </a>
+        <button class="icon-btn" id="logout" title="Log out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <div class="content single">
+      <div class="main-col" style="width:100%">
+        <div class="page-head"><h1>Import / Export</h1></div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Export</h3></div>
+          <p class="hint">Download all your time records as a CSV file — useful for backups, processing, or moving your data elsewhere.</p>
+
+          <div class="set-row">
+            <span class="set-label">Date-time format</span>
+            <select id="ie-format" class="set-select">
+              <option value="local">Local (readable)</option>
+              <option value="iso">ISO 8601</option>
+              <option value="unix">Unix timestamp</option>
+            </select>
+          </div>
+
+          <div class="ie-export-row">
+            <input type="text" id="ie-filename" class="rep-filename" placeholder="filename" autocomplete="off" spellcheck="false">
+            <div class="rep-export-btns">
+              <button type="button" class="secondary btn-sm" id="ie-download">⬇ Download CSV</button>
+              <button type="button" class="secondary btn-sm" id="ie-copy">⧉ Copy table</button>
+            </div>
+          </div>
+          <div class="rep-msg" id="ie-export-msg"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Import</h3></div>
+          <p class="hint">
+            Paste table data (from a CSV/text file or directly from Excel) below, or drop a
+            <code>.csv</code> file onto the field. Columns can be separated by tab, comma, or
+            semicolon — the separator is detected automatically.
+          </p>
+
+          <details class="ie-help">
+            <summary>See the import format</summary>
+            <div class="ie-help-body">
+              <p>The first row must be a header naming the columns. Column names are
+                case-insensitive, and values may be wrapped in double quotes.</p>
+
+              <table class="ie-help-table">
+                <thead><tr><th>Column</th><th>Accepted names</th><th>Required</th></tr></thead>
+                <tbody>
+                  <tr><td>Start</td><td><code>start</code>, <code>begin</code></td><td class="req">Required</td></tr>
+                  <tr><td>Stop</td><td><code>stop</code>, <code>end</code></td><td class="req">Required*</td></tr>
+                  <tr><td>Duration</td><td><code>duration</code></td><td>Optional*</td></tr>
+                  <tr><td>Tags</td><td><code>tag</code>, <code>tags</code>, <code>project</code></td><td>Optional</td></tr>
+                  <tr><td>Description</td><td><code>description</code>, <code>ds</code>, <code>comment</code>, <code>title</code>, <code>summary</code></td><td>Optional</td></tr>
+                  <tr><td>Date</td><td><code>date</code></td><td>Optional</td></tr>
+                  <tr><td>Key</td><td><code>key</code>, <code>id</code></td><td>Optional</td></tr>
+                </tbody>
+              </table>
+              <p class="ie-help-note">* Each record needs a stop time <em>or</em> a duration.</p>
+
+              <ul class="ie-help-list">
+                <li><strong>Times</strong> accept a Unix timestamp or a date-time string (e.g. ISO 8601). When a <code>date</code> column is present, start/stop may be a plain <code>hh:mm</code> time.</li>
+                <li><strong>Duration</strong> accepts <code>h:mm</code>, <code>h:mm:ss</code>, or a number of seconds, and is used when there is no stop time.</li>
+                <li><strong>Tags</strong> and project names become <code>#tags</code>; any <code>#tags</code> already in the description are merged in.</li>
+                <li><strong>Keys</strong> let you update existing records: a matching key (or an exact start/stop match) replaces the record instead of adding a new one.</li>
+              </ul>
+
+              <p class="ie-help-eg-label">Example</p>
+              <pre class="ie-help-eg">key,start,stop,tags,description
+abc123,2026-07-12 09:00,2026-07-12 11:00,#work #dev,Feature build
+,2026-07-12 13:00,1:30,#meeting,Sprint review</pre>
+            </div>
+          </details>
+
+          <label class="ie-drop" id="ie-drop">
+            <input type="file" id="ie-file" accept=".csv,.tsv,.txt,text/csv" hidden>
+            <textarea id="ie-input" class="ie-textarea" rows="10" spellcheck="false" placeholder="key,start,stop,tags,description
+abc123,2026-07-12 09:00,2026-07-12 11:00,#work #dev,Feature build"></textarea>
+            <span class="ie-drop-hint" id="ie-drop-hint">Drop a .csv file here, or <span class="link-accent">choose a file</span></span>
+          </label>
+
+          <div class="token-actions" style="margin-top:14px">
+            <button type="button" id="ie-analyse">Analyse</button>
+            <button type="button" class="secondary" id="ie-import" disabled>Import</button>
+          </div>
+
+          <div class="ie-log" id="ie-log"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{PREFIX}}app.js"></script>
+</body>
+</html>

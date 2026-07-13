@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up · Tagged</title>
+  <link rel="stylesheet" href="{{PREFIX}}style.css">
+  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <script>window.TT_PREFIX = "{{PREFIX}}";</script>
+</head>
+<body>
+  <div class="center-page">
+    <div class="card narrow">
+      <div class="auth-head">
+        <img class="auth-logo" src="{{PREFIX}}images/Taggd-Colored.svg" alt="Tagged logo">
+        <div class="brandmark lg">Tagged</div>
+        <p class="subtitle">Welcome — let's set up your server</p>
+      </div>
+      <form id="setup-form">
+        <div id="backend-choice">
+          <label>Server type</label>
+          <div class="opt-cards">
+            <label class="opt">
+              <input type="radio" name="backend" value="sqlite" checked>
+              <span class="opt-body">
+                <span class="opt-title">Simple Server</span>
+                <span class="opt-desc">SQLite — zero setup, one file. Great for personal and small‑team use.</span>
+              </span>
+            </label>
+            <label class="opt">
+              <input type="radio" name="backend" value="postgres">
+              <span class="opt-body">
+                <span class="opt-title">Performance Server</span>
+                <span class="opt-desc">PostgreSQL — scalable and concurrent, for larger deployments.</span>
+              </span>
+            </label>
+          </div>
+          <div id="pg-field" hidden>
+            <label for="db_url">PostgreSQL connection URL</label>
+            <input id="db_url" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="postgres://user:pass@host:5432/tagged?sslmode=disable">
+            <p class="hint">We'll test the connection before continuing.</p>
+          </div>
+        </div>
+        <p id="backend-locked-note" class="hint" hidden></p>
+
+        <label for="username">Admin username</label>
+        <input id="username" type="text" autocomplete="username" required>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="new-password" required>
+        <label for="password2">Confirm password</label>
+        <input id="password2" type="password" autocomplete="new-password" required>
+        <button class="block" type="submit">Create admin &amp; finish</button>
+      </form>
+      <div id="msg" class="msg"></div>
+    </div>
+  </div>
+  <script src="{{PREFIX}}app.js"></script>
+</body>
+</html>

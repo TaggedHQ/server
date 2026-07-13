@@ -36,31 +36,13 @@ func randSeed(nbytes int) string {
 
 // openUserDB opens a user's database and ensures all three tables exist,
 // mirroring the table setup in authenticate().
-func (s *Server) openUserDB(username string) (*store.ItemDB, error) {
-	db, err := store.Open(s.userDBPath(username))
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureAllTables(db); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
-func ensureAllTables(db *store.ItemDB) error {
-	if err := db.EnsureTable("userinfo", "!key", "st"); err != nil {
-		return err
-	}
-	if err := db.EnsureTable("records", "!key", "st", "t1", "t2"); err != nil {
-		return err
-	}
-	return db.EnsureTable("settings", "!key", "st")
+func (s *Server) openUserDB(username string) (store.UserDB, error) {
+	return s.getStore().UserDB(username)
 }
 
 // authenticate validates the request's authtoken and returns (authInfo, db).
 // Ports _apiserver.authenticate.
-func (s *Server) authenticate(req *request) (map[string]any, *store.ItemDB, error) {
+func (s *Server) authenticate(req *request) (map[string]any, store.UserDB, error) {
 	st := now()
 
 	token := req.header("authtoken")
@@ -108,9 +90,8 @@ func (s *Server) authenticate(req *request) (map[string]any, *store.ItemDB, erro
 
 // getTokenSeedFromDB returns the seed for the given token kind, creating a fresh
 // one if missing or if reset is requested. Ports _apiserver._get_token_seed_from_db.
-func (s *Server) getTokenSeedFromDB(db *store.ItemDB, tokenkind string, reset bool) (string, error) {
-	query := fmt.Sprintf("key = '%s_seed'", tokenkind)
-	ob, err := db.SelectOne(db.DB(), "userinfo", query)
+func (s *Server) getTokenSeedFromDB(db store.UserDB, tokenkind string, reset bool) (string, error) {
+	ob, err := db.Get("userinfo", tokenkind+"_seed")
 	if err != nil {
 		return "", err
 	}
@@ -123,17 +104,11 @@ func (s *Server) getTokenSeedFromDB(db *store.ItemDB, tokenkind string, reset bo
 	if reset || seed == "" {
 		seed = randSeed(8)
 		st := now()
-		tx, err := db.Begin()
-		if err != nil {
-			return "", err
-		}
-		if err := db.PutOne(tx, "userinfo", store.Item{
-			"key": tokenkind + "_seed", "st": st, "mt": st, "value": seed,
+		if err := db.Write(func(tx store.WTx) error {
+			return tx.Upsert("userinfo", store.Item{
+				"key": tokenkind + "_seed", "st": st, "mt": st, "value": seed,
+			})
 		}); err != nil {
-			tx.Rollback()
-			return "", err
-		}
-		if err := tx.Commit(); err != nil {
 			return "", err
 		}
 	}
@@ -141,7 +116,7 @@ func (s *Server) getTokenSeedFromDB(db *store.ItemDB, tokenkind string, reset bo
 }
 
 // getAnyToken issues a webtoken or apitoken. Ports _apiserver._get_any_token.
-func (s *Server) getAnyToken(db *store.ItemDB, authInfo map[string]any, tokenkind string, reset bool) (response, error) {
+func (s *Server) getAnyToken(db store.UserDB, authInfo map[string]any, tokenkind string, reset bool) (response, error) {
 	var expires int64
 	if tokenkind == "apitoken" {
 		expires = apiTokenExp
@@ -168,14 +143,11 @@ func (s *Server) getAnyToken(db *store.ItemDB, authInfo map[string]any, tokenkin
 // The caller is responsible for having established trust. Ports
 // _apiserver.get_webtoken_unsafe.
 func (s *Server) getWebtokenUnsafe(username string, reset bool) (string, error) {
-	db, err := store.Open(s.userDBPath(username))
+	db, err := s.openUserDB(username)
 	if err != nil {
 		return "", err
 	}
 	defer db.Close()
-	if err := db.EnsureTable("userinfo", "!key", "st"); err != nil {
-		return "", err
-	}
 	seed, err := s.getTokenSeedFromDB(db, "webtoken", reset)
 	if err != nil {
 		return "", err

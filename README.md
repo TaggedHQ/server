@@ -66,6 +66,38 @@ Everything is a flag (each also works as an environment variable for containers)
 | `--credentials` | Pre‑defined `user:bcrypthash` logins | _(none)_ |
 | `--tls-cert` / `--tls-key` | Enable native HTTPS with a cert + key | _(off)_ |
 | `--app-redirect` | Redirect `/` straight to the app | `false` |
+| `--db-backend` | Storage backend: `sqlite` or `postgres` | `sqlite` |
+| `--db-url` | Postgres DSN (required when `--db-backend=postgres`) | _(none)_ |
+
+### Storage backends
+
+Tagged ships with two interchangeable backends. **The HTTP API is identical
+either way** — apps, import, and export don't know or care which one you run.
+
+- **Simple Server (`sqlite`, default).** One SQLite file per user under
+  `--datadir`. Zero setup, back up with `cp`. Perfect for personal and
+  small‑team use.
+- **Performance Server (`postgres`).** Shared, multi‑tenant tables behind a
+  Postgres connection pool for real concurrency at scale.
+
+  ```bash
+  ./tagged --db-backend=postgres \
+    --db-url="postgres://user:pass@localhost:5432/tagged?sslmode=disable"
+  ```
+
+  `docker-compose.postgres.yml` wires the app to a bundled Postgres (see
+  **Run with Docker** below).
+
+You don't have to decide up front: on first run, the setup wizard lets you pick
+the server type (unless you've pinned it with `--db-backend`).
+
+**Migrating SQLite → Postgres.** Copy every existing per‑user database into
+Postgres (idempotent) before switching the running server over:
+
+```bash
+./tagged migrate-to-postgres --datadir=~/tagged-data \
+  --db-url="postgres://user:pass@localhost:5432/tagged?sslmode=disable"
+```
 
 ### HTTPS
 
@@ -79,6 +111,39 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem \
 
 For production, terminate TLS at a reverse proxy (Caddy/nginx/Traefik) and run
 Tagged on plain HTTP behind it.
+
+## Run with Docker
+
+Pre-built multi-arch images are published to GHCR on every release.
+
+```bash
+# Simple Server (SQLite), data persisted in a named volume
+docker run -d --name tagged -p 8080:8080 -v tagged:/data \
+  ghcr.io/taggedhq/server:latest
+```
+
+Or with Compose:
+
+```bash
+docker compose up -d                       # Simple Server (SQLite)
+# Performance Server: app + bundled Postgres
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+```
+
+Then open `http://localhost:8080/` and complete the first-run **setup wizard** —
+pick the server type (unless it's pinned via env) and create the first admin.
+Configure via the same `TAGGED_*` env vars as the flags (e.g. `TAGGED_ADMINS`,
+`TAGGED_DB_BACKEND`, `TAGGED_DB_URL`). The image listens on `0.0.0.0:8080` and
+stores data under `/data`.
+
+## Releases
+
+Tagging `vX.Y.Z` triggers a GitHub Actions workflow that builds and pushes the
+multi-arch container to `ghcr.io/taggedhq/server` and creates a GitHub Release:
+
+```bash
+docker pull ghcr.io/taggedhq/server:vX.Y.Z   # or :latest
+```
 
 ## The API
 
@@ -104,6 +169,7 @@ Grab a long‑lived personal token from **Account → API token** in the UI.
 
 - [Go](https://go.dev) — the whole server, with the UI embedded via `embed`
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) — pure‑Go SQLite (no cgo)
+- [jackc/pgx](https://github.com/jackc/pgx) — Postgres driver for the Performance Server
 - [Roboto Mono](https://fonts.google.com/specimen/Roboto+Mono) — the monospace look
 - Plain HTML/CSS/JS — no framework, no build step
 
@@ -115,7 +181,7 @@ server/
 ├── internal/
 │   ├── config/             # flags + environment configuration
 │   ├── server/             # routing, auth, API, admin, accounts
-│   ├── store/              # SQLite storage layer
+│   ├── store/              # storage layer: interfaces + SQLite & Postgres backends
 │   ├── util/               # JWT + helpers
 │   └── webui/              # embedded UI (HTML/CSS/JS, fonts, logo)
 └── README.md

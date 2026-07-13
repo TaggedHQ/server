@@ -23,6 +23,8 @@ func route(reqPath string) string {
 		return "login.html"
 	case "register":
 		return "register.html"
+	case "setup":
+		return "setup.html"
 	case "account":
 		return "account.html"
 	case "entries":
@@ -31,6 +33,8 @@ func route(reqPath string) string {
 		return "admin.html"
 	case "tags":
 		return "tags.html"
+	case "impexp":
+		return "impexp.html"
 	default:
 		return reqPath
 	}
