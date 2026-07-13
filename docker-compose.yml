@@ -1,13 +1,15 @@
 # Tagged — Simple Server (SQLite). Data lives in the tagged_data volume.
-#   docker compose up -d          # build + run
+#   docker compose up -d          # pull the published image and run
 #   open http://localhost:8080/   # complete the first-run setup wizard
 #
 # For the Performance Server (bundled Postgres), add the override:
 #   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# To build from source instead of pulling, uncomment `build: .` below.
 services:
   tagged:
-    build: .
     image: ghcr.io/taggedhq/server:latest
+    # build: .
     ports:
       - "8080:8080"
     volumes:
