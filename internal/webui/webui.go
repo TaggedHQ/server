@@ -33,6 +33,8 @@ func route(reqPath string) string {
 		return "admin.html"
 	case "tags":
 		return "tags.html"
+	case "about":
+		return "about.html"
 	case "impexp":
 		return "impexp.html"
 	default:

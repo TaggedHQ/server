@@ -9,8 +9,17 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Build a fully static binary (both storage backends are pure Go, no cgo).
+# Version and build date are stamped in via ldflags since the container build
+# has no .git. VERSION is passed by the release workflow (git tag); when unset,
+# the default baked into the source is used.
+ARG VERSION
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /tagged .
+RUN V="${VERSION#v}"; \
+    CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-s -w \
+        -X github.com/TaggedHQ/server/internal/server.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+        ${V:+-X github.com/TaggedHQ/server/internal/server.Version=$V}" \
+      -o /tagged .
 
 # ---- runtime stage ---------------------------------------------------------
 # distroless/static is tiny and ships CA certificates (needed for Postgres TLS).

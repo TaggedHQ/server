@@ -122,6 +122,11 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 			return s.getVersion()
 		}
 		return textResp(405, "method not allowed: /version can only be used with GET")
+	case "about":
+		if m == "GET" {
+			return s.aboutHandler()
+		}
+		return textResp(405, "method not allowed: /about can only be used with GET")
 	case "updates":
 		if m == "GET" {
 			return s.getUpdates(req, db)
