@@ -79,7 +79,47 @@
           <div class="week-total"><span>Total</span><span class="wt-val" id="week-total">0h 00m</span></div>
         </div>
 
-        <div>
+        <div class="view-switch-row">
+          <div class="view-switch" id="view-switch" role="tablist" aria-label="View">
+            <button type="button" class="vs-btn" data-view="list" role="tab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+              List
+            </button>
+            <button type="button" class="vs-btn" data-view="timeline" role="tab">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><rect x="4" y="5" width="8" height="4" rx="1"/><rect x="12" y="14" width="8" height="4" rx="1"/></svg>
+              Timeline
+            </button>
+          </div>
+        </div>
+
+        <div class="timeline" id="view-timeline" hidden>
+          <div class="tl-toolbar">
+            <span class="tl-range">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+              <span id="tl-range">—</span>
+            </span>
+            <div class="tl-controls">
+              <button class="secondary btn-sm" id="tl-today" title="Jump to now">Today</button>
+              <div class="tl-group">
+                <button class="icon-btn" id="tl-up" title="Earlier — ↑ / PageUp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg></button>
+                <button class="icon-btn" id="tl-down" title="Later — ↓ / PageDown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+              </div>
+              <div class="tl-group">
+                <button class="icon-btn" id="tl-zoom-out" title="Zoom out — →"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg></button>
+                <button class="icon-btn" id="tl-zoom-in" title="Zoom in — ←"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="tl-wrap" id="tl-wrap" tabindex="0">
+            <div class="tl-canvas" id="tl-canvas"></div>
+          </div>
+          <div class="tl-foot">
+            <span><span class="tl-foot-val" id="tl-visible-total">0h 00m</span> in view</span>
+            <span class="tl-hint">Scroll or ↑ ↓ to pan · ← → to zoom · double-click to add</span>
+          </div>
+        </div>
+
+        <div id="view-list">
           <div class="day-head"><span id="day-title">—</span><span id="day-total">0h 00m</span></div>
           <div class="te-list" id="te-list"></div>
         </div>

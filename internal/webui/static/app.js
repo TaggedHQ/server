@@ -17,6 +17,7 @@ const WEEK_START_KEY = "tagged_web_week_start";
 const WORKDAYS_KEY = "tagged_web_workdays";
 const TIMEZONE_KEY = "tagged_web_timezone";
 const LANGUAGE_KEY = "tagged_web_language";
+const ENTRIES_VIEW_KEY = "tagged_web_entries_view";  // "list" | "timeline"
 
 // User preferences (synced via the settings API). weekStart is a JS weekday
 // index (0=Sun..6=Sat); workdays is a set of those indices.
@@ -571,6 +572,63 @@ async function loadAll() {
   buildTagMeta(ALL);
 }
 
+// ---- Live sync --------------------------------------------------------------
+// The server has no push channel, but /updates?since=<t> is a cheap delta feed:
+// when the database is untouched it returns an empty set after just an mtime
+// check. We poll it and merge only what changed, so other apps' edits show up
+// within a few seconds without re-fetching the whole history.
+let lastSync = 0;          // server_time of our most recent successful sync
+let syncTimer = null;
+
+// mergeRecords upserts incoming records into ALL by key (HIDDEN = removed) and
+// returns whether anything actually changed.
+function mergeRecords(incoming) {
+  let changed = false;
+  const byKey = new Map(ALL.map((r) => [r.key, r]));
+  for (const r of incoming) {
+    if ((r.ds || "").startsWith("HIDDEN")) {
+      if (byKey.delete(r.key)) changed = true;
+      continue;
+    }
+    const ex = byKey.get(r.key);
+    if (!ex || ex.mt !== r.mt || ex.t1 !== r.t1 || ex.t2 !== r.t2 || ex.ds !== r.ds) {
+      byKey.set(r.key, r);
+      changed = true;
+    }
+  }
+  if (changed) { ALL = Array.from(byKey.values()); buildTagMeta(ALL); }
+  return changed;
+}
+
+// syncUpdates pulls the delta since lastSync and invokes onChange() if the local
+// data changed. Errors are swallowed so a transient failure doesn't kill polling.
+async function syncUpdates(onChange) {
+  try {
+    const resp = await apiFetch("updates?since=" + encodeURIComponent(lastSync));
+    if (!resp.ok) return;
+    const d = await resp.json();
+    let changed = false;
+    if (d.reset) {
+      await loadAll();
+      changed = true;
+    } else {
+      changed = mergeRecords(d.records || []);
+      if ((d.settings || []).length) { await loadSettings(); changed = true; }
+    }
+    if (typeof d.server_time === "number") lastSync = d.server_time;
+    if (changed && onChange) onChange();
+  } catch (e) { /* offline / transient: try again next tick */ }
+}
+
+// startAutoSync begins polling for external changes. Safe to call once per page.
+function startAutoSync(onChange, intervalMs = 4000) {
+  if (syncTimer) clearInterval(syncTimer);
+  lastSync = Date.now() / 1000;   // baseline: only care about changes from here on
+  syncTimer = setInterval(() => syncUpdates(onChange), intervalMs);
+  // Catch up right away when the tab regains focus (timers throttle while hidden).
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) syncUpdates(onChange); });
+}
+
 async function initDashboard() {
   await loadSettings();
   try { await loadAll(); } catch (e) { return; }
@@ -912,8 +970,151 @@ function entryCard(r) {
   </div>`;
 }
 
+// ---- Timeline state ---------------------------------------------------------
+// The timeline maps a continuous time window [tlStart, tlStart+tlDur) onto the
+// height of the canvas, so panning/zooming is just arithmetic on these two.
+let tlStart = 0;             // window start, epoch seconds
+let tlDur = 24 * 3600;       // window length, seconds
+const TL_MIN_DUR = 2 * 3600;        // most zoomed-in: 2 hours
+const TL_MAX_DUR = 60 * 86400;      // most zoomed-out: 60 days
+const TL_GUTTER = 58;               // px reserved on the left for time labels
+// Candidate spacings between gridlines (seconds), smallest first.
+const TL_STEPS = [900, 1800, 3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 7 * 86400];
+
+function tlClampDur(d) { return Math.max(TL_MIN_DUR, Math.min(TL_MAX_DUR, d)); }
+
+// "Today" resets both the timeline window and the selected day to now.
+function tlSetToday() {
+  tlDur = 24 * 3600;
+  selDate = midnight(new Date());
+  tlStart = selDate.getTime() / 1000;
+  renderEntriesPage();
+}
+// Shift the window by a fraction of its length. Positive = later (down/forward).
+function tlPan(frac) { tlStart += frac * tlDur; renderTimeline(); }
+// Scale the window around its center. factor<1 zooms in, factor>1 zooms out.
+function tlZoom(factor) {
+  const center = tlStart + tlDur / 2;
+  tlDur = tlClampDur(tlDur * factor);
+  tlStart = center - tlDur / 2;
+  renderTimeline();
+}
+
+// tlRangeTitle describes the visible span (a single day, or a date range).
+function tlRangeTitle(s, e) {
+  const a = new Date(s * 1000), b = new Date((e - 1) * 1000);
+  const sameDay = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay) return `${WEEKDAY_FULL[a.getDay()]}, ${MONTHS[a.getMonth()].slice(0, 3)} ${a.getDate()}`;
+  const mA = MONTHS[a.getMonth()].slice(0, 3), mB = MONTHS[b.getMonth()].slice(0, 3);
+  if (a.getFullYear() === b.getFullYear()) return `${mA} ${a.getDate()} – ${mB} ${b.getDate()}, ${b.getFullYear()}`;
+  return `${mA} ${a.getDate()}, ${a.getFullYear()} – ${mB} ${b.getDate()}, ${b.getFullYear()}`;
+}
+
+// tlFloorToStep rounds an epoch down to the previous gridline boundary, aligned
+// to local midnight so ticks land on clean local times regardless of timezone.
+function tlFloorToStep(epoch, step) {
+  const d = new Date(epoch * 1000);
+  d.setHours(0, 0, 0, 0);
+  const mid = d.getTime() / 1000;
+  if (step >= 86400) return mid;
+  return mid + Math.floor((epoch - mid) / step) * step;
+}
+
+// tlLanes packs overlapping records into side-by-side columns. Records are laid
+// out in clusters of mutual overlap; each gets {lane, cols} within its cluster.
+function tlLanes(recs) {
+  const res = {};
+  for (let i = 0; i < recs.length;) {
+    let end = recs[i].t2;
+    const cluster = [recs[i]];
+    let j = i + 1;
+    for (; j < recs.length && recs[j].t1 < end; j++) { end = Math.max(end, recs[j].t2); cluster.push(recs[j]); }
+    const laneEnds = [];
+    for (const r of cluster) {
+      let lane = laneEnds.findIndex((le) => le <= r.t1);
+      if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+      laneEnds[lane] = r.t2;
+      res[r.key] = { lane };
+    }
+    for (const r of cluster) res[r.key].cols = laneEnds.length;
+    i = j;
+  }
+  return res;
+}
+
 function closeAllMenus() { document.querySelectorAll(".menu-pop.open").forEach((p) => p.classList.remove("open")); }
 
+// renderTimeline draws the timeline for the current [tlStart, tlStart+tlDur)
+// window: hour/day gridlines, a "now" marker, and every record as a positioned
+// block. It is re-run on every pan, zoom, edit, and resize.
+function renderTimeline() {
+  const wrap = document.getElementById("tl-wrap");
+  const canvas = document.getElementById("tl-canvas");
+  if (!wrap || !canvas) return;
+
+  tlDur = tlClampDur(tlDur);
+  const H = Math.max(240, wrap.clientHeight || 480);
+  const tlEnd = tlStart + tlDur;
+  const pxPerSec = H / tlDur;
+  canvas.style.height = H + "px";
+  document.getElementById("tl-range").textContent = tlRangeTitle(tlStart, tlEnd);
+
+  // Gridlines: pick the smallest tick spacing that stays at least ~44px apart.
+  let step = TL_STEPS[TL_STEPS.length - 1];
+  for (const s of TL_STEPS) { if (s * pxPerSec >= 44) { step = s; break; } }
+  let grid = "";
+  for (let t = tlFloorToStep(tlStart, step); t <= tlEnd; t += step) {
+    if (t < tlStart) continue;
+    const y = (t - tlStart) * pxPerSec;
+    const d = new Date(t * 1000);
+    const isDay = d.getHours() === 0 && d.getMinutes() === 0;
+    let label;
+    if (step >= 86400) label = `${DOW_BY_DAY[d.getDay()]} ${d.getDate()}`;
+    else if (isDay) label = `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+    else label = pad(d.getHours()) + ":" + pad(d.getMinutes());
+    grid += `<div class="tl-grid${isDay || step >= 86400 ? " day" : ""}" style="top:${y}px"><span class="tl-grid-label">${label}</span></div>`;
+  }
+
+  const nowSec = Date.now() / 1000;
+  if (nowSec >= tlStart && nowSec <= tlEnd) {
+    grid += `<div class="tl-now" style="top:${(nowSec - tlStart) * pxPerSec}px"></div>`;
+  }
+
+  // Blocks: every record overlapping the window, packed into overlap columns.
+  const vis = ALL.filter((r) => r.t2 > tlStart && r.t1 < tlEnd && r.t2 > r.t1).sort((a, b) => a.t1 - b.t1);
+  const lanes = tlLanes(vis);
+  let visibleTotal = 0;
+  let blocks = "";
+  for (const r of vis) {
+    visibleTotal += Math.min(r.t2, tlEnd) - Math.max(r.t1, tlStart);
+    const top = (r.t1 - tlStart) * pxPerSec;
+    const height = Math.max(2, recDur(r) * pxPerSec);
+    const { lane, cols } = lanes[r.key];
+    const w = 100 / cols;
+    const tags = allTagsOf(r.ds);
+    const color = tags.length ? colorFor(tags[0].slice(1).toLowerCase()) : "var(--accent)";
+    const descText = (r.ds || "").replace(RE_TAG_G, "").trim();
+    const label = descText || "No description";
+    blocks += `<div class="tl-block${height < 30 ? " sm" : ""}${descText ? "" : " none"}" data-key="${escapeHtml(r.key)}"
+        title="${escapeHtml(clock(r.t1) + "–" + clock(r.t2) + "  " + label)}"
+        style="top:${top}px;height:${height}px;left:${lane * w}%;width:${w}%;--tl-c:${color}">
+      <div class="tl-block-body"><span class="tl-block-dur">${fmtHM(recDur(r))}</span><span class="tl-block-desc">${escapeHtml(label)}</span></div>
+    </div>`;
+  }
+  const empty = vis.length ? "" : '<div class="tl-empty">No entries in this range.</div>';
+
+  canvas.innerHTML = grid + empty + `<div class="tl-lanes">${blocks}</div>`;
+  document.getElementById("tl-visible-total").textContent = fmtHM(visibleTotal);
+
+  canvas.querySelectorAll(".tl-block").forEach((el) => el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const r = ALL.find((x) => x.key === el.dataset.key);
+    if (r) openEntryModal(r);
+  }));
+}
+
+// renderEntriesPage redraws the whole page: the week strip, the day list for
+// the selected day, and the timeline. Called after any data change.
 function renderEntriesPage() {
   const wStart = weekStartOf(selDate);
   document.getElementById("week-title").textContent = weekTitle(wStart);
@@ -934,6 +1135,7 @@ function renderEntriesPage() {
   daysEl.innerHTML = cells.join("");
   daysEl.querySelectorAll(".wday").forEach((el) => el.addEventListener("click", () => {
     selDate = midnight(addDays(wStart, Number(el.dataset.i)));
+    tlStart = selDate.getTime() / 1000;  // scroll the timeline to the picked day
     renderEntriesPage();
   }));
   document.getElementById("week-total").textContent = fmtHM(weekTotal);
@@ -975,6 +1177,8 @@ function renderEntriesPage() {
     const r = ALL.find((x) => x.key === card.dataset.key);
     if (r) openEntryModal(r);
   }));
+
+  renderTimeline();
 }
 
 // ---- Entry editor modal -----------------------------------------------------
@@ -1068,7 +1272,7 @@ function addEmTag(raw) {
   renderEmTags();
 }
 
-function openEntryModal(rec) {
+function openEntryModal(rec, preset) {
   emKey = rec ? rec.key : null;
   emAdding = false;
   document.getElementById("em-add-wrap").hidden = true;
@@ -1081,6 +1285,7 @@ function openEntryModal(rec) {
 
   let t1, t2;
   if (rec) { t1 = rec.t1; t2 = rec.t2; }
+  else if (preset) { t1 = preset.t1; t2 = preset.t2 || t1 + 1800; }
   else {
     const base = new Date(selDate);
     const now = new Date();
@@ -1452,14 +1657,80 @@ function wireReportModal() {
 async function initEntries() {
   await loadSettings();
   try { await loadAll(); } catch (e) { return; }
-  document.getElementById("week-prev").addEventListener("click", () => { selDate = midnight(addDays(selDate, -7)); renderEntriesPage(); });
-  document.getElementById("week-next").addEventListener("click", () => { selDate = midnight(addDays(selDate, 7)); renderEntriesPage(); });
+
+  // Start the timeline on the selected day (today), showing a full 24 hours.
+  tlDur = 24 * 3600;
+  tlStart = midnight(selDate).getTime() / 1000;
+
+  document.getElementById("week-prev").addEventListener("click", () => { selDate = midnight(addDays(selDate, -7)); tlStart = selDate.getTime() / 1000; renderEntriesPage(); });
+  document.getElementById("week-next").addEventListener("click", () => { selDate = midnight(addDays(selDate, 7)); tlStart = selDate.getTime() / 1000; renderEntriesPage(); });
   document.getElementById("new-entry").addEventListener("click", () => openEntryModal(null));
   document.getElementById("open-report").addEventListener("click", openReportModal);
+
+  // Timeline controls.
+  document.getElementById("tl-today").addEventListener("click", tlSetToday);
+  document.getElementById("tl-up").addEventListener("click", () => tlPan(-0.2));
+  document.getElementById("tl-down").addEventListener("click", () => tlPan(0.2));
+  document.getElementById("tl-zoom-in").addEventListener("click", () => tlZoom(1 / 1.4));
+  document.getElementById("tl-zoom-out").addEventListener("click", () => tlZoom(1.4));
+
+  // Keyboard: ↑/PageUp earlier, ↓/PageDown later, ←/→ zoom in/out.
+  const wrap = document.getElementById("tl-wrap");
+  wrap.addEventListener("keydown", (e) => {
+    switch (e.key) {
+      case "ArrowUp": case "PageUp": tlPan(-0.2); break;
+      case "ArrowDown": case "PageDown": tlPan(0.2); break;
+      case "ArrowLeft": tlZoom(1 / 1.4); break;
+      case "ArrowRight": tlZoom(1.4); break;
+      default: return;
+    }
+    e.preventDefault();
+  });
+  // Mouse wheel over the timeline pans; Ctrl/Cmd + wheel zooms.
+  wrap.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) tlZoom(e.deltaY > 0 ? 1.15 : 1 / 1.15);
+    else tlPan((e.deltaY > 0 ? 1 : -1) * 0.12);
+  }, { passive: false });
+  // Double-click an empty spot to add an entry starting at that time.
+  document.getElementById("tl-canvas").addEventListener("dblclick", (e) => {
+    if (e.target.closest(".tl-block")) return;
+    const rect = wrap.getBoundingClientRect();
+    const frac = (e.clientY - rect.top) / Math.max(1, rect.height);
+    let t1 = Math.round((tlStart + frac * tlDur) / 300) * 300;  // snap to 5 min
+    openEntryModal(null, { t1, t2: t1 + 1800 });
+  });
+  window.addEventListener("resize", renderTimeline);
+
+  // View switch: show either the list or the timeline (week strip stays in both).
+  const savedView = localStorage.getItem(ENTRIES_VIEW_KEY) === "list" ? "list" : "timeline";
+  document.getElementById("view-switch").querySelectorAll(".vs-btn").forEach((b) => {
+    b.addEventListener("click", () => setEntriesView(b.dataset.view));
+  });
+  setEntriesView(savedView);
+
   wireEntryModal();
   wireReportModal();
   document.addEventListener("click", closeAllMenus);
   renderEntriesPage();
+
+  // Reflect entries created by other apps/tabs within a few seconds.
+  startAutoSync(renderEntriesPage);
+}
+
+// setEntriesView switches between the list and timeline views and remembers the
+// choice. The timeline is re-rendered when shown so it can measure its height
+// (a hidden element reports zero).
+function setEntriesView(view) {
+  document.getElementById("view-list").hidden = view !== "list";
+  document.getElementById("view-timeline").hidden = view !== "timeline";
+  document.getElementById("view-switch").querySelectorAll(".vs-btn").forEach((b) => {
+    const on = b.dataset.view === view;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  localStorage.setItem(ENTRIES_VIEW_KEY, view);
+  if (view === "timeline") renderTimeline();
 }
 
 // ---- Admin: user management -------------------------------------------------
