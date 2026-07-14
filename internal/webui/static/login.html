@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Log in · Tagged</title>
   <link rel="stylesheet" href="{{PREFIX}}style.css">
-  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{PREFIX}}images/favicon_light/favicon-32x32.png">
   <script>window.TT_PREFIX = "{{PREFIX}}";</script>
 </head>
 <body>
@@ -23,6 +23,10 @@
         <input id="password" type="password" autocomplete="current-password" required>
         <button class="block" type="submit">Log in</button>
       </form>
+      <button class="block secondary" id="passkey-login" type="button" hidden>
+        <svg class="oauth-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>
+        Sign in with a passkey
+      </button>
       <form id="mfa-form" hidden>
         <label for="mfa-code">Authentication code</label>
         <input id="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code or backup code" required>

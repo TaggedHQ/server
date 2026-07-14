@@ -85,6 +85,16 @@ func (s *Server) apiHandler(r *http.Request, path string) response {
 	if strings.HasPrefix(path, "oauth/callback/") {
 		return s.oauthCallbackHandler(req, strings.TrimPrefix(path, "oauth/callback/"))
 	}
+	// Passwordless passkey sign-in is unauthenticated (it establishes identity).
+	if path == "webauthn/login/begin" || path == "webauthn/login/finish" {
+		if req.method() != "POST" {
+			return textResp(405, "method not allowed: /"+path+" can only be used with POST")
+		}
+		if path == "webauthn/login/begin" {
+			return s.webauthnLoginBegin(req)
+		}
+		return s.webauthnLoginFinish(req)
+	}
 
 	authInfo, db, err := s.authenticate(req)
 	if err != nil {
@@ -205,6 +215,9 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 		if !isWebtoken(authInfo) {
 			return textResp(403, "forbidden: /"+path+" needs auth with a web-token")
 		}
+		if !hasPassword(db) {
+			return textResp(403, "forbidden: two-factor authentication is only available for password accounts")
+		}
 		switch path {
 		case "totp/setup":
 			return s.totpSetup(authInfo, db)
@@ -213,9 +226,42 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 		default:
 			return s.totpDisable(req, db)
 		}
+	case "webauthn/register/begin", "webauthn/register/finish", "webauthn/credentials":
+		return s.webauthnAuthedRoute(req, path, authInfo, username, db)
 	default:
 		return textResp(404, "not found: /"+path+" is not a valid API path")
 	}
+}
+
+// webauthnAuthedRoute handles the authenticated passkey-management endpoints.
+// All require a web-token; registration additionally requires a password account
+// (enforced inside the handlers).
+func (s *Server) webauthnAuthedRoute(req *request, path string, authInfo map[string]any, username string, db store.UserDB) response {
+	if !isWebtoken(authInfo) {
+		return textResp(403, "forbidden: /"+path+" needs auth with a web-token")
+	}
+	m := req.method()
+	switch path {
+	case "webauthn/register/begin":
+		if m != "POST" {
+			return textResp(405, "method not allowed: /"+path+" can only be used with POST")
+		}
+		return s.webauthnRegisterBegin(req, username, db)
+	case "webauthn/register/finish":
+		if m != "POST" {
+			return textResp(405, "method not allowed: /"+path+" can only be used with POST")
+		}
+		return s.webauthnRegisterFinish(req, username, db)
+	case "webauthn/credentials":
+		switch m {
+		case "GET":
+			return s.webauthnListCredentials(db)
+		case "DELETE":
+			return s.webauthnDeleteCredential(req, db)
+		}
+		return textResp(405, "method not allowed: /webauthn/credentials can only be used with GET and DELETE")
+	}
+	return textResp(404, "not found")
 }
 
 // isDataPath reports whether path is a data-plane route whose db may be swapped

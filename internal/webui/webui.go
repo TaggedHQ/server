@@ -83,6 +83,12 @@ func contentType(name string) string {
 		return "application/json"
 	case ".svg":
 		return "image/svg+xml"
+	case ".png":
+		return "image/png"
+	case ".ico":
+		return "image/x-icon"
+	case ".webmanifest":
+		return "application/manifest+json"
 	case ".ttf":
 		return "font/ttf"
 	case ".woff":

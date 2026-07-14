@@ -413,6 +413,14 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 #oauth-callback-base { background: var(--surface-raised); padding: 1px 6px; border-radius: 6px; }
 @media (max-width: 640px) { .oauth-grid { grid-template-columns: 1fr; } }
 
+/* Passkeys (Account page). */
+.passkey-list { display: flex; flex-direction: column; gap: 8px; }
+.passkey-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--stroke); border-radius: 10px; }
+.passkey-meta { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.passkey-meta svg { width: 18px; height: 18px; color: var(--accent); flex: 0 0 auto; }
+.passkey-label { font-size: 0.88rem; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.passkey-added { font-size: 0.75rem; color: var(--text-3); flex: 0 0 auto; }
+
 .side-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--stroke); display: flex; align-items: center; gap: 8px; }
 .side-user { display: flex; align-items: center; gap: 10px; flex: 1; padding: 6px; border-radius: 10px; color: var(--text-1); text-decoration: none; min-width: 0; }
 .side-user:hover { background: var(--surface-raised); text-decoration: none; }

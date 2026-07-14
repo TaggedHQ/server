@@ -307,17 +307,108 @@ async function loadOAuthButtons() {
   } catch (e) { /* ignore */ }
 }
 
+// ---- WebAuthn / passkeys ----------------------------------------------------
+
+// WebAuthn transfers binary values as base64url strings; the browser API wants
+// ArrayBuffers. These helpers convert between the two.
+function b64urlToBuf(s) {
+  s = String(s).replace(/-/g, "+").replace(/_/g, "/");
+  const pad = s.length % 4 ? "=".repeat(4 - (s.length % 4)) : "";
+  const bin = atob(s + pad);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+function bufToB64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// prepCreationOptions / prepRequestOptions decode the base64url fields of the
+// server's options into ArrayBuffers for navigator.credentials.
+function prepCreationOptions(o) {
+  o.challenge = b64urlToBuf(o.challenge);
+  o.user.id = b64urlToBuf(o.user.id);
+  (o.excludeCredentials || []).forEach((c) => { c.id = b64urlToBuf(c.id); });
+  return o;
+}
+function prepRequestOptions(o) {
+  o.challenge = b64urlToBuf(o.challenge);
+  (o.allowCredentials || []).forEach((c) => { c.id = b64urlToBuf(c.id); });
+  return o;
+}
+
+// credToJSON serializes a PublicKeyCredential (registration or assertion) into
+// the base64url JSON the server parses.
+function credToJSON(cred) {
+  const r = cred.response;
+  const out = { id: cred.id, rawId: bufToB64url(cred.rawId), type: cred.type, response: {} };
+  if (cred.authenticatorAttachment) out.authenticatorAttachment = cred.authenticatorAttachment;
+  if (r.attestationObject !== undefined) { // registration
+    out.response.attestationObject = bufToB64url(r.attestationObject);
+    out.response.clientDataJSON = bufToB64url(r.clientDataJSON);
+    if (typeof r.getTransports === "function") {
+      try { out.response.transports = r.getTransports(); } catch (e) { /* ignore */ }
+    }
+  } else { // assertion
+    out.response.authenticatorData = bufToB64url(r.authenticatorData);
+    out.response.clientDataJSON = bufToB64url(r.clientDataJSON);
+    out.response.signature = bufToB64url(r.signature);
+    out.response.userHandle = r.userHandle ? bufToB64url(r.userHandle) : null;
+  }
+  return out;
+}
+
+// passkeyLogin runs the passwordless assertion flow for username and, on success,
+// stores the session and redirects to the app.
+async function passkeyLogin(username, msg, finish) {
+  if (!window.PublicKeyCredential) { showMsg(msg, "This browser does not support passkeys", "error"); return; }
+  showMsg(msg, "Waiting for your passkey…", "");
+  let options;
+  try {
+    const r = await fetch(API + "webauthn/login/begin", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username }),
+    });
+    if (!r.ok) { showMsg(msg, (await r.text()) || "No passkey for this account", "error"); return; }
+    options = prepRequestOptions((await r.json()).publicKey);
+  } catch (e) { showMsg(msg, "Network error", "error"); return; }
+  let assertion;
+  try { assertion = await navigator.credentials.get({ publicKey: options }); }
+  catch (e) { showMsg(msg, "Passkey sign-in was cancelled", "error"); return; }
+  try {
+    const r = await fetch(API + "webauthn/login/finish", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credToJSON(assertion)),
+    });
+    if (!r.ok) { showMsg(msg, (await r.text()) || "Passkey verification failed", "error"); return; }
+    const d = await r.json();
+    finish(d.token, d.username);
+  } catch (e) { showMsg(msg, "Network error", "error"); }
+}
+
 function initLogin() {
   const form = document.getElementById("login-form");
   const mfaForm = document.getElementById("mfa-form");
   const msg = document.getElementById("msg");
   const alt = document.getElementById("login-alt");
+  const passkeyBtn = document.getElementById("passkey-login");
   let creds = null; // {username, password} held between the two login steps
 
   // OAuth handoff: the provider callback redirects back here with the web-token
   // in the URL fragment (never sent to the server / logs), or an error message.
   if (handleOAuthFragment(msg)) return;
   loadOAuthButtons();
+
+  // Offer passkey sign-in when the browser supports WebAuthn.
+  if (passkeyBtn && window.PublicKeyCredential) {
+    passkeyBtn.hidden = false;
+    passkeyBtn.addEventListener("click", () => {
+      const username = document.getElementById("username").value.trim();
+      if (!username) { showMsg(msg, "Enter your username first", "error"); document.getElementById("username").focus(); return; }
+      passkeyLogin(username, msg, finish);
+    });
+  }
 
   // First run (no accounts yet): send the operator to the setup wizard. Also
   // hide the "create one" link when self-registration is disabled.
@@ -350,6 +441,7 @@ function initLogin() {
       if (data.mfa_required) {
         creds = { username, password };
         form.hidden = true; alt.hidden = true; mfaForm.hidden = false;
+        if (passkeyBtn) passkeyBtn.hidden = true;
         showMsg(msg, "Enter the code from your authenticator app.", "");
         document.getElementById("mfa-code").focus();
         return;
@@ -376,6 +468,7 @@ function initLogin() {
     e.preventDefault();
     creds = null;
     mfaForm.hidden = true; form.hidden = false; alt.hidden = false;
+    if (passkeyBtn && window.PublicKeyCredential) passkeyBtn.hidden = false;
     document.getElementById("mfa-code").value = "";
     showMsg(msg, "", "");
   });
@@ -895,8 +988,111 @@ async function initAccount() {
   });
 
   initTokenSection();
-  initMfaSection();
+  await initSecuritySections();
   document.getElementById("logout2").addEventListener("click", logout);
+}
+
+// initSecuritySections shows the two-factor and passkey panels only for password
+// ("non-OAuth") accounts; OAuth-only accounts see a short explanatory note.
+async function initSecuritySections() {
+  let hasPassword = true;
+  try { hasPassword = !!(await (await apiFetch("whoami")).json()).has_password; } catch (e) { /* assume password */ }
+  const mfaPanel = document.getElementById("panel-mfa");
+  const pkPanel = document.getElementById("panel-passkeys");
+  const note = document.getElementById("security-oauth-note");
+  if (!hasPassword) {
+    if (note) note.hidden = false;
+    return;
+  }
+  if (mfaPanel) mfaPanel.hidden = false;
+  if (pkPanel) pkPanel.hidden = false;
+  initMfaSection();
+  initPasskeys();
+}
+
+// initPasskeys wires the passkey management panel: list, add (register), remove.
+function initPasskeys() {
+  const listEl = document.getElementById("passkey-list");
+  const msg = document.getElementById("passkey-msg");
+  const addBtn = document.getElementById("passkey-add");
+  if (!addBtn) return;
+  if (!window.PublicKeyCredential) {
+    addBtn.disabled = true;
+    showMsg(msg, "This browser does not support passkeys.", "");
+    return;
+  }
+
+  function fmtDate(sec) {
+    if (!sec) return "";
+    const d = new Date(sec * 1000);
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function render(creds) {
+    if (!creds.length) {
+      listEl.innerHTML = '<div class="hint">No passkeys yet.</div>';
+      return;
+    }
+    listEl.innerHTML = creds.map((c) => `
+      <div class="passkey-row" data-id="${escapeHtml(c.id)}">
+        <div class="passkey-meta">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>
+          <span class="passkey-label">${escapeHtml(c.label || "Passkey")}</span>
+          <span class="passkey-added">Added ${escapeHtml(fmtDate(c.added))}</span>
+        </div>
+        <button class="danger-btn btn-sm passkey-remove" type="button">Remove</button>
+      </div>`).join("");
+    listEl.querySelectorAll(".passkey-remove").forEach((b) => {
+      b.addEventListener("click", () => remove(b.closest(".passkey-row").dataset.id));
+    });
+  }
+
+  async function load() {
+    try {
+      const r = await apiFetch("webauthn/credentials");
+      if (!r.ok) { showMsg(msg, "Could not load passkeys", "error"); return; }
+      render((await r.json()).credentials || []);
+    } catch (e) { showMsg(msg, "Could not load passkeys", "error"); }
+  }
+
+  async function add() {
+    const label = (prompt("Name this passkey (e.g. “MacBook Touch ID”):", "Passkey") || "").trim();
+    if (label === "") return; // cancelled
+    showMsg(msg, "Follow your device's prompt…", "");
+    let options;
+    try {
+      const r = await apiFetch("webauthn/register/begin", { method: "POST" });
+      if (!r.ok) { showMsg(msg, (await r.text()) || "Could not start registration", "error"); return; }
+      options = prepCreationOptions((await r.json()).publicKey);
+    } catch (e) { showMsg(msg, "Network error", "error"); return; }
+    let cred;
+    try { cred = await navigator.credentials.create({ publicKey: options }); }
+    catch (e) { showMsg(msg, "Passkey setup was cancelled", "error"); return; }
+    try {
+      const r = await apiFetch("webauthn/register/finish", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: credToJSON(cred), label }),
+      });
+      if (!r.ok) { showMsg(msg, (await r.text()) || "Could not save passkey", "error"); return; }
+      render((await r.json()).credentials || []);
+      showMsg(msg, "Passkey added", "ok");
+    } catch (e) { showMsg(msg, "Network error", "error"); }
+  }
+
+  async function remove(id) {
+    if (!confirm("Remove this passkey? It can no longer be used to sign in.")) return;
+    try {
+      const r = await apiFetch("webauthn/credentials", {
+        method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+      });
+      if (!r.ok) { showMsg(msg, (await r.text()) || "Could not remove passkey", "error"); return; }
+      render((await r.json()).credentials || []);
+      showMsg(msg, "Passkey removed", "ok");
+    } catch (e) { showMsg(msg, "Network error", "error"); }
+  }
+
+  addBtn.addEventListener("click", add);
+  load();
 }
 
 // initMfaSection wires the two-factor (TOTP) panel: enable via QR + code, show
@@ -2807,6 +3003,34 @@ async function initOAuth() {
       showMsg(msg, "Saved. Enabled providers now appear on the login page.", "ok");
     } catch (e) { showMsg(msg, "Network error", "error"); }
   });
+}
+
+// ---- Theme-aware favicon ----------------------------------------------------
+
+// applyFavicon selects the light or dark favicon set from the browser's color
+// scheme, replacing any existing icon links. Runs immediately (the script tag is
+// at the end of <body>, so document.head already exists) and again whenever the
+// OS/browser theme changes, so the tab icon updates live without a reload.
+function applyFavicon() {
+  if (!window.matchMedia) return;
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const base = PREFIX + "images/" + (dark ? "favicon_dark" : "favicon_light") + "/";
+  document.querySelectorAll('link[rel~="icon"], link[rel="apple-touch-icon"]').forEach((l) => l.remove());
+  const add = (rel, href, type, sizes) => {
+    const l = document.createElement("link");
+    l.rel = rel; l.href = href;
+    if (type) l.type = type;
+    if (sizes) l.sizes = sizes;
+    document.head.appendChild(l);
+  };
+  add("icon", base + "favicon-32x32.png", "image/png", "32x32");
+  add("icon", base + "favicon-16x16.png", "image/png", "16x16");
+  add("icon", base + "favicon.ico", "image/x-icon");
+  add("apple-touch-icon", base + "apple-touch-icon.png");
+}
+applyFavicon();
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyFavicon);
 }
 
 document.addEventListener("DOMContentLoaded", () => {

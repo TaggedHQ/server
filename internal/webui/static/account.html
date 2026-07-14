@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tagged · Account</title>
   <link rel="stylesheet" href="{{PREFIX}}style.css">
-  <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{PREFIX}}images/favicon_light/favicon-32x32.png">
   <script>window.TT_PREFIX = "{{PREFIX}}";</script>
 </head>
 <body>
@@ -157,7 +157,12 @@
           <div id="pw-msg" class="msg"></div>
         </div>
 
-        <div class="panel">
+        <div class="panel" id="security-oauth-note" hidden>
+          <div class="panel-head"><h3>Two-factor authentication &amp; passkeys</h3></div>
+          <p class="hint">This account signs in with an external identity provider, which manages its own security. Set a password above to enable two-factor authentication and passkeys here.</p>
+        </div>
+
+        <div class="panel" id="panel-mfa" hidden>
           <div class="panel-head"><h3>Two-factor authentication</h3></div>
           <p class="hint">Add a second step at login using a time-based code from an authenticator app (1Password, Google Authenticator, Authy…).</p>
 
@@ -189,6 +194,16 @@
           </div>
 
           <div id="mfa-msg" class="msg"></div>
+        </div>
+
+        <div class="panel" id="panel-passkeys" hidden>
+          <div class="panel-head"><h3>Passkeys</h3></div>
+          <p class="hint">Sign in without a password using Face&nbsp;ID, Touch&nbsp;ID, Windows&nbsp;Hello, or a hardware security key. You can register more than one.</p>
+          <div id="passkey-list" class="passkey-list"></div>
+          <div class="token-actions" style="margin-top:12px">
+            <button class="btn-sm" id="passkey-add" type="button">Add a passkey</button>
+          </div>
+          <div id="passkey-msg" class="msg"></div>
         </div>
 
         <div class="panel">

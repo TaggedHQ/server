@@ -39,8 +39,10 @@ func (s *Server) whoamiHandler(username string, db store.UserDB) response {
 		"username":               username,
 		"is_admin":               s.isAdmin(username, db),
 		"is_controller":          s.isController(username, db),
+		"has_password":           hasPassword(db),
 		"totp_enabled":           totpEnabled(db),
 		"backup_codes_remaining": len(backupHashes(db)),
+		"passkeys":               len(storedCredentials(db)),
 	})
 }
 

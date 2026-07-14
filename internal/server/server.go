@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.1.5"
+var Version = "0.1.6"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
