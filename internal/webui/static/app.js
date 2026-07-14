@@ -5,6 +5,7 @@ const PREFIX = window.TT_PREFIX || "/";
 const API = PREFIX + "api/v2/";
 const TOKEN_KEY = "tt_webtoken";
 const USER_KEY = "tt_username";
+const ACTAS_KEY = "tt_actas"; // controller: username currently being viewed ("" = self)
 
 // Categorical palette for tags (matches the macOS app's accent-first scheme).
 const PALETTE = ["#DEAA22", "#4C82F7", "#2FB79E", "#E5484D", "#E9913C", "#3BA55D", "#EB459E", "#5865F2"];
@@ -48,7 +49,10 @@ function setSession(token, username) {
 function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(ACTAS_KEY);
 }
+// getActAs returns the username a controller is currently viewing, or "" for self.
+function getActAs() { return localStorage.getItem(ACTAS_KEY) || ""; }
 function logout() { clearSession(); location.href = PREFIX + "login"; }
 
 function showMsg(el, text, kind) {
@@ -60,6 +64,8 @@ async function apiFetch(path, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   const token = getToken();
   if (token) headers["authtoken"] = token;
+  const actas = getActAs();
+  if (actas) headers["actasuser"] = actas;
   const resp = await fetch(API + path, Object.assign({}, opts, { headers }));
   if (resp.status === 401) { logout(); throw new Error("unauthorized"); }
   return resp;
@@ -234,6 +240,73 @@ async function initSetup() {
   });
 }
 
+// handleOAuthFragment consumes a "#token=…&user=…" (success) or "#oauth_error=…"
+// fragment left by the OAuth callback redirect. Returns true when it took over
+// the page (a successful sign-in redirect), so the caller stops initializing.
+function handleOAuthFragment(msg) {
+  const hash = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+  if (!hash) return false;
+  const p = new URLSearchParams(hash);
+  const token = p.get("token");
+  const err = p.get("oauth_error");
+  // Clear the fragment so a reload / bookmark doesn't replay it.
+  history.replaceState(null, "", location.pathname + location.search);
+  if (token) {
+    setSession(token, p.get("user") || "");
+    location.href = PREFIX;
+    return true;
+  }
+  if (err && msg) showMsg(msg, err, "error");
+  return false;
+}
+
+// oauthIcon returns an inline brand SVG for a provider id, falling back to a
+// generic key glyph. Brand marks keep their own colors; the fallback uses
+// currentColor so it inherits the button text color.
+function oauthIcon(id) {
+  switch ((id || "").toLowerCase()) {
+    case "google":
+      return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
+        '<path fill="#4285F4" d="M23.52 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.57-5.17 3.57-8.87z"/>' +
+        '<path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.91l-3.88-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.28v3.09A12 12 0 0 0 12 24z"/>' +
+        '<path fill="#FBBC05" d="M5.27 14.29a7.2 7.2 0 0 1 0-4.58V6.62H1.28a12 12 0 0 0 0 10.76l3.99-3.09z"/>' +
+        '<path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.23 0 12 0A12 12 0 0 0 1.28 6.62l3.99 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>';
+    case "github":
+      return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.94c.58.1.79-.25.79-.56v-1.95c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.3-1.7-1.3-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.73-1.56-2.56-.29-5.26-1.28-5.26-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.4-5.28 5.69.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>';
+    default:
+      return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>';
+  }
+}
+
+// loadOAuthButtons fetches the enabled providers and renders a "Continue with …"
+// button for each, which starts the flow via the server redirect endpoint.
+async function loadOAuthButtons() {
+  const section = document.getElementById("oauth-section");
+  const host = document.getElementById("oauth-buttons");
+  if (!section || !host) return;
+  try {
+    const r = await fetch(API + "oauth/providers");
+    if (!r.ok) return;
+    const providers = (await r.json()).providers || [];
+    if (!providers.length) return;
+    host.innerHTML = "";
+    for (const p of providers) {
+      const a = document.createElement("a");
+      a.className = "oauth-btn";
+      a.href = API + "oauth/login/" + encodeURIComponent(p.id);
+      const ic = document.createElement("span");
+      ic.className = "oauth-ic";
+      ic.innerHTML = oauthIcon(p.id);
+      const label = document.createElement("span");
+      label.textContent = "Continue with " + p.name;
+      a.appendChild(ic);
+      a.appendChild(label);
+      host.appendChild(a);
+    }
+    section.hidden = false;
+  } catch (e) { /* ignore */ }
+}
+
 function initLogin() {
   const form = document.getElementById("login-form");
   const mfaForm = document.getElementById("mfa-form");
@@ -241,10 +314,20 @@ function initLogin() {
   const alt = document.getElementById("login-alt");
   let creds = null; // {username, password} held between the two login steps
 
-  // First run (no accounts yet): send the operator to the setup wizard.
+  // OAuth handoff: the provider callback redirects back here with the web-token
+  // in the URL fragment (never sent to the server / logs), or an error message.
+  if (handleOAuthFragment(msg)) return;
+  loadOAuthButtons();
+
+  // First run (no accounts yet): send the operator to the setup wizard. Also
+  // hide the "create one" link when self-registration is disabled.
   fetch(API + "setup_status")
     .then((r) => (r.ok ? r.json() : null))
-    .then((d) => { if (d && d.setup_required) location.href = PREFIX + "setup"; })
+    .then((d) => {
+      if (!d) return;
+      if (d.setup_required) { location.href = PREFIX + "setup"; return; }
+      if (d.registration_open === false && alt) alt.style.display = "none";
+    })
     .catch(() => {});
 
   async function authenticate(username, password, totp) {
@@ -301,6 +384,18 @@ function initLogin() {
 function initRegister() {
   const form = document.getElementById("register-form");
   const msg = document.getElementById("msg");
+
+  // Reflect the server's self-registration switch: disable the form when closed.
+  fetch(API + "setup_status")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (d && d.registration_open === false) {
+        form.querySelectorAll("input, button").forEach((el) => { el.disabled = true; });
+        showMsg(msg, "Self-registration is disabled on this server.", "error");
+      }
+    })
+    .catch(() => {});
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const username = document.getElementById("username").value.trim();
@@ -330,20 +425,82 @@ function fillSidebar() {
   if (avEl) avEl.textContent = (user[0] || "?").toUpperCase();
   const lo = document.getElementById("logout");
   if (lo) lo.addEventListener("click", logout);
-  revealAdmin();
+  revealChrome();
 }
 
-// revealAdmin shows the Admin nav item only for admin users.
-async function revealAdmin() {
-  const na = document.getElementById("nav-admin");
-  if (!na) return;
+// revealChrome makes one whoami call to reveal role-specific UI: the Admin nav
+// section for admins, and the user switcher for controllers.
+async function revealChrome() {
   try {
     const r = await apiFetch("whoami");
     if (!r.ok) return;
     const d = await r.json();
-    if (d.is_admin && !na.classList.contains("active")) na.style.display = "flex";
     window.TT_IS_ADMIN = !!d.is_admin;
+    window.TT_IS_CONTROLLER = !!d.is_controller;
+    // The Admin section is hidden by default on non-admin pages; reveal it (falls
+    // back to the .nav-section stylesheet display) only for admins.
+    const na = document.getElementById("nav-admin");
+    if (na && d.is_admin) na.style.display = "";
+    if (d.is_controller) setupSwitcher();
   } catch (e) { /* ignore */ }
+}
+
+// setupSwitcher builds the controller's "view as user" dropdown in the sidebar
+// and, when a target is active, an impersonation banner atop the content area.
+async function setupSwitcher() {
+  const sidebar = document.querySelector(".sidebar");
+  if (!sidebar || document.getElementById("tt-switcher")) return;
+
+  let users = [];
+  try {
+    const r = await apiFetch("controller/users");
+    if (r.ok) users = (await r.json()).users || [];
+  } catch (e) { /* ignore */ }
+
+  const current = getActAs();
+  const wrap = document.createElement("div");
+  wrap.className = "switcher";
+  const opts = ['<option value="">You</option>']
+    .concat(users.map((u) => `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`))
+    .join("");
+  wrap.innerHTML = `<label class="switcher-label">View as</label>
+    <select id="tt-switcher" class="switcher-select">${opts}</select>`;
+  const nav = sidebar.querySelector(".nav");
+  if (nav) sidebar.insertBefore(wrap, nav); else sidebar.appendChild(wrap);
+
+  const sel = wrap.querySelector("#tt-switcher");
+  // If the stored target is no longer switchable, fall back to self.
+  if (current && !users.some((u) => u.username === current)) {
+    localStorage.removeItem(ACTAS_KEY);
+  } else {
+    sel.value = current;
+  }
+  sel.addEventListener("change", () => {
+    const v = sel.value;
+    if (v) localStorage.setItem(ACTAS_KEY, v); else localStorage.removeItem(ACTAS_KEY);
+    location.reload();
+  });
+
+  renderActAsBanner();
+}
+
+// renderActAsBanner shows a bar at the top of the content when viewing another
+// user's data, with an Exit control that returns to the controller's own data.
+function renderActAsBanner() {
+  const target = getActAs();
+  if (!target) return;
+  const content = document.querySelector(".content");
+  if (!content || document.getElementById("actas-banner")) return;
+  const bar = document.createElement("div");
+  bar.id = "actas-banner";
+  bar.className = "actas-banner";
+  bar.innerHTML = `<span>Viewing <strong>${escapeHtml(target)}</strong>'s data</span>
+    <button type="button" id="actas-exit" class="actas-exit">Exit</button>`;
+  content.insertBefore(bar, content.firstChild);
+  bar.querySelector("#actas-exit").addEventListener("click", () => {
+    localStorage.removeItem(ACTAS_KEY);
+    location.reload();
+  });
 }
 
 // ---- Settings (goals) -------------------------------------------------------
@@ -1763,17 +1920,25 @@ async function loadUsers() {
     const isSelf = u.username === me;
     const uAttr = escapeHtml(u.username);
     const storedAdmin = u.is_admin && !u.config_admin;
-    // Status badge
+    // Status badge(s)
     let status;
     if (u.config_admin) status = '<span class="badge admin">Admin · config</span>';
     else if (u.is_admin) status = '<span class="badge admin">Admin</span>';
     else status = u.registered ? '<span class="badge ok">Registered</span>' : '<span class="badge muted">No password</span>';
+    if (u.is_controller) status += ' <span class="badge controller">Controller</span>';
     // Admin toggle (not for config admins or yourself)
     let toggle = "";
     if (!u.config_admin && !isSelf) {
       toggle = storedAdmin
         ? `<button class="secondary btn-sm toggle-admin" data-u="${uAttr}" data-make="0">Revoke admin</button>`
         : `<button class="secondary btn-sm toggle-admin" data-u="${uAttr}" data-make="1">Make admin</button>`;
+    }
+    // Controller toggle: only for regular (non-admin) users.
+    let ctrlToggle = "";
+    if (!u.config_admin && !u.is_admin) {
+      ctrlToggle = u.is_controller
+        ? `<button class="secondary btn-sm toggle-controller" data-u="${uAttr}" data-make="0">Revoke controller</button>`
+        : `<button class="secondary btn-sm toggle-controller" data-u="${uAttr}" data-make="1">Make controller</button>`;
     }
     const del = isSelf
       ? '<button class="secondary btn-sm" disabled title="You cannot delete your own account">Delete</button>'
@@ -1783,7 +1948,7 @@ async function loadUsers() {
       <td>${status}</td>
       <td class="muted">${fmtBytes(u.size_bytes)}</td>
       <td class="muted">${fmtDate(u.modified)}</td>
-      <td><div class="u-actions">${toggle}<button class="secondary btn-sm reset-user" data-u="${uAttr}">Reset password</button>${del}</div></td>
+      <td><div class="u-actions">${toggle}${ctrlToggle}<button class="secondary btn-sm reset-user" data-u="${uAttr}">Reset password</button>${del}</div></td>
     </tr>`;
   }).join("");
 
@@ -1797,6 +1962,17 @@ async function loadUsers() {
       body: JSON.stringify({ username: u, is_admin: makeAdmin }),
     });
     if (r.ok) { showMsg(msg, `${makeAdmin ? "Granted" : "Revoked"} admin for ${u}`, "ok"); loadUsers(); }
+    else showMsg(msg, await r.text(), "error");
+  }));
+  body.querySelectorAll(".toggle-controller").forEach((b) => b.addEventListener("click", async () => {
+    const u = b.dataset.u;
+    const makeController = b.dataset.make === "1";
+    if (!confirm(`${makeController ? "Grant controller rights to" : "Revoke controller rights from"} ${u}?`)) return;
+    const r = await apiFetch("admin/controller", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: u, is_controller: makeController }),
+    });
+    if (r.ok) { showMsg(msg, `${makeController ? "Granted" : "Revoked"} controller for ${u}`, "ok"); loadUsers(); }
     else showMsg(msg, await r.text(), "error");
   }));
   body.querySelectorAll(".reset-user").forEach((b) => b.addEventListener("click", async () => {
@@ -2472,6 +2648,167 @@ async function initAbout() {
   }
 }
 
+// ---- Admin · Servers --------------------------------------------------------
+
+// initServers wires the server-settings page: currently the self-registration
+// switch. Non-admins are redirected (the API also enforces admin access).
+async function initServers() {
+  try {
+    const who = await apiFetch("whoami");
+    if (who.ok && !(await who.json()).is_admin) { location.href = PREFIX; return; }
+  } catch (e) { return; }
+
+  const toggle = document.getElementById("reg-toggle");
+  const msg = document.getElementById("servers-msg");
+  try {
+    const r = await apiFetch("admin/server");
+    if (!r.ok) { showMsg(msg, "Could not load server settings", "error"); return; }
+    const d = await r.json();
+    toggle.checked = !!d.registration_open;
+    toggle.disabled = false;
+  } catch (e) { showMsg(msg, "Could not load server settings", "error"); return; }
+
+  toggle.addEventListener("change", async () => {
+    const open = toggle.checked;
+    toggle.disabled = true;
+    showMsg(msg, "Saving…", "");
+    try {
+      const r = await apiFetch("admin/server", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration_open: open }),
+      });
+      if (!r.ok) { throw new Error(await r.text()); }
+      showMsg(msg, open ? "Registration enabled" : "Registration disabled", "ok");
+    } catch (e) {
+      toggle.checked = !open; // revert on failure
+      showMsg(msg, "Could not save: " + (e.message || "error"), "error");
+    } finally {
+      toggle.disabled = false;
+    }
+  });
+}
+
+// initOAuth guards the placeholder OAuth page; nothing to load yet.
+// OAuth provider presets: sensible endpoint defaults so admins only fill in the
+// client id/secret.
+const OAUTH_PRESETS = {
+  google: {
+    id: "google", name: "Google", enabled: true,
+    auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
+    token_url: "https://oauth2.googleapis.com/token",
+    userinfo_url: "https://openidconnect.googleapis.com/v1/userinfo",
+    scopes: "openid email profile", username_field: "email",
+  },
+  github: {
+    id: "github", name: "GitHub", enabled: true,
+    auth_url: "https://github.com/login/oauth/authorize",
+    token_url: "https://github.com/login/oauth/access_token",
+    userinfo_url: "https://api.github.com/user",
+    // GitHub's "email" can be null for private profiles; "login" is always present.
+    scopes: "read:user", username_field: "login",
+  },
+  custom: { id: "", name: "", enabled: false, username_field: "email" },
+};
+
+const OAUTH_FIELDS = [
+  { key: "name", label: "Display name", ph: "Google", type: "text" },
+  { key: "id", label: "Provider id (used in the redirect URL)", ph: "google", type: "text" },
+  { key: "client_id", label: "Client ID", ph: "", type: "text" },
+  { key: "client_secret", label: "Client secret", ph: "", type: "password" },
+  { key: "auth_url", label: "Authorization URL", ph: "https://…/authorize", type: "text" },
+  { key: "token_url", label: "Token URL", ph: "https://…/token", type: "text" },
+  { key: "userinfo_url", label: "Userinfo URL", ph: "https://…/userinfo", type: "text" },
+  { key: "scopes", label: "Scopes (space-separated)", ph: "openid email profile", type: "text" },
+  { key: "username_field", label: "Username claim (comma-separated fallbacks)", ph: "email,login", type: "text" },
+];
+
+async function initOAuth() {
+  try {
+    const who = await apiFetch("whoami");
+    if (who.ok && !(await who.json()).is_admin) { location.href = PREFIX; return; }
+  } catch (e) { return; }
+
+  const list = document.getElementById("oauth-list");
+  const empty = document.getElementById("oauth-empty");
+  const msg = document.getElementById("oauth-msg");
+  const base = document.getElementById("oauth-callback-base");
+
+  function refreshEmpty() { empty.hidden = list.children.length > 0; }
+
+  // Build one editable provider card from a provider object.
+  function addCard(p) {
+    p = p || {};
+    const card = document.createElement("div");
+    card.className = "oauth-card";
+    const head = document.createElement("div");
+    head.className = "oauth-card-head";
+    const en = document.createElement("label");
+    en.className = "oauth-enabled";
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.dataset.key = "enabled"; cb.checked = !!p.enabled;
+    en.appendChild(cb); en.appendChild(document.createTextNode(" Enabled"));
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.className = "link danger"; rm.textContent = "Remove";
+    rm.addEventListener("click", () => { card.remove(); refreshEmpty(); });
+    head.appendChild(en); head.appendChild(rm);
+    card.appendChild(head);
+
+    const grid = document.createElement("div");
+    grid.className = "oauth-grid";
+    for (const f of OAUTH_FIELDS) {
+      const wrap = document.createElement("div");
+      const lab = document.createElement("label");
+      lab.textContent = f.label;
+      const inp = document.createElement("input");
+      inp.type = f.type; inp.dataset.key = f.key; inp.placeholder = f.ph;
+      inp.value = p[f.key] != null ? p[f.key] : "";
+      if (f.key === "client_secret") inp.autocomplete = "new-password";
+      wrap.appendChild(lab); wrap.appendChild(inp);
+      grid.appendChild(wrap);
+    }
+    card.appendChild(grid);
+    list.appendChild(card);
+    refreshEmpty();
+  }
+
+  // Collect all cards back into a providers array.
+  function collect() {
+    return Array.from(list.querySelectorAll(".oauth-card")).map((card) => {
+      const o = {};
+      card.querySelectorAll("[data-key]").forEach((el) => {
+        o[el.dataset.key] = el.type === "checkbox" ? el.checked : el.value.trim();
+      });
+      return o;
+    });
+  }
+
+  // Load current config.
+  try {
+    const r = await apiFetch("admin/oauth");
+    if (!r.ok) { showMsg(msg, "Could not load OAuth settings", "error"); return; }
+    const d = await r.json();
+    if (base) base.textContent = d.callback_base || "";
+    (d.providers || []).forEach(addCard);
+    refreshEmpty();
+  } catch (e) { showMsg(msg, "Could not load OAuth settings", "error"); return; }
+
+  document.getElementById("oauth-add-google").addEventListener("click", () => addCard({ ...OAUTH_PRESETS.google }));
+  document.getElementById("oauth-add-github").addEventListener("click", () => addCard({ ...OAUTH_PRESETS.github }));
+  document.getElementById("oauth-add-custom").addEventListener("click", () => addCard({ ...OAUTH_PRESETS.custom }));
+
+  document.getElementById("oauth-save").addEventListener("click", async () => {
+    showMsg(msg, "Saving…", "");
+    try {
+      const r = await apiFetch("admin/oauth", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providers: collect() }),
+      });
+      if (!r.ok) { showMsg(msg, (await r.text()) || "Save failed", "error"); return; }
+      showMsg(msg, "Saved. Enabled providers now appear on the login page.", "ok");
+    } catch (e) { showMsg(msg, "Network error", "error"); }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("setup-form")) return initSetup();
   if (document.getElementById("login-form")) return initLogin();
@@ -2482,6 +2819,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("week-days")) return initEntries();
   if (document.getElementById("ie-input")) return initImpExp();
   if (document.getElementById("users-body")) return initAdmin();
+  if (document.getElementById("servers-page")) return initServers();
+  if (document.getElementById("oauth-page")) return initOAuth();
   if (document.getElementById("tags-manage")) return initTags();
   if (document.getElementById("acc-username")) return initAccount();
   if (document.getElementById("about-content")) return initAbout();

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tagged · Tags</title>
+  <title>Tagged · OAuth</title>
   <link rel="stylesheet" href="{{PREFIX}}style.css">
   <link rel="icon" type="image/svg+xml" href="{{PREFIX}}images/Taggd-Colored.svg">
   <script>window.TT_PREFIX = "{{PREFIX}}";</script>
@@ -24,7 +24,7 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
           <span>Time entries</span>
         </a>
-        <a class="active" href="{{PREFIX}}tags">
+        <a href="{{PREFIX}}tags">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
           <span>Tags</span>
         </a>
@@ -40,7 +40,7 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
           <span>About</span>
         </a>
-        <div id="nav-admin" class="nav-section" style="display:none">
+        <div id="nav-admin" class="nav-section">
           <div class="nav-head">Admin</div>
           <a href="{{PREFIX}}admin">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -50,7 +50,7 @@
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><line x1="7" y1="7.5" x2="7.01" y2="7.5"/><line x1="7" y1="16.5" x2="7.01" y2="16.5"/></svg>
             <span>Servers</span>
           </a>
-          <a href="{{PREFIX}}oauth">
+          <a class="active" href="{{PREFIX}}oauth">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>
             <span>OAuth</span>
           </a>
@@ -69,76 +69,30 @@
 
     <div class="content single">
       <div class="main-col" style="width:100%">
-        <div class="page-head"><h1>Tags</h1></div>
+        <div class="page-head"><h1>Admin · OAuth</h1></div>
 
-        <div class="panel">
+        <div class="panel" id="oauth-page">
           <div class="panel-head">
-            <div>
-              <h3>Manage tags</h3>
-              <span class="sub">Colors sync with your other Tagged apps</span>
-            </div>
-            <button id="tag-new" class="btn-sm" type="button">＋ New tag</button>
-          </div>
-          <p class="hint">Click a tag to rename it or change its color, or create a new one.</p>
-          <div id="tags-manage">
-            <div class="tm-row"><span class="tm-stats">Loading…</span></div>
-          </div>
-          <div id="tags-msg" class="msg"></div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <div>
-              <h3>Bulk add tags</h3>
-              <span class="sub">One tag per line, with an optional hex color</span>
+            <h3>OAuth providers</h3>
+            <div class="row-actions">
+              <button class="link" id="oauth-add-google" type="button">+ Google</button>
+              <button class="link" id="oauth-add-github" type="button">+ GitHub</button>
+              <button class="link" id="oauth-add-custom" type="button">+ Custom</button>
             </div>
           </div>
-          <p class="hint">
-            Format: <code>name #hexcolor</code> — e.g. <code>work #DEAA22</code>. A comma also works
-            (<code>client, #3BA55D</code>). Lines without a color get one assigned automatically.
-            You can also drop or upload a CSV.
+          <p class="muted">
+            Let users sign in with an external identity provider. When someone signs in for the
+            first time, an account is created (subject to the registration setting on
+            <a class="link" href="{{PREFIX}}servers">Servers</a>). Register this redirect URL with each provider,
+            adding the provider id: <code id="oauth-callback-base">…</code>/&lt;id&gt;
           </p>
-          <label class="ie-drop" id="bulk-drop">
-            <input type="file" id="bulk-file" accept=".csv,.tsv,.txt,text/csv" hidden>
-            <textarea id="bulk-input" class="ie-textarea" rows="7" spellcheck="false" placeholder="work #DEAA22
-client #3BA55D
-personal #6f7bf7
-admin"></textarea>
-            <span class="ie-drop-hint" id="bulk-drop-hint">Drop a .csv file here, or <span class="link-accent">choose a file</span></span>
-          </label>
-          <div class="token-actions" style="margin-top:14px">
-            <button type="button" id="bulk-add">Add tags</button>
+          <div id="oauth-list"></div>
+          <div class="oauth-empty muted" id="oauth-empty" hidden>No providers configured yet. Add one above.</div>
+          <div class="oauth-foot">
+            <button id="oauth-save" type="button">Save changes</button>
+            <span id="oauth-msg" class="msg"></span>
           </div>
-          <div class="ie-log" id="bulk-log"></div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="tag-modal" hidden>
-    <div class="sheet">
-      <div class="sheet-title" id="tm-title">New Tag</div>
-
-      <div class="sheet-section">
-        <div class="sheet-label">Name</div>
-        <input id="tm-name" class="em-input" type="text" placeholder="Tag name" autocomplete="off">
-      </div>
-
-      <div class="sheet-section">
-        <div class="sheet-label" style="margin-bottom:14px">Color</div>
-        <div class="tm-swatches" id="tm-swatches"></div>
-        <div class="tm-custom">
-          <span class="tm-custom-label">Custom color</span>
-          <input type="color" class="swatch tm-custom-input" id="tm-custom" title="Custom color">
-        </div>
-      </div>
-
-      <div class="em-msg" id="tm-modal-msg"></div>
-      <div class="sheet-actions">
-        <button id="tm-delete" class="danger-btn" type="button" hidden>Delete</button>
-        <div class="spacer"></div>
-        <button id="tm-cancel" class="secondary" type="button">Cancel</button>
-        <button id="tm-save" type="button">Save</button>
       </div>
     </div>
   </div>

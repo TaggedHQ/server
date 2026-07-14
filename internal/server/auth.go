@@ -104,6 +104,9 @@ func (s *Server) registerHandler(req *request) response {
 	if req.method() != "POST" {
 		return textResp(405, "method not allowed: /register can only be used with POST")
 	}
+	if !s.registrationEnabled() {
+		return textResp(403, "registration is disabled on this server")
+	}
 	raw, err := req.getBody(64 * 1024)
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())

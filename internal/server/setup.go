@@ -15,6 +15,14 @@ import (
 type setupState struct {
 	Backend string `json:"backend"` // "sqlite" or "postgres"
 	DBURL   string `json:"db_url"`  // Postgres DSN (empty for sqlite)
+	// RegistrationOpen controls whether visitors can self-register via /register.
+	// A pointer so an absent field (older setup.json) is distinguishable from an
+	// explicit false and falls back to the open default. Managed from the Admin ·
+	// Servers page.
+	RegistrationOpen *bool `json:"registration_open,omitempty"`
+	// OAuth holds the configured external identity providers (client secrets
+	// included — hence the 0600 file). Managed from the Admin · OAuth page.
+	OAuth []oauthProvider `json:"oauth,omitempty"`
 }
 
 const setupFile = "setup.json"
@@ -67,9 +75,10 @@ func (s *Server) setupStatusHandler() response {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{
-		"setup_required": required,
-		"backend_locked": s.backendLocked,
-		"backend":        s.currentBackend(),
+		"setup_required":    required,
+		"backend_locked":    s.backendLocked,
+		"backend":           s.currentBackend(),
+		"registration_open": s.registrationEnabled(),
 	})
 }
 

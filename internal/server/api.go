@@ -36,8 +36,8 @@ func newRequest(r *http.Request) *request {
 	return &request{r: r, query: r.URL.Query()}
 }
 
-func (req *request) method() string          { return req.r.Method }
-func (req *request) header(name string) string { return req.r.Header.Get(name) }
+func (req *request) method() string             { return req.r.Method }
+func (req *request) header(name string) string  { return req.r.Header.Get(name) }
 func (req *request) queryGet(key string) string { return req.query.Get(key) }
 
 func (req *request) getBody(limit int64) ([]byte, error) {
@@ -73,6 +73,17 @@ func (s *Server) apiHandler(r *http.Request, path string) response {
 	}
 	if path == "setup" {
 		return s.setupHandler(req)
+	}
+	// OAuth sign-in endpoints are unauthenticated: they establish identity via an
+	// external provider. (Admin configuration lives under /admin/oauth, below.)
+	if path == "oauth/providers" {
+		return s.oauthProvidersHandler()
+	}
+	if strings.HasPrefix(path, "oauth/login/") {
+		return s.oauthLoginHandler(req, strings.TrimPrefix(path, "oauth/login/"))
+	}
+	if strings.HasPrefix(path, "oauth/callback/") {
+		return s.oauthCallbackHandler(req, strings.TrimPrefix(path, "oauth/callback/"))
 	}
 
 	authInfo, db, err := s.authenticate(req)
@@ -115,6 +126,27 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 		}
 		return s.adminHandler(req, strings.TrimPrefix(path, "admin"), username)
 	}
+	if path == "controller" || strings.HasPrefix(path, "controller/") {
+		if !s.isController(username, db) {
+			return textResp(403, "forbidden: controller access required")
+		}
+		return s.controllerHandler(req, strings.TrimPrefix(path, "controller"))
+	}
+
+	// Data plane: a controller may act as another user via the "actasuser"
+	// header. For those routes dataDB is the target's db; otherwise it is the
+	// authenticated user's own db. Control-plane routes above/below use db.
+	dataDB := db
+	if isDataPath(path) {
+		d, extra, errResp := s.dataDB(req, username, db)
+		if errResp != nil {
+			return *errResp
+		}
+		dataDB = d
+		if extra {
+			defer dataDB.Close()
+		}
+	}
 
 	switch path {
 	case "version":
@@ -129,26 +161,26 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 		return textResp(405, "method not allowed: /about can only be used with GET")
 	case "updates":
 		if m == "GET" {
-			return s.getUpdates(req, db)
+			return s.getUpdates(req, dataDB)
 		}
 		return textResp(405, "method not allowed: /updates can only be used with GET")
 	case "records":
 		if m == "GET" {
-			return s.getRecords(req, db)
+			return s.getRecords(req, dataDB)
 		} else if m == "PUT" {
-			return s.pushItems(req, db, "records")
+			return s.pushItems(req, dataDB, "records")
 		}
 		return textResp(405, "method not allowed: /records can only be used with GET and PUT")
 	case "settings":
 		if m == "GET" {
-			return s.getSettings(db)
+			return s.getSettings(dataDB)
 		} else if m == "PUT" {
-			return s.pushItems(req, db, "settings")
+			return s.pushItems(req, dataDB, "settings")
 		}
 		return textResp(405, "method not allowed: /settings can only be used with GET and PUT")
 	case "forcereset":
 		if m == "PUT" {
-			return s.putForcereset(db)
+			return s.putForcereset(dataDB)
 		}
 		return textResp(405, "method not allowed: /forcereset can only be used with PUT")
 	case "webtoken":
@@ -184,6 +216,48 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 	default:
 		return textResp(404, "not found: /"+path+" is not a valid API path")
 	}
+}
+
+// isDataPath reports whether path is a data-plane route whose db may be swapped
+// for a controller's impersonation target.
+func isDataPath(path string) bool {
+	switch path {
+	case "updates", "records", "settings", "forcereset":
+		return true
+	}
+	return false
+}
+
+// dataDB resolves the database a data-plane request should operate on. Without an
+// "actasuser" header (or when it names the caller), it returns realDB unchanged.
+// Otherwise the caller must be a controller and the target must be a registered
+// regular user (not a config/stored admin and not another controller); on success
+// the target's db is returned with extra=true (the caller must Close it). Any
+// failure returns a non-nil *response for the handler to send.
+func (s *Server) dataDB(req *request, realUser string, realDB store.UserDB) (store.UserDB, bool, *response) {
+	target := strings.TrimSpace(req.header("actasuser"))
+	if target == "" || target == realUser {
+		return realDB, false, nil
+	}
+	if !s.isController(realUser, realDB) {
+		r := textResp(403, "forbidden: controller role required to act as another user")
+		return nil, false, &r
+	}
+	if s.isConfigAdmin(target) {
+		r := textResp(403, "forbidden: cannot act as this user")
+		return nil, false, &r
+	}
+	tdb, err := s.openUserDB(target)
+	if err != nil {
+		r := textResp(500, "internal error: "+err.Error())
+		return nil, false, &r
+	}
+	if !dbRegistered(tdb) || dbAdminFlag(tdb) || dbControllerFlag(tdb) {
+		tdb.Close()
+		r := textResp(403, "forbidden: cannot act as this user")
+		return nil, false, &r
+	}
+	return tdb, true, nil
 }
 
 func parseReset(raw string) bool {

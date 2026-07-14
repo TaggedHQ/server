@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.1.4"
+var Version = "0.1.5"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -40,12 +40,21 @@ type Server struct {
 	trusted     *ipRangeList
 	admins      map[string]bool // usernames with admin rights
 
-	// storeMu guards store/backendKind, which the setup wizard can swap at runtime
-	// when the backend is not operator-pinned.
+	// storeMu guards store/backendKind/backendURL, which the setup wizard can swap
+	// at runtime when the backend is not operator-pinned.
 	storeMu       sync.RWMutex
 	store         store.Backend
 	backendKind   string
-	backendLocked bool // db_backend/db_url pinned via CLI/env: wizard can't switch
+	backendURL    string // active Postgres DSN (empty for sqlite); kept for setup.json
+	backendLocked bool   // db_backend/db_url pinned via CLI/env: wizard can't switch
+
+	// regMu guards registrationOpen, the server-wide self-registration switch.
+	regMu            sync.RWMutex
+	registrationOpen bool
+
+	// oauthMu guards oauthProviders, the configured external identity providers.
+	oauthMu        sync.RWMutex
+	oauthProviders []oauthProvider
 }
 
 // New constructs a Server, creating the data directory and loading (or creating)
@@ -68,28 +77,41 @@ func New(cfg *config.Config) (*Server, error) {
 	// wizard; otherwise a persisted setup.json wins; otherwise the sqlite default.
 	locked := cfg.IsExplicit("db_backend") || cfg.IsExplicit("db_url")
 	kind, dbURL := cfg.DBBackend, cfg.DBURL
-	if !locked {
-		if s, err := loadSetup(rootTTDir); err != nil {
-			return nil, fmt.Errorf("could not read %s: %w", setupFile, err)
-		} else if s != nil {
-			kind, dbURL = s.Backend, s.DBURL
-		}
+	// setup.json holds persisted operator choices: the backend (used only when not
+	// operator-pinned) and the self-registration switch (always honored).
+	saved, err := loadSetup(rootTTDir)
+	if err != nil {
+		return nil, fmt.Errorf("could not read %s: %w", setupFile, err)
+	}
+	if !locked && saved != nil {
+		kind, dbURL = saved.Backend, saved.DBURL
+	}
+	registrationOpen := true // default: open, matching prior behavior
+	if saved != nil && saved.RegistrationOpen != nil {
+		registrationOpen = *saved.RegistrationOpen
+	}
+	var oauthProviders []oauthProvider
+	if saved != nil {
+		oauthProviders = saved.OAuth
 	}
 	backend, err := store.NewBackend(kind, rootUserDir, dbURL)
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
-		cfg:           cfg,
-		rootTTDir:     rootTTDir,
-		rootUserDir:   rootUserDir,
-		store:         backend,
-		backendKind:   kind,
-		backendLocked: locked,
-		jwtKey:        jwtKey,
-		credentials:   loadCredentials(cfg.Credentials),
-		trusted:       trusted,
-		admins:        loadAdmins(cfg.Admins),
+		cfg:              cfg,
+		rootTTDir:        rootTTDir,
+		rootUserDir:      rootUserDir,
+		store:            backend,
+		backendKind:      kind,
+		backendURL:       dbURL,
+		backendLocked:    locked,
+		jwtKey:           jwtKey,
+		credentials:      loadCredentials(cfg.Credentials),
+		trusted:          trusted,
+		admins:           loadAdmins(cfg.Admins),
+		registrationOpen: registrationOpen,
+		oauthProviders:   oauthProviders,
 	}, nil
 }
 
@@ -127,7 +149,7 @@ func (s *Server) reconfigureBackend(kind, dbURL string) error {
 	if err != nil {
 		return err
 	}
-	if err := saveSetup(s.rootTTDir, setupState{Backend: kind, DBURL: dbURL}); err != nil {
+	if err := saveSetup(s.rootTTDir, s.setupSnapshot(kind, dbURL)); err != nil {
 		backend.Close()
 		return err
 	}
@@ -135,11 +157,43 @@ func (s *Server) reconfigureBackend(kind, dbURL string) error {
 	old := s.store
 	s.store = backend
 	s.backendKind = kind
+	s.backendURL = dbURL
 	s.storeMu.Unlock()
 	if old != nil {
 		old.Close()
 	}
 	return nil
+}
+
+// setupSnapshot builds the setupState to persist, pairing the given backend
+// choice with the current self-registration switch so neither clobbers the other.
+func (s *Server) setupSnapshot(kind, dbURL string) setupState {
+	s.regMu.RLock()
+	open := s.registrationOpen
+	s.regMu.RUnlock()
+	s.oauthMu.RLock()
+	providers := s.oauthProviders
+	s.oauthMu.RUnlock()
+	return setupState{Backend: kind, DBURL: dbURL, RegistrationOpen: &open, OAuth: providers}
+}
+
+// registrationEnabled reports whether self-registration via /register is allowed.
+func (s *Server) registrationEnabled() bool {
+	s.regMu.RLock()
+	defer s.regMu.RUnlock()
+	return s.registrationOpen
+}
+
+// setRegistrationEnabled flips the self-registration switch and persists it to
+// setup.json (preserving the active backend choice).
+func (s *Server) setRegistrationEnabled(open bool) error {
+	s.regMu.Lock()
+	s.registrationOpen = open
+	s.regMu.Unlock()
+	s.storeMu.RLock()
+	kind, dbURL := s.backendKind, s.backendURL
+	s.storeMu.RUnlock()
+	return saveSetup(s.rootTTDir, s.setupSnapshot(kind, dbURL))
 }
 
 // loadAdmins parses "user1,user2" (';' also allowed) into a set of admin usernames.
