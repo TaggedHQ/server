@@ -589,12 +589,22 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
   border-radius: 7px; border-left: 3px solid var(--tl-c);
   background: color-mix(in srgb, var(--tl-c) 18%, var(--surface));
 }
-.tl-block:hover { background: color-mix(in srgb, var(--tl-c) 32%, var(--surface)); z-index: 4; }
+.tl-block:hover { background: color-mix(in srgb, var(--tl-c) 32%, var(--surface)); z-index: 6; }
 .tl-block-body { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 0.74rem; line-height: 1.25; }
-.tl-block.sm .tl-block-body { font-size: 0.68rem; }
 .tl-block-dur { color: var(--tl-c); font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
 .tl-block-desc { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-block.none .tl-block-desc { color: var(--text-3); }
+
+/* Short blocks can't fit their label vertically. Let the single line sit
+   centered and spill over the thin bar (kept within its own column so it
+   never overlaps a neighbouring lane), lifted above adjacent blocks and
+   given a subtle shadow so it stays legible on any background. */
+.tl-block.sm { overflow: visible; z-index: 3; }
+.tl-block.sm .tl-block-body {
+  position: absolute; top: 50%; left: 7px; right: 7px; transform: translateY(-50%);
+  align-items: center; font-size: 0.72rem;
+  text-shadow: 0 1px 2px var(--bg), 0 0 2px var(--bg);
+}
 
 .tl-empty { position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%); text-align: center; color: var(--text-3); font-size: 0.85rem; }
 
