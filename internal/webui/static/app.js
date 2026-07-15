@@ -518,6 +518,7 @@ function fillSidebar() {
   if (avEl) avEl.textContent = (user[0] || "?").toUpperCase();
   const lo = document.getElementById("logout");
   if (lo) lo.addEventListener("click", logout);
+  setupSidebarTimer();
   revealChrome();
 }
 
@@ -536,6 +537,314 @@ async function revealChrome() {
     if (na && d.is_admin) na.style.display = "";
     if (d.is_controller) setupSwitcher();
   } catch (e) { /* ignore */ }
+}
+
+// ---- Sidebar timer ----------------------------------------------------------
+// A live stopwatch pinned above the user footer on every page: the sidebar shows
+// just the running clock and a Start/Stop button. Clicking Start opens a modal
+// (like the new-entry sheet) to pick the description, tags, and start time — now
+// or a chosen "already started" moment. The running flag, start time, and the
+// captured description/tags persist in localStorage so they survive page
+// navigation (each nav is a full reload) and a resumed tab. Stopping writes a
+// normal record via putRecord, so tracked time lands in the same store as
+// manually-added entries and respects the controller's actas view.
+const TIMER_KEY = "tagged_web_timer";
+let timerState = { running: false, startEpoch: 0, desc: "", tags: [] };
+let timerTick = null;
+let tkmWhen = "now"; // start-time mode in the modal: "now" | "past"
+
+function loadTimerState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(TIMER_KEY) || "null");
+    if (s && typeof s === "object") {
+      timerState = {
+        running: !!s.running,
+        startEpoch: Number(s.startEpoch) || 0,
+        desc: typeof s.desc === "string" ? s.desc : "",
+        tags: Array.isArray(s.tags) ? s.tags.filter((t) => typeof t === "string") : [],
+      };
+    }
+  } catch (e) { /* keep defaults */ }
+  if (timerState.running && !timerState.startEpoch) timerState.running = false;
+}
+function saveTimerState() { localStorage.setItem(TIMER_KEY, JSON.stringify(timerState)); }
+
+// fmtHMS splits a duration into padded [hours, minutes, seconds] strings.
+function fmtHMS(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  return [pad(Math.floor(sec / 3600)), pad(Math.floor((sec % 3600) / 60)), pad(sec % 60)];
+}
+
+function renderTimerClock() {
+  const hEl = document.getElementById("tmr-h");
+  if (!hEl) return;
+  const elapsed = timerState.running ? (Date.now() / 1000 - timerState.startEpoch) : 0;
+  const [h, m, s] = fmtHMS(elapsed);
+  hEl.textContent = h;
+  document.getElementById("tmr-m").textContent = m;
+  document.getElementById("tmr-s").textContent = s;
+}
+
+// ---- Timer modal: description, tags, and start-time picker ----
+
+function renderTimerTags() {
+  const host = document.getElementById("tkm-tags");
+  if (!host) return;
+  host.innerHTML = timerState.tags.length
+    ? timerState.tags.map((t) => {
+        const c = colorFor(t);
+        return `<span class="em-tag-chip" style="background:${c}26;color:${c}">${escapeHtml(labelFor(t) || ("#" + t))}<button class="x" data-t="${escapeHtml(t)}" type="button" aria-label="Remove">×</button></span>`;
+      }).join("")
+    : '<span class="em-none">No tags yet.</span>';
+  host.querySelectorAll(".x").forEach((b) => b.addEventListener("click", () => {
+    timerState.tags = timerState.tags.filter((x) => x !== b.dataset.t);
+    saveTimerState();
+    renderTimerTags();
+  }));
+}
+
+// renderTimerTagMenu fills the "＋ Add" dropdown with saved tags not already on
+// the timer, followed by a "New Tag…" action (mirrors the entry modal).
+function renderTimerTagMenu() {
+  const menu = document.getElementById("tkm-tag-menu");
+  const avail = allTagKeys().filter((t) => !timerState.tags.includes(t));
+  const items = avail.map((t) => {
+    const c = colorFor(t);
+    return `<button type="button" class="em-tag-opt" data-t="${escapeHtml(t)}"><span class="dot" style="background:${c}"></span>${escapeHtml(labelFor(t) || ("#" + t))}</button>`;
+  }).join("");
+  menu.innerHTML =
+    (items || '<div class="em-tag-empty">No saved tags</div>') +
+    '<div class="em-tag-sep"></div>' +
+    '<button type="button" class="em-tag-new">＋ New Tag…</button>';
+
+  menu.querySelectorAll(".em-tag-opt").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    addTimerTag(b.dataset.t);
+    closeAllMenus();
+  }));
+  menu.querySelector(".em-tag-new").addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeAllMenus();
+    const wrap = document.getElementById("tkm-add-wrap");
+    wrap.hidden = false;
+    const inp = document.getElementById("tkm-tag-input");
+    inp.value = "";
+    inp.focus();
+  });
+}
+
+function addTimerTag(raw) {
+  const t = normalizeTag(raw);
+  if (t && !timerState.tags.includes(t)) { timerState.tags.push(t); saveTimerState(); }
+  const wrap = document.getElementById("tkm-add-wrap");
+  const inp = document.getElementById("tkm-tag-input");
+  if (inp) inp.value = "";
+  if (wrap) wrap.hidden = true;
+  renderTimerTags();
+}
+
+function tkmError(text) { const el = document.getElementById("tkm-msg"); if (el) el.textContent = text || ""; }
+
+// setTkmWhen toggles between "Start now" and "Already started"; the latter reveals
+// the date/time inputs so a past start moment can be entered.
+function setTkmWhen(when) {
+  tkmWhen = when;
+  document.querySelectorAll("#timer-modal .tkm-when-opt").forEach((b) => b.classList.toggle("active", b.dataset.when === when));
+  const row = document.getElementById("tkm-start-row");
+  if (row) row.hidden = when !== "past";
+}
+
+function openTimerModal() {
+  // Each run starts from a clean draft; the modal is where it's filled in.
+  timerState.desc = "";
+  timerState.tags = [];
+  document.getElementById("tkm-desc").value = "";
+  document.getElementById("tkm-add-wrap").hidden = true;
+  tkmError("");
+  closeAllMenus();
+  setTkmWhen("now");
+  const now = Math.floor(Date.now() / 1000);
+  document.getElementById("tkm-start-date").value = dateInputVal(now);
+  document.getElementById("tkm-start-time").value = timeInputVal(now);
+  renderTimerTags();
+  document.getElementById("timer-modal").hidden = false;
+  document.getElementById("tkm-desc").focus();
+}
+
+function closeTimerModal() { document.getElementById("timer-modal").hidden = true; }
+
+// confirmStartTimer captures the modal's fields and starts the running clock.
+function confirmStartTimer() {
+  timerState.desc = document.getElementById("tkm-desc").value.trim();
+  let startEpoch;
+  if (tkmWhen === "past") {
+    startEpoch = combineDT(document.getElementById("tkm-start-date").value, document.getElementById("tkm-start-time").value);
+    if (isNaN(startEpoch)) { tkmError("Enter a valid start date and time."); return; }
+    if (startEpoch > Math.floor(Date.now() / 1000) + 60) { tkmError("Start time can't be in the future."); return; }
+  } else {
+    startEpoch = Math.floor(Date.now() / 1000);
+  }
+  timerState.running = true;
+  timerState.startEpoch = startEpoch;
+  saveTimerState();
+  closeTimerModal();
+  timerTickStart();
+  updateTimerUI();
+}
+
+// timerComposeDs builds the record description: free text followed by #tags.
+function timerComposeDs() {
+  const desc = (timerState.desc || "").trim();
+  const tags = timerState.tags.map((t) => "#" + t).join(" ");
+  return (desc + " " + tags).trim();
+}
+
+function timerTickStart() { if (!timerTick) timerTick = setInterval(renderTimerClock, 1000); }
+function timerTickStop() { if (timerTick) { clearInterval(timerTick); timerTick = null; } }
+
+async function stopTimer() {
+  const t1 = timerState.startEpoch;
+  const t2 = Math.floor(Date.now() / 1000);
+  const ds = timerComposeDs();
+  timerState.running = false;
+  timerState.startEpoch = 0;
+  timerTickStop();
+  // Only persist spans of at least a second; a mis-click Start/Stop records nothing.
+  if (t1 && t2 > t1) {
+    const ok = await putRecord({ key: randomKey(), mt: Math.floor(Date.now() / 1000), t1, t2, ds });
+    if (ok) {
+      timerState.desc = "";
+      timerState.tags = [];
+      await refreshAfterTimer();
+    }
+  }
+  saveTimerState();
+  updateTimerUI();
+}
+
+// refreshAfterTimer reloads records and re-renders the current page, so a freshly
+// tracked entry shows up immediately on the dashboard or entries view.
+async function refreshAfterTimer() {
+  try {
+    if (document.getElementById("cal-grid")) { await loadAll(); renderDashboard(); }
+    else if (document.getElementById("week-days")) { await loadAll(); renderEntriesPage(); }
+  } catch (e) { /* ignore refresh failures; the record is already saved */ }
+}
+
+const TMR_ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const TMR_ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+function updateTimerUI() {
+  renderTimerClock();
+  const btn = document.getElementById("tmr-start");
+  const root = document.getElementById("side-timer");
+  if (btn) btn.innerHTML = (timerState.running ? TMR_ICON_STOP : TMR_ICON_PLAY) + "<span>" + (timerState.running ? "Stop" : "Start") + "</span>";
+  if (root) root.classList.toggle("running", timerState.running);
+}
+
+// injectTimerModal appends the start-timer sheet to the page once and wires it.
+function injectTimerModal() {
+  if (document.getElementById("timer-modal")) return;
+  const modal = document.createElement("div");
+  modal.className = "modal-overlay";
+  modal.id = "timer-modal";
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="sheet">
+      <div class="sheet-title">Start timer</div>
+      <div class="sheet-section">
+        <div class="sheet-label">Description</div>
+        <input id="tkm-desc" class="em-input" type="text" placeholder="What are you working on?" autocomplete="off">
+      </div>
+      <div class="sheet-section">
+        <div class="sheet-section-head">
+          <span class="sheet-label">Tags</span>
+          <div class="em-add-anchor">
+            <button id="tkm-add-tag" class="link-accent" type="button">＋ Add</button>
+            <div class="menu-pop em-tag-menu" id="tkm-tag-menu"></div>
+          </div>
+        </div>
+        <div class="em-tags" id="tkm-tags"></div>
+        <div id="tkm-add-wrap" hidden>
+          <div class="em-add-row">
+            <input id="tkm-tag-input" type="text" placeholder="New tag name" autocomplete="off">
+            <button id="tkm-tag-add-btn" class="btn-sm" type="button">Add</button>
+          </div>
+        </div>
+      </div>
+      <div class="sheet-section">
+        <div class="sheet-label" style="margin-bottom:12px">Start</div>
+        <div class="tkm-when">
+          <button type="button" class="tkm-when-opt active" data-when="now">Start now</button>
+          <button type="button" class="tkm-when-opt" data-when="past">Already started</button>
+        </div>
+        <div class="time-row tkm-start-row" id="tkm-start-row" hidden>
+          <span class="tr-label">Started at</span>
+          <div class="tr-inputs"><input type="date" id="tkm-start-date"><input type="time" id="tkm-start-time"></div>
+        </div>
+      </div>
+      <div class="em-msg" id="tkm-msg"></div>
+      <div class="sheet-actions">
+        <div class="spacer"></div>
+        <button id="tkm-cancel" class="secondary" type="button">Cancel</button>
+        <button id="tkm-start-btn" type="button">Start</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  document.getElementById("tkm-cancel").addEventListener("click", closeTimerModal);
+  document.getElementById("tkm-start-btn").addEventListener("click", confirmStartTimer);
+  document.getElementById("tkm-desc").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); confirmStartTimer(); }
+  });
+  modal.querySelectorAll(".tkm-when-opt").forEach((b) => b.addEventListener("click", () => setTkmWhen(b.dataset.when)));
+  document.getElementById("tkm-add-tag").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const menu = document.getElementById("tkm-tag-menu");
+    const wasOpen = menu.classList.contains("open");
+    closeAllMenus();
+    if (!wasOpen) { renderTimerTagMenu(); menu.classList.add("open"); }
+  });
+  document.getElementById("tkm-tag-add-btn").addEventListener("click", () => addTimerTag(document.getElementById("tkm-tag-input").value));
+  document.getElementById("tkm-tag-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addTimerTag(e.target.value); }
+  });
+  // Close when clicking the dimmed backdrop.
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeTimerModal(); });
+}
+
+// setupSidebarTimer injects the clock + Start button above the user footer and
+// wires the start-timer modal. No-op without a sidebar or if already injected.
+function setupSidebarTimer() {
+  const sidebar = document.querySelector(".sidebar");
+  const foot = sidebar && sidebar.querySelector(".side-foot");
+  if (!sidebar || !foot || document.getElementById("side-timer")) return;
+  loadTimerState();
+
+  const el = document.createElement("div");
+  el.className = "side-timer";
+  el.id = "side-timer";
+  el.innerHTML = `
+    <div class="tmr-clock">
+      <span class="tmr-seg" id="tmr-h">00</span><span class="tmr-u">h</span>
+      <span class="tmr-seg" id="tmr-m">00</span><span class="tmr-u">m</span>
+      <span class="tmr-seg" id="tmr-s">00</span><span class="tmr-u">s</span>
+    </div>
+    <button class="tmr-start" id="tmr-start" type="button"></button>`;
+  sidebar.insertBefore(el, foot);
+  injectTimerModal();
+
+  document.getElementById("tmr-start").addEventListener("click", () => {
+    if (timerState.running) stopTimer(); else openTimerModal();
+  });
+  document.addEventListener("click", () => closeAllMenus());
+
+  // Load saved tags for the picker on pages that don't otherwise fetch settings
+  // (e.g. Import/Export, About), so the "＋ Add" menu is populated everywhere.
+  if (allTagKeys().length === 0) { loadSettings().then(renderTimerTags).catch(() => {}); }
+
+  if (timerState.running) timerTickStart();
+  updateTimerUI();
 }
 
 // setupSwitcher builds the controller's "view as user" dropdown in the sidebar

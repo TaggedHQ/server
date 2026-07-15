@@ -427,6 +427,40 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-dim); color: var(--accent); display: grid; place-items: center; font-weight: 600; font-size: 0.8rem; flex: 0 0 auto; }
 .side-user .name { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---- Sidebar timer --------------------------------------------------------- */
+/* The timer takes the auto top-margin so it sits at the bottom of the sidebar;
+   the user footer then follows directly beneath it with a fixed gap. */
+.side-timer { margin-top: auto; padding-top: 18px; display: flex; flex-direction: column; gap: 14px; }
+.side-timer + .side-foot { margin-top: 14px; }
+
+/* Borderless "00h 00m 00s" readout. */
+.tmr-clock { display: flex; align-items: baseline; justify-content: center; font-variant-numeric: tabular-nums; }
+.tmr-seg { font-size: 1.95rem; font-weight: 700; letter-spacing: 0.01em; color: var(--text-1); line-height: 1; }
+.tmr-u { font-size: 1.05rem; font-weight: 600; color: var(--text-3); margin: 0 8px 0 1px; }
+.tmr-u:last-child { margin-right: 0; }
+.side-timer.running .tmr-seg { color: var(--accent); }
+
+.tmr-start {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  padding: 13px; border: none; border-radius: 999px; background: var(--accent); color: #1a1400;
+  font-family: var(--font); font-size: 0.92rem; font-weight: 700; cursor: pointer;
+}
+.tmr-start:hover { filter: brightness(1.05); }
+.tmr-start svg { width: 15px; height: 15px; }
+.side-timer.running .tmr-start { background: var(--danger); color: #fff; }
+
+/* Start-timer modal: segmented "Start now / Already started" selector. */
+.tkm-when { display: flex; gap: 8px; }
+.tkm-when-opt {
+  flex: 1; padding: 10px; border: 1px solid var(--stroke); border-radius: 10px;
+  background: var(--surface); color: var(--text-2); font-family: var(--font);
+  font-size: 0.85rem; font-weight: 500;
+}
+.tkm-when-opt:hover { filter: none; border-color: var(--stroke-strong); color: var(--text-1); }
+.tkm-when-opt.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+.tkm-start-row { margin-top: 6px; border-top: 1px solid var(--stroke); }
+.tkm-start-row[hidden] { display: none; }
+
 .icon-btn {
   background: var(--surface-raised);
   border: 1px solid var(--stroke);
@@ -926,6 +960,7 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
   .nav-section .nav-head { display: none; }
   .side-foot { margin-top: 0; padding-top: 0; border-top: none; border-left: 1px solid var(--stroke); padding-left: 8px; margin-left: auto; }
   .side-user .name { display: none; }
+  .side-timer { display: none; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .side-col { grid-template-columns: 1fr; }
   .alloc { flex-direction: column; align-items: flex-start; }
