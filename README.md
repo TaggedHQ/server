@@ -8,7 +8,7 @@
 
 Track your time with tags, see where it goes, and own your data.
 
-`🛠️ vibe coded` &nbsp;·&nbsp; `🐹 Go` &nbsp;·&nbsp; `🗄️ SQLite` &nbsp;·&nbsp; `🎨 dark theme`
+`🛠️ vibe coded` &nbsp;·&nbsp; `🐹 Go` &nbsp;·&nbsp; `🗄️ SQLite / Postgres` &nbsp;·&nbsp; `🔑 OAuth · 2FA · passkeys` &nbsp;·&nbsp; `🎨 dark theme`
 
 </div>
 
@@ -27,12 +27,19 @@ Track your time with tags, see where it goes, and own your data.
   sync across your devices.
 - 📊 **A real dashboard.** Daily/weekly totals, a time‑allocation donut, a
   calendar, per‑tag breakdowns, and daily/weekly goals with progress bars.
-- ⏱️ **Full entry management.** Add, edit, and delete time entries from a clean
-  modal sheet — description, tags, and start/end times, all editable.
-- 👤 **Accounts & API tokens.** Self‑service sign‑up, password changes, and
-  personal API tokens for scripting against your own data.
-- 🛡️ **Admin panel.** Config‑defined "root" admins can create users, reset
-  passwords, grant/revoke admin, and remove accounts — with the usual guardrails.
+- ⏱️ **Entries, list & timeline.** Add, edit, and delete time entries from a
+  clean modal sheet, and review them as a list or a live‑syncing timeline.
+- 🔑 **Sign in your way.** Username + password, **OAuth SSO** (Google, GitHub, or
+  any custom OpenID provider), and **passkeys** (Face ID / Touch ID / security
+  keys). Password accounts can add **two‑factor auth** — TOTP codes plus
+  one‑time backup codes.
+- 👤 **Accounts & API tokens.** Self‑service sign‑up and personal API tokens for
+  scripting against your own data. OAuth users can optionally set a password to
+  unlock 2FA and passkeys.
+- 🛡️ **Admin & controller roles.** Config‑defined "root" admins can create
+  users, reset passwords, grant/revoke admin, and remove accounts. A
+  **controller** role can act on behalf of other users for support and tooling —
+  all with the usual guardrails.
 - 🔒 **HTTPS built in.** Point it at a cert/key for native TLS, or run it behind
   a reverse proxy.
 - 🗄️ **Your data, in plain SQLite.** One database file per user. Back it up with
@@ -60,7 +67,7 @@ Everything is a flag (each also works as an environment variable for containers)
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--bind` | Address and port to listen on | `127.0.0.1:8080` |
-| `--datadir` | Where Tagged keeps per‑user databases and its secret key | `~/tagged-data` |
+| `--datadir` | Where Tagged keeps per‑user databases and its secret key | `~/.tagged` |
 | `--admins` | Comma‑separated usernames with admin rights | _(none)_ |
 | `--path-prefix` | Serve under a sub‑path (e.g. `/tagged/`) | `/` |
 | `--credentials` | Pre‑defined `user:bcrypthash` logins | _(none)_ |
@@ -68,6 +75,13 @@ Everything is a flag (each also works as an environment variable for containers)
 | `--app-redirect` | Redirect `/` straight to the app | `false` |
 | `--db-backend` | Storage backend: `sqlite` or `postgres` | `sqlite` |
 | `--db-url` | Postgres DSN (required when `--db-backend=postgres`) | _(none)_ |
+| `--proxy-auth-enabled` | Trust an authenticating reverse proxy for login | `false` |
+| `--proxy-auth-trusted` | IPs/CIDRs allowed to set the proxy auth header | `127.0.0.1` |
+| `--proxy-auth-header` | Header carrying the proxy‑authenticated username | `X-Remote-User` |
+| `--log-level` | Log verbosity (`debug`, `info`, …) | `info` |
+
+OAuth providers (Google, GitHub, or a custom OpenID Connect issuer) aren't flags —
+add them at runtime from **Admin → OAuth** in the web UI.
 
 ### Storage backends
 
@@ -162,14 +176,17 @@ curl -s -H "authtoken: $TOKEN" \
 ```
 
 Core endpoints (all under `/api/v2/`): `records` (GET/PUT), `settings` (GET/PUT),
-`updates`, `webtoken`, `apitoken`, `whoami`, and the admin routes under `admin/`.
-Grab a long‑lived personal token from **Account → API token** in the UI.
+`updates`, `webtoken`, `apitoken`, `whoami`, plus auth routes for OAuth
+(`oauth/…`), two‑factor (`totp/…`), and passkeys (`webauthn/…`), and the admin
+routes under `admin/`. Grab a long‑lived personal token from
+**Account → API token** in the UI.
 
 ## Built with
 
 - [Go](https://go.dev) — the whole server, with the UI embedded via `embed`
 - [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) — pure‑Go SQLite (no cgo)
 - [jackc/pgx](https://github.com/jackc/pgx) — Postgres driver for the Performance Server
+- [go-webauthn/webauthn](https://github.com/go-webauthn/webauthn) — passkey (WebAuthn) support
 - [Roboto Mono](https://fonts.google.com/specimen/Roboto+Mono) — the monospace look
 - Plain HTML/CSS/JS — no framework, no build step
 
