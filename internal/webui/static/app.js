@@ -2441,100 +2441,299 @@ function fmtDate(epoch) {
   return d.getDate() + " " + MONTHS[d.getMonth()].slice(0, 3) + " " + d.getFullYear();
 }
 
-async function loadUsers() {
-  const body = document.getElementById("users-body");
-  const me = localStorage.getItem(USER_KEY) || "";
-  const resp = await apiFetch("admin/users");
-  if (!resp.ok) {
-    body.innerHTML = `<tr><td colspan="5" class="muted">${escapeHtml(await resp.text())}</td></tr>`;
-    return;
-  }
-  const users = (await resp.json()).users || [];
-  if (users.length === 0) {
-    body.innerHTML = '<tr><td colspan="5" class="muted">No users yet.</td></tr>';
-    return;
-  }
-  body.innerHTML = users.map((u) => {
-    const isSelf = u.username === me;
-    const uAttr = escapeHtml(u.username);
-    const storedAdmin = u.is_admin && !u.config_admin;
-    // Status badge(s)
-    let status;
-    if (u.config_admin) status = '<span class="badge admin">Admin · config</span>';
-    else if (u.is_admin) status = '<span class="badge admin">Admin</span>';
-    else status = u.registered ? '<span class="badge ok">Registered</span>' : '<span class="badge muted">No password</span>';
-    if (u.is_controller) status += ' <span class="badge controller">Controller</span>';
-    // Admin toggle (not for config admins or yourself)
-    let toggle = "";
-    if (!u.config_admin && !isSelf) {
-      toggle = storedAdmin
-        ? `<button class="secondary btn-sm toggle-admin" data-u="${uAttr}" data-make="0">Revoke admin</button>`
-        : `<button class="secondary btn-sm toggle-admin" data-u="${uAttr}" data-make="1">Make admin</button>`;
-    }
-    // Controller toggle: only for regular (non-admin) users.
-    let ctrlToggle = "";
-    if (!u.config_admin && !u.is_admin) {
-      ctrlToggle = u.is_controller
-        ? `<button class="secondary btn-sm toggle-controller" data-u="${uAttr}" data-make="0">Revoke controller</button>`
-        : `<button class="secondary btn-sm toggle-controller" data-u="${uAttr}" data-make="1">Make controller</button>`;
-    }
-    const del = isSelf
-      ? '<button class="secondary btn-sm" disabled title="You cannot delete your own account">Delete</button>'
-      : `<button class="secondary btn-sm delete-user" data-u="${uAttr}">Delete</button>`;
-    return `<tr>
-      <td>${escapeHtml(u.username)}</td>
-      <td>${status}</td>
-      <td class="muted">${fmtBytes(u.size_bytes)}</td>
-      <td class="muted">${fmtDate(u.modified)}</td>
-      <td><div class="u-actions">${toggle}${ctrlToggle}<button class="secondary btn-sm reset-user" data-u="${uAttr}">Reset password</button>${del}</div></td>
-    </tr>`;
-  }).join("");
+// Admin page state: the full user list and the currently-selected username.
+let ADMIN_USERS = [];
+let ADMIN_SELECTED = null;
 
-  const msg = document.getElementById("users-msg");
-  body.querySelectorAll(".toggle-admin").forEach((b) => b.addEventListener("click", async () => {
-    const u = b.dataset.u;
-    const makeAdmin = b.dataset.make === "1";
-    if (!confirm(`${makeAdmin ? "Grant admin rights to" : "Revoke admin rights from"} ${u}?`)) return;
-    const r = await apiFetch("admin/admin", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: u, is_admin: makeAdmin }),
-    });
-    if (r.ok) { showMsg(msg, `${makeAdmin ? "Granted" : "Revoked"} admin for ${u}`, "ok"); loadUsers(); }
-    else showMsg(msg, await r.text(), "error");
+// initials derives up to two avatar letters from a username / email.
+function initials(username) {
+  const name = (username || "").split("@")[0];
+  const parts = name.split(/[.\-_ ]+/).filter(Boolean);
+  const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.slice(0, 2);
+  return (letters || "?").toUpperCase();
+}
+
+// roleOf maps a user record to a single primary role badge.
+function roleOf(u) {
+  if (u.config_admin) return { key: "admin", label: "Admin · config", cls: "admin" };
+  if (u.is_admin) return { key: "admin", label: "Admin", cls: "admin" };
+  if (u.is_controller) return { key: "controller", label: "Controller", cls: "controller" };
+  return { key: "user", label: "User", cls: "muted" };
+}
+
+function statusOf(u) {
+  return u.registered
+    ? { key: "registered", label: "Registered", cls: "ok" }
+    : { key: "nopw", label: "No password", cls: "muted" };
+}
+
+function userMatchesFilters(u) {
+  const q = (document.getElementById("user-search").value || "").trim().toLowerCase();
+  const roleF = document.getElementById("role-filter").value;
+  const statusF = document.getElementById("status-filter").value;
+  if (q && !u.username.toLowerCase().includes(q)) return false;
+  if (roleF && roleOf(u).key !== roleF) return false;
+  if (statusF && statusOf(u).key !== statusF) return false;
+  return true;
+}
+
+function renderUsersTable() {
+  const body = document.getElementById("users-body");
+  const count = document.getElementById("users-count");
+  const rows = ADMIN_USERS.filter(userMatchesFilters);
+  if (ADMIN_USERS.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">No users yet.</td></tr>';
+    count.textContent = "";
+    return;
+  }
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">No users match your filters.</td></tr>';
+  } else {
+    body.innerHTML = rows.map((u) => {
+      const uAttr = escapeHtml(u.username);
+      const role = roleOf(u);
+      const st = statusOf(u);
+      const sel = u.username === ADMIN_SELECTED ? " selected" : "";
+      return `<tr class="um-row${sel}" data-u="${uAttr}">
+        <td>
+          <div class="um-user">
+            <span class="um-avatar">${escapeHtml(initials(u.username))}</span>
+            <span class="um-name">${escapeHtml(u.username)}</span>
+          </div>
+        </td>
+        <td><span class="badge ${role.cls}">${escapeHtml(role.label)}</span></td>
+        <td><span class="status-dot ${st.cls}"></span>${escapeHtml(st.label)}</td>
+        <td class="muted">${fmtBytes(u.size_bytes)}</td>
+        <td class="muted">${fmtDate(u.modified)}</td>
+        <td><button class="um-dots" data-u="${uAttr}" title="Actions">⋯</button></td>
+      </tr>`;
+    }).join("");
+  }
+  count.textContent = `Showing ${rows.length} of ${ADMIN_USERS.length} user${ADMIN_USERS.length === 1 ? "" : "s"}`;
+
+  body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", (e) => {
+    if (e.target.closest(".um-dots")) return; // dots handled separately
+    selectUser(tr.dataset.u);
   }));
-  body.querySelectorAll(".toggle-controller").forEach((b) => b.addEventListener("click", async () => {
-    const u = b.dataset.u;
-    const makeController = b.dataset.make === "1";
-    if (!confirm(`${makeController ? "Grant controller rights to" : "Revoke controller rights from"} ${u}?`)) return;
-    const r = await apiFetch("admin/controller", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: u, is_controller: makeController }),
-    });
-    if (r.ok) { showMsg(msg, `${makeController ? "Granted" : "Revoked"} controller for ${u}`, "ok"); loadUsers(); }
-    else showMsg(msg, await r.text(), "error");
-  }));
-  body.querySelectorAll(".reset-user").forEach((b) => b.addEventListener("click", async () => {
-    const u = b.dataset.u;
-    const pw = prompt(`New password for ${u}:`);
-    if (pw === null) return;
-    if (pw.length < 4) { showMsg(msg, "Password must be at least 4 characters", "error"); return; }
-    const r = await apiFetch("admin/password", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: u, password: pw }),
-    });
-    showMsg(msg, r.ok ? `Password reset for ${u}` : (await r.text()), r.ok ? "ok" : "error");
-  }));
-  body.querySelectorAll(".delete-user").forEach((b) => b.addEventListener("click", async () => {
-    const u = b.dataset.u;
-    if (!confirm(`Delete user "${u}" and all their data? This cannot be undone.`)) return;
-    const r = await apiFetch("admin/user", {
-      method: "DELETE", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: u }),
-    });
-    if (r.ok) { showMsg(msg, `Deleted ${u}`, "ok"); loadUsers(); }
-    else showMsg(msg, await r.text(), "error");
+  body.querySelectorAll(".um-dots").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openRowMenu(b, b.dataset.u);
   }));
 }
+
+// ---- Admin actions (shared by the details panel and the row menu) -----------
+
+function adminMsg() { return document.getElementById("users-msg"); }
+
+async function actMakeAdmin(username, make) {
+  if (!confirm(`${make ? "Grant admin rights to" : "Revoke admin rights from"} ${username}?`)) return;
+  const r = await apiFetch("admin/admin", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, is_admin: make }),
+  });
+  if (r.ok) { showMsg(adminMsg(), `${make ? "Granted" : "Revoked"} admin for ${username}`, "ok"); loadUsers(); }
+  else showMsg(adminMsg(), await r.text(), "error");
+}
+
+async function actMakeController(username, make) {
+  if (!confirm(`${make ? "Grant controller rights to" : "Revoke controller rights from"} ${username}?`)) return;
+  const r = await apiFetch("admin/controller", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, is_controller: make }),
+  });
+  if (r.ok) { showMsg(adminMsg(), `${make ? "Granted" : "Revoked"} controller for ${username}`, "ok"); loadUsers(); }
+  else showMsg(adminMsg(), await r.text(), "error");
+}
+
+async function actResetPassword(username) {
+  const pw = prompt(`New password for ${username}:`);
+  if (pw === null) return;
+  if (pw.length < 4) { showMsg(adminMsg(), "Password must be at least 4 characters", "error"); return; }
+  const r = await apiFetch("admin/password", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password: pw }),
+  });
+  showMsg(adminMsg(), r.ok ? `Password reset for ${username}` : (await r.text()), r.ok ? "ok" : "error");
+}
+
+async function actDeleteUser(username) {
+  if (!confirm(`Delete user "${username}" and all their data? This cannot be undone.`)) return;
+  const r = await apiFetch("admin/user", {
+    method: "DELETE", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username }),
+  });
+  if (r.ok) {
+    showMsg(adminMsg(), `Deleted ${username}`, "ok");
+    if (ADMIN_SELECTED === username) ADMIN_SELECTED = null;
+    loadUsers();
+  } else showMsg(adminMsg(), await r.text(), "error");
+}
+
+// ---- Row "⋯" menu -----------------------------------------------------------
+
+function closeRowMenu() {
+  const m = document.getElementById("um-row-menu");
+  if (m) m.remove();
+}
+
+function openRowMenu(anchor, username) {
+  closeRowMenu();
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  if (!u) return;
+  const me = localStorage.getItem(USER_KEY) || "";
+  const isSelf = username === me;
+  const storedAdmin = u.is_admin && !u.config_admin;
+  const items = [];
+  items.push(`<button data-act="details">View details</button>`);
+  if (!u.config_admin && !isSelf) {
+    items.push(storedAdmin
+      ? `<button data-act="revoke-admin">Revoke admin</button>`
+      : `<button data-act="make-admin">Make admin</button>`);
+  }
+  if (!u.config_admin && !u.is_admin) {
+    items.push(u.is_controller
+      ? `<button data-act="revoke-controller">Revoke controller</button>`
+      : `<button data-act="make-controller">Make controller</button>`);
+  }
+  items.push(`<button data-act="reset">Reset password</button>`);
+  if (!isSelf) items.push(`<button class="danger" data-act="delete">Delete user</button>`);
+
+  const menu = document.createElement("div");
+  menu.id = "um-row-menu";
+  menu.className = "menu-pop open";
+  menu.innerHTML = items.join("");
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.position = "fixed";
+  menu.style.top = (r.bottom + 4) + "px";
+  menu.style.left = Math.max(8, r.right - menu.offsetWidth) + "px";
+
+  menu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    const act = b.dataset.act;
+    closeRowMenu();
+    if (act === "details") selectUser(username);
+    else if (act === "make-admin") actMakeAdmin(username, true);
+    else if (act === "revoke-admin") actMakeAdmin(username, false);
+    else if (act === "make-controller") actMakeController(username, true);
+    else if (act === "revoke-controller") actMakeController(username, false);
+    else if (act === "reset") actResetPassword(username);
+    else if (act === "delete") actDeleteUser(username);
+  }));
+}
+
+// ---- Details panel ----------------------------------------------------------
+
+function selectUser(username) {
+  ADMIN_SELECTED = username;
+  renderUsersTable();
+  renderUserDetails();
+}
+
+function renderUserDetails() {
+  const host = document.getElementById("user-details");
+  const u = ADMIN_USERS.find((x) => x.username === ADMIN_SELECTED);
+  if (!u) {
+    host.classList.remove("filled");
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+      <p>Select a user to view details, roles and actions.</p>
+    </div>`;
+    return;
+  }
+  const me = localStorage.getItem(USER_KEY) || "";
+  const isSelf = u.username === me;
+  const role = roleOf(u);
+  const st = statusOf(u);
+  const storedAdmin = u.is_admin && !u.config_admin;
+
+  // Roles section buttons.
+  let roleBtns = "";
+  if (u.config_admin) {
+    roleBtns = `<p class="muted um-note">This is a configured root admin — the role can't be changed here.</p>`;
+  } else {
+    if (!isSelf) {
+      roleBtns += storedAdmin
+        ? `<button class="secondary btn-sm" id="d-admin" data-make="0">Revoke admin</button>`
+        : `<button class="secondary btn-sm" id="d-admin" data-make="1">Make admin</button>`;
+    }
+    if (!u.is_admin) {
+      roleBtns += u.is_controller
+        ? `<button class="secondary btn-sm" id="d-ctrl" data-make="0">Revoke controller</button>`
+        : `<button class="secondary btn-sm" id="d-ctrl" data-make="1">Make controller</button>`;
+    }
+    if (!roleBtns && isSelf) roleBtns = `<p class="muted um-note">You can't change your own admin role.</p>`;
+  }
+
+  host.classList.add("filled");
+  host.innerHTML = `
+    <div class="ud-head">
+      <span class="um-avatar lg">${escapeHtml(initials(u.username))}</span>
+      <div class="ud-id">
+        <div class="ud-name">${escapeHtml(u.username)}</div>
+        <span class="badge ${role.cls}">${escapeHtml(role.label)}</span>
+      </div>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Profile</div>
+      <div class="ud-field"><span class="k">Username</span><span class="v">${escapeHtml(u.username)}</span></div>
+      <div class="ud-field"><span class="k">Status</span><span class="v"><span class="status-dot ${st.cls}"></span>${escapeHtml(st.label)}</span></div>
+      <div class="ud-field"><span class="k">Storage</span><span class="v">${fmtBytes(u.size_bytes)}</span></div>
+      <div class="ud-field"><span class="k">Last active</span><span class="v">${fmtDate(u.modified)}</span></div>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Roles &amp; permissions</div>
+      <div class="ud-roles">
+        ${u.is_admin ? '<span class="badge admin">Admin</span>' : ""}
+        ${u.is_controller ? '<span class="badge controller">Controller</span>' : ""}
+        ${!u.is_admin && !u.is_controller ? '<span class="badge muted">User</span>' : ""}
+      </div>
+      <div class="ud-actions">${roleBtns}</div>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Account actions</div>
+      <div class="ud-actions">
+        <button class="secondary btn-sm" id="d-reset">Reset password</button>
+        <button class="secondary btn-sm danger-btn" id="d-delete" ${isSelf ? "disabled title=\"You cannot delete your own account\"" : ""}>Delete user</button>
+      </div>
+    </div>`;
+
+  const dAdmin = host.querySelector("#d-admin");
+  if (dAdmin) dAdmin.addEventListener("click", () => actMakeAdmin(u.username, dAdmin.dataset.make === "1"));
+  const dCtrl = host.querySelector("#d-ctrl");
+  if (dCtrl) dCtrl.addEventListener("click", () => actMakeController(u.username, dCtrl.dataset.make === "1"));
+  host.querySelector("#d-reset").addEventListener("click", () => actResetPassword(u.username));
+  const dDel = host.querySelector("#d-delete");
+  if (dDel && !isSelf) dDel.addEventListener("click", () => actDeleteUser(u.username));
+}
+
+async function loadUsers() {
+  const body = document.getElementById("users-body");
+  const resp = await apiFetch("admin/users");
+  if (!resp.ok) {
+    body.innerHTML = `<tr><td colspan="6" class="muted">${escapeHtml(await resp.text())}</td></tr>`;
+    return;
+  }
+  ADMIN_USERS = (await resp.json()).users || [];
+  if (ADMIN_SELECTED && !ADMIN_USERS.some((u) => u.username === ADMIN_SELECTED)) {
+    ADMIN_SELECTED = null;
+  }
+  renderUsersTable();
+  renderUserDetails();
+}
+
+// ---- Add-user modal ---------------------------------------------------------
+
+function openAddUser() {
+  document.getElementById("create-msg").innerHTML = "";
+  document.getElementById("new-username").value = "";
+  document.getElementById("new-password").value = "";
+  document.getElementById("add-user-modal").hidden = false;
+  document.getElementById("new-username").focus();
+}
+function closeAddUser() { document.getElementById("add-user-modal").hidden = true; }
 
 async function initAdmin() {
   // Server also enforces this; redirect non-admins away from the page.
@@ -2542,6 +2741,16 @@ async function initAdmin() {
     const who = await apiFetch("whoami");
     if (who.ok && !(await who.json()).is_admin) { location.href = PREFIX; return; }
   } catch (e) { return; }
+
+  document.getElementById("user-search").addEventListener("input", renderUsersTable);
+  document.getElementById("role-filter").addEventListener("change", renderUsersTable);
+  document.getElementById("status-filter").addEventListener("change", renderUsersTable);
+
+  document.getElementById("add-user-btn").addEventListener("click", openAddUser);
+  document.getElementById("add-user-cancel").addEventListener("click", closeAddUser);
+  document.getElementById("add-user-modal").addEventListener("click", (e) => {
+    if (e.target.id === "add-user-modal") closeAddUser();
+  });
 
   const createMsg = document.getElementById("create-msg");
   document.getElementById("create-user").addEventListener("click", async () => {
@@ -2554,15 +2763,22 @@ async function initAdmin() {
       body: JSON.stringify({ username, password }),
     });
     if (r.ok) {
-      showMsg(createMsg, `Created ${username}`, "ok");
-      document.getElementById("new-username").value = "";
-      document.getElementById("new-password").value = "";
+      showMsg(adminMsg(), `Created ${username}`, "ok");
+      closeAddUser();
+      ADMIN_SELECTED = username;
       loadUsers();
     } else {
       showMsg(createMsg, await r.text(), "error");
     }
   });
-  document.getElementById("refresh-users").addEventListener("click", loadUsers);
+
+  // Close the row menu on outside click / scroll / escape.
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#um-row-menu") && !e.target.closest(".um-dots")) closeRowMenu();
+  });
+  window.addEventListener("scroll", closeRowMenu, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeRowMenu(); closeAddUser(); } });
+
   loadUsers();
 }
 

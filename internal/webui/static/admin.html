@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tagged · Admin</title>
+  <title>Tagged · Users</title>
   <link rel="stylesheet" href="{{PREFIX}}style.css">
   <link rel="icon" type="image/png" sizes="32x32" href="{{PREFIX}}images/favicon_light/favicon-32x32.png">
   <script>window.TT_PREFIX = "{{PREFIX}}";</script>
@@ -67,43 +67,83 @@
       </div>
     </aside>
 
-    <div class="content single">
+    <div class="content" id="users-layout">
       <div class="main-col" style="width:100%">
-        <div class="page-head"><h1>Admin · Users</h1></div>
-
-        <div class="panel">
-          <div class="panel-head"><h3>Create user</h3></div>
-          <div class="row">
-            <div>
-              <label for="new-username">Username</label>
-              <input id="new-username" type="text" placeholder="user@example.com">
-            </div>
-            <div>
-              <label for="new-password">Password</label>
-              <input id="new-password" type="password" placeholder="min. 4 characters">
-            </div>
-            <div style="flex:0 0 auto">
-              <label>&nbsp;</label>
-              <button id="create-user">Create</button>
-            </div>
+        <div class="page-head">
+          <div>
+            <h1>User Management</h1>
+            <p class="page-sub">Manage users, roles and permissions for your Tagged server.</p>
           </div>
-          <div id="create-msg" class="msg"></div>
+          <div class="head-actions">
+            <button id="add-user-btn">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add user
+            </button>
+          </div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head"><h3>Users</h3><button class="link" id="refresh-users">Refresh</button></div>
+        <div class="panel um-panel">
+          <div class="um-toolbar">
+            <div class="search-field">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <input id="user-search" type="text" placeholder="Search users…" autocomplete="off">
+            </div>
+            <select id="role-filter" class="um-select">
+              <option value="">All roles</option>
+              <option value="admin">Admin</option>
+              <option value="controller">Controller</option>
+              <option value="user">User</option>
+            </select>
+            <select id="status-filter" class="um-select">
+              <option value="">All status</option>
+              <option value="registered">Registered</option>
+              <option value="nopw">No password</option>
+            </select>
+          </div>
           <div class="table-wrap">
-            <table class="utable">
+            <table class="utable um-table">
               <thead>
-                <tr><th>User</th><th>Status</th><th>Size</th><th>Last active</th><th></th></tr>
+                <tr><th>User</th><th>Role</th><th>Status</th><th>Storage</th><th>Last active</th><th></th></tr>
               </thead>
               <tbody id="users-body">
-                <tr><td colspan="5" class="muted">Loading…</td></tr>
+                <tr><td colspan="6" class="muted">Loading…</td></tr>
               </tbody>
             </table>
           </div>
+          <div class="um-foot">
+            <span id="users-count" class="muted"></span>
+          </div>
           <div id="users-msg" class="msg"></div>
         </div>
+      </div>
+
+      <aside class="side-col">
+        <div class="panel um-details" id="user-details">
+          <div class="um-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+            <p>Select a user to view details, roles and actions.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Add user modal -->
+  <div class="modal-overlay" id="add-user-modal" hidden>
+    <div class="sheet" style="max-width:440px">
+      <div class="sheet-title">Add user</div>
+      <div class="sheet-section">
+        <div class="sheet-label">Username</div>
+        <input id="new-username" class="em-input" type="text" placeholder="user@example.com" autocomplete="off">
+      </div>
+      <div class="sheet-section">
+        <div class="sheet-label">Password</div>
+        <input id="new-password" class="em-input" type="password" placeholder="min. 4 characters" autocomplete="new-password">
+      </div>
+      <div id="create-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="add-user-cancel">Cancel</button>
+        <button id="create-user">Create user</button>
       </div>
     </div>
   </div>
