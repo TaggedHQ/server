@@ -950,6 +950,12 @@ async function initAccount() {
   const user = localStorage.getItem(USER_KEY) || "";
   document.getElementById("acc-username").textContent = user;
 
+  // Fetch account type once and share it across the security-related sections.
+  // OAuth-only accounts have no password, which changes the password panel
+  // (it "sets" rather than "changes") and the token reveal (no re-auth prompt).
+  let hasPassword = true;
+  try { hasPassword = !!(await (await apiFetch("whoami")).json()).has_password; } catch (e) { /* assume password */ }
+
   await loadSettings();
   document.getElementById("daily-goal").value = GOALS.daily;
   document.getElementById("weekly-goal").value = GOALS.weekly;
@@ -966,6 +972,14 @@ async function initAccount() {
 
   initPrefsSettings();
 
+  // For OAuth-only accounts, the panel sets a first password rather than
+  // changing an existing one.
+  if (!hasPassword) {
+    document.getElementById("pw-title").textContent = "Set a password";
+    document.getElementById("pw-submit").textContent = "Set password";
+    document.getElementById("pw-hint").hidden = false;
+  }
+
   const pwMsg = document.getElementById("pw-msg");
   document.getElementById("pw-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -979,24 +993,29 @@ async function initAccount() {
       body: JSON.stringify({ password: p1 }),
     });
     if (resp.ok) {
-      showMsg(pwMsg, "Password updated", "ok");
       document.getElementById("pw1").value = "";
       document.getElementById("pw2").value = "";
+      if (!hasPassword) {
+        // First password on an OAuth account: reload so the two-factor and
+        // passkey panels (and the relabeled token section) reflect the change.
+        showMsg(pwMsg, "Password set", "ok");
+        location.reload();
+        return;
+      }
+      showMsg(pwMsg, "Password updated", "ok");
     } else {
       showMsg(pwMsg, (await resp.text()) || "Failed", "error");
     }
   });
 
-  initTokenSection();
-  await initSecuritySections();
+  initTokenSection(hasPassword);
+  initSecuritySections(hasPassword);
   document.getElementById("logout2").addEventListener("click", logout);
 }
 
 // initSecuritySections shows the two-factor and passkey panels only for password
 // ("non-OAuth") accounts; OAuth-only accounts see a short explanatory note.
-async function initSecuritySections() {
-  let hasPassword = true;
-  try { hasPassword = !!(await (await apiFetch("whoami")).json()).has_password; } catch (e) { /* assume password */ }
+function initSecuritySections(hasPassword) {
   const mfaPanel = document.getElementById("panel-mfa");
   const pkPanel = document.getElementById("panel-passkeys");
   const note = document.getElementById("security-oauth-note");
@@ -1223,9 +1242,10 @@ async function fetchApiToken(reset) {
   return (await resp.json()).token || null;
 }
 
-// initTokenSection wires the API-token field: the value stays masked and is
-// only revealed after the user re-enters their password.
-function initTokenSection() {
+// initTokenSection wires the API-token field. For password accounts the value
+// stays masked until the user re-enters their password; OAuth-only accounts
+// have no password to verify, so the web session alone gates the reveal.
+function initTokenSection(hasPassword) {
   const input = document.getElementById("token-input");
   const showBtn = document.getElementById("token-show");
   const copyBtn = document.getElementById("token-copy");
@@ -1246,9 +1266,22 @@ function initTokenSection() {
   }
   function closePrompt() { pwWrap.hidden = true; pwInput.value = ""; }
 
+  // OAuth accounts can't re-enter a password, so reveal straight from the token
+  // endpoint (already authorized by the web session).
+  async function revealWithoutPassword() {
+    showMsg(msg, "Loading…", "");
+    const t = await fetchApiToken(false);
+    if (!t) { showMsg(msg, "Could not load token", "error"); return; }
+    token = t;
+    input.value = token;
+    reveal();
+    showMsg(msg, "", "");
+  }
+
   showBtn.addEventListener("click", () => {
     // Already revealed this session: toggle freely without re-asking.
     if (token) { input.type === "password" ? reveal() : mask(); return; }
+    if (!hasPassword) { revealWithoutPassword(); return; }
     if (pwWrap.hidden) { pwWrap.hidden = false; pwInput.focus(); }
     else closePrompt();
   });

@@ -390,7 +390,7 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .oauth-buttons { display: flex; flex-direction: column; gap: 8px; }
 .oauth-btn {
   display: flex; align-items: center; justify-content: center; gap: 10px;
-  padding: 10px 12px; border-radius: 10px;
+  padding: 10px 12px; border-radius: 999px;
   border: 1px solid var(--stroke); background: var(--surface-raised);
   color: var(--text-1); text-decoration: none; font-size: 0.85rem; font-weight: 500;
 }

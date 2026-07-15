@@ -145,14 +145,15 @@
           <div id="prefs-msg" class="msg"></div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head"><h3>Change password</h3></div>
+        <div class="panel" id="panel-password">
+          <div class="panel-head"><h3 id="pw-title">Change password</h3></div>
+          <p class="hint" id="pw-hint" hidden>You sign in with an external provider. Setting a password here lets you also sign in with a username and password, and enables two-factor authentication and passkeys.</p>
           <form id="pw-form">
             <label for="pw1">New password</label>
             <input id="pw1" type="password" autocomplete="new-password" required>
             <label for="pw2">Confirm new password</label>
             <input id="pw2" type="password" autocomplete="new-password" required>
-            <button class="block" type="submit">Update password</button>
+            <button class="block" type="submit" id="pw-submit">Update password</button>
           </form>
           <div id="pw-msg" class="msg"></div>
         </div>
