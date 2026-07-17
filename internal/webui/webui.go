@@ -29,10 +29,14 @@ func route(reqPath string) string {
 		return "account.html"
 	case "entries":
 		return "entries.html"
-	case "admin":
-		return "admin.html"
-	case "servers":
-		return "servers.html"
+	case "users":
+		return "users.html"
+	case "roles":
+		return "roles.html"
+	case "groups":
+		return "groups.html"
+	case "settings":
+		return "settings.html"
 	case "oauth":
 		return "oauth.html"
 	case "tags":

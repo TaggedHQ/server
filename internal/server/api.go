@@ -130,17 +130,26 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 		}
 		return textResp(405, "method not allowed: /whoami can only be used with GET")
 	}
+	// Every account manages its own directory details and profile picture. Note
+	// this is deliberately the caller's own db, not the "act as" target's: a
+	// controller views another user's time data, not their identity.
+	if path == "profile" {
+		return s.profileHandler(req, db)
+	}
+	// Privileged routes are gated on capabilities, which the Admin · Roles page
+	// maps onto roles; adminHandler applies the per-route capability check.
 	if path == "admin" || strings.HasPrefix(path, "admin/") {
-		if !s.isAdmin(username, db) {
+		caps := s.capsOf(username, db)
+		if !hasAnyAdminCap(caps) {
 			return textResp(403, "forbidden: admin access required")
 		}
-		return s.adminHandler(req, strings.TrimPrefix(path, "admin"), username)
+		return s.adminHandler(req, strings.TrimPrefix(path, "admin"), username, caps)
 	}
 	if path == "controller" || strings.HasPrefix(path, "controller/") {
-		if !s.isController(username, db) {
+		if !s.hasCap(username, db, capUsersActAs) {
 			return textResp(403, "forbidden: controller access required")
 		}
-		return s.controllerHandler(req, strings.TrimPrefix(path, "controller"))
+		return s.controllerHandler(req, strings.TrimPrefix(path, "controller"), username)
 	}
 
 	// Data plane: a controller may act as another user via the "actasuser"
@@ -276,8 +285,8 @@ func isDataPath(path string) bool {
 
 // dataDB resolves the database a data-plane request should operate on. Without an
 // "actasuser" header (or when it names the caller), it returns realDB unchanged.
-// Otherwise the caller must be a controller and the target must be a registered
-// regular user (not a config/stored admin and not another controller); on success
+// Otherwise the caller must hold the "switch to users" capability and the target
+// must be a registered regular user in a group the caller controls; on success
 // the target's db is returned with extra=true (the caller must Close it). Any
 // failure returns a non-nil *response for the handler to send.
 func (s *Server) dataDB(req *request, realUser string, realDB store.UserDB) (store.UserDB, bool, *response) {
@@ -285,12 +294,18 @@ func (s *Server) dataDB(req *request, realUser string, realDB store.UserDB) (sto
 	if target == "" || target == realUser {
 		return realDB, false, nil
 	}
-	if !s.isController(realUser, realDB) {
+	if !s.hasCap(realUser, realDB, capUsersActAs) {
 		r := textResp(403, "forbidden: controller role required to act as another user")
 		return nil, false, &r
 	}
 	if s.isConfigAdmin(target) {
 		r := textResp(403, "forbidden: cannot act as this user")
+		return nil, false, &r
+	}
+	// Strict group scoping: a controller reaches only the members of the groups
+	// they control, so a controller in no group can act as nobody.
+	if !s.controllerTargets(realUser)[target] {
+		r := textResp(403, "forbidden: this user is not in a group you control")
 		return nil, false, &r
 	}
 	tdb, err := s.openUserDB(target)

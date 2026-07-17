@@ -154,6 +154,8 @@ label {
 
 input[type="text"],
 input[type="password"],
+input[type="email"],
+input[type="tel"],
 input[type="datetime-local"] {
   width: 100%;
   padding: 12px 14px;
@@ -187,6 +189,8 @@ button {
 }
 button:hover { filter: brightness(1.08); }
 button:active { filter: brightness(0.94); }
+button:disabled { opacity: 0.4; cursor: default; }
+button:disabled:hover, button:disabled:active { filter: none; }
 
 button.secondary {
   background: var(--surface-raised);
@@ -1014,6 +1018,60 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .danger-btn:not(:disabled):hover { border-color: var(--danger); color: var(--danger); }
 
 .sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* Profile pictures. A picture fills the same circle the initials use, so every
+   avatar keeps its size whether or not one is set. */
+.um-avatar.has-img, .avatar.has-img { padding: 0; overflow: hidden; background: var(--surface-raised); }
+.um-avatar.has-img img, .avatar.has-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Two-line user cell in the admin list */
+.um-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.um-sub { font-size: 0.74rem; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Profile form (admin details panel + Account page) */
+.pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.pf-grid > div { min-width: 0; }
+/* The details panel is a 328px column: two fields per row would be too tight. */
+.um-details .pf-grid { grid-template-columns: 1fr; }
+.pf-grid label { margin: 0 0 5px; }
+.pf-grid input { margin: 0; padding: 9px 12px; font-size: 0.88rem; }
+.pf-photo { display: flex; align-items: center; gap: 16px; margin: 18px 0; flex-wrap: wrap; }
+.pf-photo-actions { min-width: 0; }
+.pf-photo-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-3); margin-bottom: 8px; }
+.pf-photo .um-note { margin-top: 8px; }
+
+/* Roles page */
+.rl-desc { font-size: 0.78rem; color: var(--text-3); margin-top: 6px; max-width: 44ch; }
+.um-row:hover .tm-edit { color: var(--accent); }
+.perm-list { display: flex; flex-direction: column; }
+/* .perm-row is a <label>, so it has to opt out of the global label styling. */
+.perm-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  margin: 0; padding: 11px 0; border-bottom: 1px solid var(--stroke); cursor: pointer;
+  text-transform: none; letter-spacing: normal; font-size: 1rem;
+}
+.perm-row:last-child { border-bottom: none; }
+.perm-row.locked { cursor: default; }
+.perm-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.perm-label { font-size: 0.84rem; color: var(--text-1); }
+.perm-row.locked .perm-label { color: var(--text-3); }
+.perm-desc { font-size: 0.75rem; color: var(--text-3); line-height: 1.4; }
+
+/* Groups page */
+.gm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.gm-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surface-raised); border: 1px solid var(--stroke);
+  border-radius: 999px; padding: 4px 6px 4px 11px;
+  font-size: 0.78rem; color: var(--text-1); white-space: nowrap;
+}
+.gm-x {
+  background: none; border: none; color: var(--text-3); cursor: pointer;
+  font-size: 0.95rem; line-height: 1; padding: 0 3px; border-radius: 50%; font-weight: 600;
+}
+.gm-x:hover { color: var(--danger); filter: none; background: none; }
+.gm-add { display: flex; gap: 8px; }
+.gm-add .um-select { flex: 1; min-width: 0; }
 
 /* ---- Responsive ------------------------------------------------------------ */
 @media (max-width: 1080px) {

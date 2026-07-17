@@ -35,8 +35,13 @@ func (s *Server) isAdmin(username string, db store.UserDB) bool {
 // to any authenticated user; the UI uses it to decide whether to show the admin
 // menu.
 func (s *Server) whoamiHandler(username string, db store.UserDB) response {
+	caps := s.capsOf(username, db)
 	return jsonResp(200, map[string]any{
 		"username":               username,
+		"role":                   s.userRole(username, db),
+		"caps":                   capList(caps),
+		"profile":                readProfile(db),
+		"avatar":                 readAvatar(db),
 		"is_admin":               s.isAdmin(username, db),
 		"is_controller":          s.isController(username, db),
 		"has_password":           hasPassword(db),
@@ -46,10 +51,36 @@ func (s *Server) whoamiHandler(username string, db store.UserDB) response {
 	})
 }
 
+// adminRouteCap maps each admin sub-route to the capability it requires.
+var adminRouteCap = map[string]string{
+	"":            capUsersManage,
+	"/":           capUsersManage,
+	"/users":      capUsersManage,
+	"/users/":     capUsersManage,
+	"/password":   capUsersManage,
+	"/user":       capUsersManage,
+	"/profile":    capUsersManage,
+	"/admin":      capRolesManage,
+	"/controller": capRolesManage,
+	"/roles":      capRolesManage,
+	"/groups":     capGroupsManage,
+	"/group":      capGroupsManage,
+	"/server":     capServerManage,
+	"/oauth":      capOAuthManage,
+}
+
 // adminHandler dispatches admin-only sub-routes. `sub` is the path after
-// "admin" (e.g. "/users", "/password", "/user"). The caller has already
-// verified the requester is an admin.
-func (s *Server) adminHandler(req *request, sub, adminUser string) response {
+// "admin" (e.g. "/users", "/password", "/user"). The caller has already been
+// verified to hold at least one admin capability; `caps` is their full set, and
+// each route is gated on the capability adminRouteCap names for it.
+func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[string]bool) response {
+	need, known := adminRouteCap[sub]
+	if !known {
+		return textResp(404, "not found: /admin"+sub+" is not a valid admin path")
+	}
+	if !caps[need] {
+		return textResp(403, "forbidden: your role does not have the "+need+" permission")
+	}
 	switch sub {
 	case "", "/", "/users", "/users/":
 		switch req.method() {
@@ -58,22 +89,44 @@ func (s *Server) adminHandler(req *request, sub, adminUser string) response {
 		case "PUT", "POST":
 			return s.adminCreateUser(req)
 		}
-		return textResp(405, "method not allowed")
 	case "/password":
 		if req.method() == "PUT" || req.method() == "POST" {
 			return s.adminResetPassword(req)
 		}
-		return textResp(405, "method not allowed")
 	case "/user":
 		if req.method() == "DELETE" {
 			return s.adminDeleteUser(req, adminUser)
 		}
-		return textResp(405, "method not allowed")
+	case "/profile":
+		if req.method() == "PUT" || req.method() == "POST" {
+			return s.adminSetProfile(req)
+		}
 	case "/admin":
 		if req.method() == "PUT" || req.method() == "POST" {
 			return s.adminSetAdmin(req, adminUser)
 		}
-		return textResp(405, "method not allowed")
+	case "/controller":
+		if req.method() == "PUT" || req.method() == "POST" {
+			return s.adminSetController(req)
+		}
+	case "/roles":
+		switch req.method() {
+		case "GET":
+			return s.adminGetRoles()
+		case "PUT", "POST":
+			return s.adminSetRole(req)
+		}
+	case "/groups":
+		switch req.method() {
+		case "GET":
+			return s.adminGetGroups()
+		case "PUT", "POST":
+			return s.adminSaveGroup(req)
+		}
+	case "/group":
+		if req.method() == "DELETE" {
+			return s.adminDeleteGroup(req)
+		}
 	case "/server":
 		switch req.method() {
 		case "GET":
@@ -81,12 +134,6 @@ func (s *Server) adminHandler(req *request, sub, adminUser string) response {
 		case "PUT", "POST":
 			return s.adminSetServer(req)
 		}
-		return textResp(405, "method not allowed")
-	case "/controller":
-		if req.method() == "PUT" || req.method() == "POST" {
-			return s.adminSetController(req)
-		}
-		return textResp(405, "method not allowed")
 	case "/oauth":
 		switch req.method() {
 		case "GET":
@@ -94,21 +141,22 @@ func (s *Server) adminHandler(req *request, sub, adminUser string) response {
 		case "PUT", "POST":
 			return s.adminSetOAuth(req)
 		}
-		return textResp(405, "method not allowed")
-	default:
-		return textResp(404, "not found: /admin"+sub+" is not a valid admin path")
 	}
+	return textResp(405, "method not allowed")
 }
 
-// userRow is one entry in the admin user list.
+// userRow is one entry in the admin user list. It embeds the profile so the page
+// can render, search and edit the directory fields without a request per user.
 type userRow struct {
-	Username     string `json:"username"`
-	Registered   bool   `json:"registered"`    // has a password set (vs. token-only)
-	IsAdmin      bool   `json:"is_admin"`      // effective admin (config OR stored role)
-	ConfigAdmin  bool   `json:"config_admin"`  // root admin from config (role can't be toggled)
-	IsController bool   `json:"is_controller"` // stored controller role (can switch to other users)
-	SizeBytes    int64  `json:"size_bytes"`
-	Modified     int64  `json:"modified"` // unix seconds
+	Username     string      `json:"username"`
+	Registered   bool        `json:"registered"`    // has a password set (vs. token-only)
+	IsAdmin      bool        `json:"is_admin"`      // effective admin (config OR stored role)
+	ConfigAdmin  bool        `json:"config_admin"`  // root admin from config (role can't be toggled)
+	IsController bool        `json:"is_controller"` // stored controller role (can switch to other users)
+	Profile      userProfile `json:"profile"`
+	Avatar       string      `json:"avatar"` // data URI, or "" when unset
+	SizeBytes    int64       `json:"size_bytes"`
+	Modified     int64       `json:"modified"` // unix seconds
 }
 
 func (s *Server) adminListUsers() response {
@@ -125,10 +173,12 @@ func (s *Server) adminListUsers() response {
 			SizeBytes:   m.SizeBytes,
 			Modified:    m.Modified,
 		}
-		registered, storedAdmin, storedController := s.userFlags(m.Username)
-		row.Registered = registered
-		row.IsAdmin = configAdmin || storedAdmin
-		row.IsController = storedController
+		snap := s.userSnapshot(m.Username)
+		row.Registered = snap.Registered
+		row.IsAdmin = configAdmin || snap.Admin
+		row.IsController = snap.Controller
+		row.Profile = snap.Profile
+		row.Avatar = snap.Avatar
 		users = append(users, row)
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].Username < users[j].Username })
@@ -136,6 +186,32 @@ func (s *Server) adminListUsers() response {
 		users = []userRow{}
 	}
 	return jsonResp(200, map[string]any{"users": users})
+}
+
+// userSnapshot is everything the admin user list needs about one account.
+type userSnapshotData struct {
+	Registered bool
+	Admin      bool
+	Controller bool
+	Profile    userProfile
+	Avatar     string
+}
+
+// userSnapshot opens a user DB once and reads the role flags together with the
+// profile, so building the list costs one open per account rather than several.
+func (s *Server) userSnapshot(username string) userSnapshotData {
+	db, err := s.openUserDB(username)
+	if err != nil {
+		return userSnapshotData{}
+	}
+	defer db.Close()
+	return userSnapshotData{
+		Registered: dbRegistered(db),
+		Admin:      dbAdminFlag(db),
+		Controller: dbControllerFlag(db),
+		Profile:    readProfile(db),
+		Avatar:     readAvatar(db),
+	}
 }
 
 // userFlags opens a user DB once and reports whether it has a password set and
@@ -229,6 +305,9 @@ func (s *Server) adminDeleteUser(req *request, adminUser string) response {
 		}
 		return textResp(500, "internal error: "+err.Error())
 	}
+	if err := s.pruneUserFromGroups(username); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
 	return jsonResp(200, map[string]any{"status": "ok"})
 }
 
@@ -258,6 +337,11 @@ func (s *Server) adminSetAdmin(req *request, adminUser string) response {
 		return textResp(400, "this user is a config-defined admin and cannot be changed here")
 	}
 	if err := s.setStoredAdmin(username, body.IsAdmin); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	// The new role may make an existing group membership invalid (only the User
+	// role can be a member, only Controllers can control a group).
+	if err := s.pruneUserFromGroups(username); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"status": "ok"})
@@ -297,6 +381,11 @@ func (s *Server) adminSetController(req *request) response {
 		return textResp(400, "username is required")
 	}
 	if err := s.setStoredController(username, body.IsController); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	// Same as for admin: a user promoted to Controller can no longer be a group
+	// member, and one demoted to User can no longer control a group.
+	if err := s.pruneUserFromGroups(username); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"status": "ok"})

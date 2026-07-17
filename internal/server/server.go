@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.1.9"
+var Version = "0.2.0"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -55,6 +55,14 @@ type Server struct {
 	// oauthMu guards oauthProviders, the configured external identity providers.
 	oauthMu        sync.RWMutex
 	oauthProviders []oauthProvider
+
+	// rolesMu guards roles, the role -> capabilities permission matrix.
+	rolesMu sync.RWMutex
+	roles   map[string][]string
+
+	// groupsMu guards groups, the user groups and their controllers.
+	groupsMu sync.RWMutex
+	groups   []group
 }
 
 // New constructs a Server, creating the data directory and loading (or creating)
@@ -91,8 +99,18 @@ func New(cfg *config.Config) (*Server, error) {
 		registrationOpen = *saved.RegistrationOpen
 	}
 	var oauthProviders []oauthProvider
+	var groups []group
+	roles := defaultRoleCaps()
 	if saved != nil {
 		oauthProviders = saved.OAuth
+		groups = saved.Groups
+		// Merge over the defaults, so a role key added in a later version still
+		// gets its default capabilities on an older setup.json.
+		for key, caps := range saved.Roles {
+			if _, known := roleMeta[key]; known {
+				roles[key] = caps
+			}
+		}
 	}
 	backend, err := store.NewBackend(kind, rootUserDir, dbURL)
 	if err != nil {
@@ -112,6 +130,8 @@ func New(cfg *config.Config) (*Server, error) {
 		admins:           loadAdmins(cfg.Admins),
 		registrationOpen: registrationOpen,
 		oauthProviders:   oauthProviders,
+		roles:            roles,
+		groups:           groups,
 	}, nil
 }
 
@@ -166,7 +186,8 @@ func (s *Server) reconfigureBackend(kind, dbURL string) error {
 }
 
 // setupSnapshot builds the setupState to persist, pairing the given backend
-// choice with the current self-registration switch so neither clobbers the other.
+// choice with every other piece of server-wide state so no writer clobbers
+// another's field.
 func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 	s.regMu.RLock()
 	open := s.registrationOpen
@@ -174,7 +195,28 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 	s.oauthMu.RLock()
 	providers := s.oauthProviders
 	s.oauthMu.RUnlock()
-	return setupState{Backend: kind, DBURL: dbURL, RegistrationOpen: &open, OAuth: providers}
+	s.rolesMu.RLock()
+	roles := map[string][]string{}
+	for k, v := range s.roles {
+		roles[k] = v
+	}
+	s.rolesMu.RUnlock()
+	s.groupsMu.RLock()
+	groups := s.groups
+	s.groupsMu.RUnlock()
+	return setupState{
+		Backend: kind, DBURL: dbURL, RegistrationOpen: &open,
+		OAuth: providers, Roles: roles, Groups: groups,
+	}
+}
+
+// persistSetup writes the current server-wide state to setup.json, preserving
+// the active backend choice.
+func (s *Server) persistSetup() error {
+	s.storeMu.RLock()
+	kind, dbURL := s.backendKind, s.backendURL
+	s.storeMu.RUnlock()
+	return saveSetup(s.rootTTDir, s.setupSnapshot(kind, dbURL))
 }
 
 // registrationEnabled reports whether self-registration via /register is allowed.
@@ -190,10 +232,7 @@ func (s *Server) setRegistrationEnabled(open bool) error {
 	s.regMu.Lock()
 	s.registrationOpen = open
 	s.regMu.Unlock()
-	s.storeMu.RLock()
-	kind, dbURL := s.backendKind, s.backendURL
-	s.storeMu.RUnlock()
-	return saveSetup(s.rootTTDir, s.setupSnapshot(kind, dbURL))
+	return s.persistSetup()
 }
 
 // loadAdmins parses "user1,user2" (';' also allowed) into a set of admin usernames.

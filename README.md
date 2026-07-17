@@ -36,10 +36,20 @@ Track your time with tags, see where it goes, and own your data.
 - 👤 **Accounts & API tokens.** Self‑service sign‑up and personal API tokens for
   scripting against your own data. OAuth users can optionally set a password to
   unlock 2FA and passkeys.
-- 🛡️ **Admin & controller roles.** Config‑defined "root" admins can create
-  users, reset passwords, grant/revoke admin, and remove accounts. A
-  **controller** role can act on behalf of other users for support and tooling —
-  all with the usual guardrails.
+- 🛡️ **Roles you can re‑shape.** Three roles — **User**, **Admin**,
+  **Controller** — and a permission matrix you edit from **Admin → Roles**.
+  Every privileged route is gated on a capability (manage users, roles, groups,
+  server settings, OAuth, switch to users), so you decide what each role may do.
+  Config‑defined "root" admins always keep every permission, so you can't lock
+  yourself out.
+- 👥 **Groups with controllers.** Gather users into groups from
+  **Admin → Groups** and put one or more **controllers** over each. A controller
+  can view and edit the time data of their groups' members — and nobody else's.
+  Users can belong to more than one group.
+- 🪪 **Profiles & pictures.** First/last name, job, department, e‑mail, phone and
+  mobile, plus a profile picture. Everyone edits their own from **Account**;
+  admins edit anyone from **Admin → Users**, where the list is searchable across
+  every field.
 - 🔒 **HTTPS built in.** Point it at a cert/key for native TLS, or run it behind
   a reverse proxy.
 - 🗄️ **Your data, in plain SQLite.** One database file per user. Back it up with
@@ -67,7 +77,7 @@ Everything is a flag (each also works as an environment variable for containers)
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--bind` | Address and port to listen on | `127.0.0.1:8080` |
-| `--datadir` | Where Tagged keeps per‑user databases and its secret key | `~/.tagged` |
+| `--datadir` | Where Tagged keeps per‑user databases, server settings (`setup.json`) and its secret key | `~/.tagged` |
 | `--admins` | Comma‑separated usernames with admin rights | _(none)_ |
 | `--path-prefix` | Serve under a sub‑path (e.g. `/tagged/`) | `/` |
 | `--credentials` | Pre‑defined `user:bcrypthash` logins | _(none)_ |
@@ -176,10 +186,17 @@ curl -s -H "authtoken: $TOKEN" \
 ```
 
 Core endpoints (all under `/api/v2/`): `records` (GET/PUT), `settings` (GET/PUT),
-`updates`, `webtoken`, `apitoken`, `whoami`, plus auth routes for OAuth
-(`oauth/…`), two‑factor (`totp/…`), and passkeys (`webauthn/…`), and the admin
-routes under `admin/`. Grab a long‑lived personal token from
+`updates`, `webtoken`, `apitoken`, `whoami`, `profile` (GET/PUT — your own name,
+contact details and picture), plus auth routes for OAuth (`oauth/…`), two‑factor
+(`totp/…`), and passkeys (`webauthn/…`). Grab a long‑lived personal token from
 **Account → API token** in the UI.
+
+Admin routes live under `admin/` and each needs the matching capability:
+`admin/users`, `admin/password`, `admin/user`, `admin/profile` (manage users),
+`admin/admin`, `admin/controller`, `admin/roles` (manage roles), `admin/groups`,
+`admin/group` (manage groups), `admin/server`, and `admin/oauth`. A controller
+lists the users they may act as via `controller/users`, then sends the
+`actasuser` header on data routes.
 
 ## Built with
 

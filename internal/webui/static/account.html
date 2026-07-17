@@ -33,8 +33,8 @@
           <span>Import / Export</span>
         </a>
         <a class="active" href="{{PREFIX}}account">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
-          <span>Settings</span>
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="9" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>          
+          <span>Account</span>
         </a>
         <a id="nav-about" href="{{PREFIX}}about">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
@@ -42,13 +42,21 @@
         </a>
         <div id="nav-admin" class="nav-section" style="display:none">
           <div class="nav-head">Admin</div>
-          <a href="{{PREFIX}}admin">
+          <a href="{{PREFIX}}users">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span>Users</span>
           </a>
-          <a href="{{PREFIX}}servers">
-            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><line x1="7" y1="7.5" x2="7.01" y2="7.5"/><line x1="7" y1="16.5" x2="7.01" y2="16.5"/></svg>
-            <span>Servers</span>
+          <a href="{{PREFIX}}roles">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"/><path d="M9.5 12l2 2 3.5-4"/></svg>            
+            <span>Roles</span>
+          </a>
+          <a href="{{PREFIX}}groups">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/><circle cx="5" cy="9" r="2"/><path d="M2 20v-1a4 4 0 0 1 3-3.8"/><circle cx="19" cy="9" r="2"/><path d="M22 20v-1a4 4 0 0 0-3-3.8"/></svg>            
+            <span>Groups</span>
+          </a>
+          <a href="{{PREFIX}}settings">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
+            <span>Settings</span>
           </a>
           <a href="{{PREFIX}}oauth">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>
@@ -75,6 +83,33 @@
           <div class="panel-head"><h3>Profile</h3></div>
           <div class="kv"><span class="kk">Username</span><span class="vv" id="acc-username">…</span></div>
           <div class="kv"><span class="kk">Signed in</span><span class="vv">Web session</span></div>
+
+          <div class="pf-photo">
+            <span class="um-avatar lg" id="pf-avatar">?</span>
+            <div class="pf-photo-actions">
+              <div class="pf-photo-label">Profile picture</div>
+              <div class="ud-actions">
+                <button class="secondary btn-sm" id="pf-pick">Upload picture</button>
+                <button class="secondary btn-sm danger-btn" id="pf-clear" hidden>Remove</button>
+              </div>
+              <p class="um-note muted">JPEG or PNG. Cropped to a square.</p>
+            </div>
+            <input type="file" id="pf-file" accept="image/jpeg,image/png" hidden>
+          </div>
+
+          <div class="pf-grid">
+            <div><label for="pf-first">First name</label><input id="pf-first" type="text" autocomplete="given-name"></div>
+            <div><label for="pf-last">Last name</label><input id="pf-last" type="text" autocomplete="family-name"></div>
+            <div><label for="pf-job">Job</label><input id="pf-job" type="text" autocomplete="organization-title"></div>
+            <div><label for="pf-dept">Department</label><input id="pf-dept" type="text"></div>
+            <div><label for="pf-email">E-mail</label><input id="pf-email" type="email" autocomplete="email"></div>
+            <div><label for="pf-phone">Phone</label><input id="pf-phone" type="tel" autocomplete="tel"></div>
+            <div><label for="pf-mobile">Mobile</label><input id="pf-mobile" type="tel" autocomplete="tel"></div>
+          </div>
+          <div class="ud-actions" style="margin-top:14px">
+            <button id="pf-save">Save profile</button>
+          </div>
+          <div id="pf-msg" class="msg"></div>
         </div>
 
         <div class="panel">

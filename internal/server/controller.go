@@ -40,13 +40,13 @@ func (s *Server) isController(username string, db store.UserDB) bool {
 }
 
 // controllerHandler dispatches controller-only sub-routes. `sub` is the path
-// after "controller" (e.g. "/users"). The caller has already verified the
-// requester is a controller.
-func (s *Server) controllerHandler(req *request, sub string) response {
+// after "controller" (e.g. "/users"). The caller has already been verified to
+// hold the "switch to users" capability.
+func (s *Server) controllerHandler(req *request, sub, username string) response {
 	switch sub {
 	case "/users", "/users/":
 		if req.method() == "GET" {
-			return s.controllerListUsers()
+			return s.controllerListUsers(username)
 		}
 		return textResp(405, "method not allowed")
 	default:
@@ -54,23 +54,21 @@ func (s *Server) controllerHandler(req *request, sub string) response {
 	}
 }
 
-// controllerListUsers returns the users a controller may switch to: registered
-// regular users only, excluding admins (config or stored) and other controllers.
-func (s *Server) controllerListUsers() response {
-	metas, err := s.getStore().ListUsers()
-	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
-	}
+// controllerListUsers returns the users the given controller may switch to: the
+// registered regular members of the groups they control. Membership is the only
+// way in, so a controller who controls no group gets an empty list.
+func (s *Server) controllerListUsers(controller string) response {
+	targets := s.controllerTargets(controller)
 	usernames := []string{}
-	for _, m := range metas {
-		if s.isConfigAdmin(m.Username) {
+	for u := range targets {
+		if s.isConfigAdmin(u) {
 			continue
 		}
-		registered, storedAdmin, storedController := s.userFlags(m.Username)
+		registered, storedAdmin, storedController := s.userFlags(u)
 		if !registered || storedAdmin || storedController {
 			continue
 		}
-		usernames = append(usernames, m.Username)
+		usernames = append(usernames, u)
 	}
 	sort.Strings(usernames)
 	users := make([]map[string]any, 0, len(usernames))

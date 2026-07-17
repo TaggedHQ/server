@@ -514,16 +514,29 @@ function fillSidebar() {
   const user = localStorage.getItem(USER_KEY) || "";
   const nameEl = document.getElementById("side-user");
   const avEl = document.getElementById("avatar");
+  // First paint from localStorage; revealChrome upgrades this to the profile
+  // name and picture once whoami answers.
   if (nameEl) nameEl.textContent = user;
-  if (avEl) avEl.textContent = (user[0] || "?").toUpperCase();
+  if (avEl) avEl.textContent = initials(user);
   const lo = document.getElementById("logout");
   if (lo) lo.addEventListener("click", logout);
   setupSidebarTimer();
   revealChrome();
 }
 
+// NAV_CAP maps each Admin nav entry (by its page) to the capability that unlocks
+// it, mirroring adminRouteCap on the server. The Roles page can take any of these
+// away from a role, so the menu is built from capabilities, not from the role.
+const NAV_CAP = {
+  users: "users.manage",
+  roles: "roles.manage",
+  groups: "groups.manage",
+  settings: "server.manage",
+  oauth: "oauth.manage",
+};
+
 // revealChrome makes one whoami call to reveal role-specific UI: the Admin nav
-// section for admins, and the user switcher for controllers.
+// section (per capability) and the user switcher for controllers.
 async function revealChrome() {
   try {
     const r = await apiFetch("whoami");
@@ -531,11 +544,38 @@ async function revealChrome() {
     const d = await r.json();
     window.TT_IS_ADMIN = !!d.is_admin;
     window.TT_IS_CONTROLLER = !!d.is_controller;
-    // The Admin section is hidden by default on non-admin pages; reveal it (falls
-    // back to the .nav-section stylesheet display) only for admins.
+    window.TT_CAPS = d.caps || [];
+    const can = (c) => window.TT_CAPS.includes(c);
+
+    // Show the signed-in user by name and picture once whoami answers; the
+    // sidebar starts with the username and initials from localStorage.
+    const nameEl = document.getElementById("side-user");
+    if (nameEl) nameEl.textContent = displayName(d.username, d.profile);
+    const avEl = document.getElementById("avatar");
+    if (avEl) {
+      if (d.avatar) {
+        avEl.classList.add("has-img");
+        avEl.innerHTML = `<img src="${escapeHtml(d.avatar)}" alt="">`;
+      } else {
+        avEl.textContent = initials(d.username, d.profile);
+      }
+    }
+
+    // The Admin section is hidden by default; reveal it (falling back to the
+    // .nav-section stylesheet display) once we know at least one entry is
+    // allowed, then drop the entries this role cannot reach.
     const na = document.getElementById("nav-admin");
-    if (na && d.is_admin) na.style.display = "";
-    if (d.is_controller) setupSwitcher();
+    if (na) {
+      let any = false;
+      na.querySelectorAll("a").forEach((a) => {
+        const page = a.getAttribute("href").split("/").filter(Boolean).pop();
+        const cap = NAV_CAP[page];
+        if (cap && !can(cap)) a.style.display = "none";
+        else if (cap) any = true;
+      });
+      if (any) na.style.display = "";
+    }
+    if (can("users.actas")) setupSwitcher();
   } catch (e) { /* ignore */ }
 }
 
@@ -858,6 +898,13 @@ async function setupSwitcher() {
     const r = await apiFetch("controller/users");
     if (r.ok) users = (await r.json()).users || [];
   } catch (e) { /* ignore */ }
+
+  // With no groups to control there is nobody to switch to, so skip the picker
+  // rather than show one holding only "You".
+  if (users.length === 0) {
+    localStorage.removeItem(ACTAS_KEY);
+    return;
+  }
 
   const current = getActAs();
   const wrap = document.createElement("div");
@@ -1258,6 +1305,7 @@ function initPrefsSettings() {
 async function initAccount() {
   const user = localStorage.getItem(USER_KEY) || "";
   document.getElementById("acc-username").textContent = user;
+  initOwnProfile(user);
 
   // Fetch account type once and share it across the security-related sections.
   // OAuth-only accounts have no password, which changes the password panel
@@ -2444,14 +2492,102 @@ function fmtDate(epoch) {
 // Admin page state: the full user list and the currently-selected username.
 let ADMIN_USERS = [];
 let ADMIN_SELECTED = null;
+let USER_DRAFT = null; // profile fields + avatar being edited in the details panel
 
-// initials derives up to two avatar letters from a username / email.
-function initials(username) {
+// initials derives up to two avatar letters from a profile name, falling back to
+// the username / email.
+function initials(username, profile) {
+  const full = fullName(profile);
+  if (full) {
+    const parts = full.split(/\s+/).filter(Boolean);
+    const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : full.slice(0, 2);
+    return letters.toUpperCase();
+  }
   const name = (username || "").split("@")[0];
   const parts = name.split(/[.\-_ ]+/).filter(Boolean);
   const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.slice(0, 2);
   return (letters || "?").toUpperCase();
 }
+
+// ---- Profiles ---------------------------------------------------------------
+// Directory details (name, job, contact) and the profile picture. Every account
+// owns its own; admins edit anyone's from the Users page. A picture is a data
+// URI the browser produced from a square-cropped 256px JPEG.
+
+const AVATAR_PX = 256;      // stored picture edge length
+const AVATAR_QUALITY = 0.85;
+
+function fullName(profile) {
+  if (!profile) return "";
+  return [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim();
+}
+
+// displayName is what to call this account in the UI: their name if they have
+// one, otherwise the username they log in with.
+function displayName(username, profile) {
+  return fullName(profile) || username;
+}
+
+// avatarHtml renders a picture when one is set and the initials circle when not.
+// cls adds modifiers (e.g. "lg") to the shared .um-avatar styling.
+function avatarHtml(username, profile, avatar, cls = "") {
+  const c = `um-avatar${cls ? " " + cls : ""}`;
+  if (avatar) {
+    return `<span class="${c} has-img"><img src="${escapeHtml(avatar)}" alt=""></span>`;
+  }
+  return `<span class="${c}">${escapeHtml(initials(username, profile))}</span>`;
+}
+
+// resizeAvatar center-crops an image file to a square and scales it to
+// AVATAR_PX, returning a JPEG data URI. Doing this in the browser keeps the
+// stored picture small and predictable, so the server only has to validate it.
+function resizeAvatar(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      if (!side) { reject(new Error("That image looks empty")); return; }
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = AVATAR_PX;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(
+        img,
+        (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side,
+        0, 0, AVATAR_PX, AVATAR_PX,
+      );
+      resolve(canvas.toDataURL("image/jpeg", AVATAR_QUALITY));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That file is not a readable image")); };
+    img.src = url;
+  });
+}
+
+// pickAvatar opens the given file input and resolves with the resized data URI,
+// or null if the visitor cancelled.
+function pickAvatar(input) {
+  return new Promise((resolve, reject) => {
+    input.value = ""; // so re-picking the same file still fires "change"
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) { resolve(null); return; }
+      try { resolve(await resizeAvatar(file)); } catch (e) { reject(e); }
+    };
+    input.click();
+  });
+}
+
+// PROFILE_FIELDS drives both profile forms: [draft key, input id suffix, label].
+const PROFILE_FIELDS = [
+  ["first_name", "first"],
+  ["last_name", "last"],
+  ["job", "job"],
+  ["department", "dept"],
+  ["email", "email"],
+  ["phone", "phone"],
+  ["mobile", "mobile"],
+];
 
 // roleOf maps a user record to a single primary role badge.
 function roleOf(u) {
@@ -2471,7 +2607,13 @@ function userMatchesFilters(u) {
   const q = (document.getElementById("user-search").value || "").trim().toLowerCase();
   const roleF = document.getElementById("role-filter").value;
   const statusF = document.getElementById("status-filter").value;
-  if (q && !u.username.toLowerCase().includes(q)) return false;
+  if (q) {
+    const p = u.profile || {};
+    // Search the whole directory entry, not just the login name.
+    const hay = [u.username, p.first_name, p.last_name, p.job, p.department, p.email, p.phone, p.mobile]
+      .filter(Boolean).join(" ").toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
   if (roleF && roleOf(u).key !== roleF) return false;
   if (statusF && statusOf(u).key !== statusF) return false;
   return true;
@@ -2494,11 +2636,18 @@ function renderUsersTable() {
       const role = roleOf(u);
       const st = statusOf(u);
       const sel = u.username === ADMIN_SELECTED ? " selected" : "";
+      const name = displayName(u.username, u.profile);
+      // The second line carries the username once a real name takes the first,
+      // then falls back to the job title so the row still says something useful.
+      const sub = fullName(u.profile) ? u.username : (u.profile || {}).job || "";
       return `<tr class="um-row${sel}" data-u="${uAttr}">
         <td>
           <div class="um-user">
-            <span class="um-avatar">${escapeHtml(initials(u.username))}</span>
-            <span class="um-name">${escapeHtml(u.username)}</span>
+            ${avatarHtml(u.username, u.profile, u.avatar)}
+            <span class="um-id">
+              <span class="um-name">${escapeHtml(name)}</span>
+              ${sub ? `<span class="um-sub">${escapeHtml(sub)}</span>` : ""}
+            </span>
           </div>
         </td>
         <td><span class="badge ${role.cls}">${escapeHtml(role.label)}</span></td>
@@ -2625,8 +2774,36 @@ function openRowMenu(anchor, username) {
 
 function selectUser(username) {
   ADMIN_SELECTED = username;
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  // The details panel edits a draft, so an unsaved change never desyncs the row.
+  USER_DRAFT = u ? { ...(u.profile || {}), avatar: u.avatar || "" } : null;
   renderUsersTable();
   renderUserDetails();
+}
+
+// userDirty reports whether the draft differs from the saved profile.
+function userDirty() {
+  const u = ADMIN_USERS.find((x) => x.username === ADMIN_SELECTED);
+  if (!u || !USER_DRAFT) return false;
+  const p = u.profile || {};
+  if ((u.avatar || "") !== USER_DRAFT.avatar) return true;
+  return PROFILE_FIELDS.some(([key]) => (p[key] || "") !== (USER_DRAFT[key] || ""));
+}
+
+// profileFormHtml renders the shared field grid from a draft object.
+function profileFormHtml(draft) {
+  const field = (key, id, label, type = "text") =>
+    `<div><label for="${id}">${label}</label>
+       <input id="${id}" type="${type}" data-pf="${key}" value="${escapeHtml(draft[key] || "")}"></div>`;
+  return `<div class="pf-grid">
+    ${field("first_name", "du-first", "First name")}
+    ${field("last_name", "du-last", "Last name")}
+    ${field("job", "du-job", "Job")}
+    ${field("department", "du-dept", "Department")}
+    ${field("email", "du-email", "E-mail", "email")}
+    ${field("phone", "du-phone", "Phone", "tel")}
+    ${field("mobile", "du-mobile", "Mobile", "tel")}
+  </div>`;
 }
 
 function renderUserDetails() {
@@ -2667,19 +2844,33 @@ function renderUserDetails() {
   host.classList.add("filled");
   host.innerHTML = `
     <div class="ud-head">
-      <span class="um-avatar lg">${escapeHtml(initials(u.username))}</span>
+      ${avatarHtml(u.username, USER_DRAFT, USER_DRAFT.avatar, "lg")}
       <div class="ud-id">
-        <div class="ud-name">${escapeHtml(u.username)}</div>
+        <div class="ud-name">${escapeHtml(displayName(u.username, USER_DRAFT))}</div>
         <span class="badge ${role.cls}">${escapeHtml(role.label)}</span>
       </div>
     </div>
 
     <div class="ud-section">
-      <div class="ud-section-head">Profile</div>
+      <div class="ud-section-head">Account</div>
       <div class="ud-field"><span class="k">Username</span><span class="v">${escapeHtml(u.username)}</span></div>
       <div class="ud-field"><span class="k">Status</span><span class="v"><span class="status-dot ${st.cls}"></span>${escapeHtml(st.label)}</span></div>
       <div class="ud-field"><span class="k">Storage</span><span class="v">${fmtBytes(u.size_bytes)}</span></div>
       <div class="ud-field"><span class="k">Last active</span><span class="v">${fmtDate(u.modified)}</span></div>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Profile</div>
+      <div class="ud-actions" style="margin-bottom:14px">
+        <button class="secondary btn-sm" id="du-pick">${USER_DRAFT.avatar ? "Change picture" : "Upload picture"}</button>
+        ${USER_DRAFT.avatar ? '<button class="secondary btn-sm danger-btn" id="du-clear">Remove picture</button>' : ""}
+      </div>
+      ${profileFormHtml(USER_DRAFT)}
+      <div class="ud-actions" style="margin-top:14px">
+        <button class="btn-sm" id="du-save" ${userDirty() ? "" : "disabled"}>Save profile</button>
+        <button class="secondary btn-sm" id="du-reset" ${userDirty() ? "" : "disabled"}>Reset</button>
+      </div>
+      <input type="file" id="du-file" accept="image/jpeg,image/png" hidden>
     </div>
 
     <div class="ud-section">
@@ -2700,6 +2891,27 @@ function renderUserDetails() {
       </div>
     </div>`;
 
+  // Typing updates the draft in place: re-rendering on every keystroke would
+  // drop focus, so only the Save/Reset state is refreshed.
+  host.querySelectorAll("input[data-pf]").forEach((inp) => inp.addEventListener("input", () => {
+    USER_DRAFT[inp.dataset.pf] = inp.value;
+    const dirty = userDirty();
+    host.querySelector("#du-save").disabled = !dirty;
+    host.querySelector("#du-reset").disabled = !dirty;
+  }));
+  host.querySelector("#du-pick").addEventListener("click", async () => {
+    try {
+      const data = await pickAvatar(host.querySelector("#du-file"));
+      if (!data) return;
+      USER_DRAFT.avatar = data;
+      renderUserDetails();
+    } catch (e) { showMsg(adminMsg(), e.message, "error"); }
+  });
+  const dClear = host.querySelector("#du-clear");
+  if (dClear) dClear.addEventListener("click", () => { USER_DRAFT.avatar = ""; renderUserDetails(); });
+  host.querySelector("#du-save").addEventListener("click", () => saveUserProfile(u.username));
+  host.querySelector("#du-reset").addEventListener("click", () => selectUser(u.username));
+
   const dAdmin = host.querySelector("#d-admin");
   if (dAdmin) dAdmin.addEventListener("click", () => actMakeAdmin(u.username, dAdmin.dataset.make === "1"));
   const dCtrl = host.querySelector("#d-ctrl");
@@ -2707,6 +2919,24 @@ function renderUserDetails() {
   host.querySelector("#d-reset").addEventListener("click", () => actResetPassword(u.username));
   const dDel = host.querySelector("#d-delete");
   if (dDel && !isSelf) dDel.addEventListener("click", () => actDeleteUser(u.username));
+}
+
+// saveUserProfile writes the details-panel draft for username. The picture rides
+// along only when it changed, so an unchanged one is not re-uploaded on a rename.
+async function saveUserProfile(username) {
+  if (!USER_DRAFT) return;
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  const body = { username };
+  for (const [key] of PROFILE_FIELDS) body[key] = USER_DRAFT[key] || "";
+  if ((u.avatar || "") !== USER_DRAFT.avatar) body.avatar = USER_DRAFT.avatar;
+
+  const r = await apiFetch("admin/profile", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { showMsg(adminMsg(), await r.text(), "error"); return; }
+  showMsg(adminMsg(), `Saved profile for ${username}`, "ok");
+  loadUsers();
 }
 
 async function loadUsers() {
@@ -2720,8 +2950,13 @@ async function loadUsers() {
   if (ADMIN_SELECTED && !ADMIN_USERS.some((u) => u.username === ADMIN_SELECTED)) {
     ADMIN_SELECTED = null;
   }
-  renderUsersTable();
-  renderUserDetails();
+  if (ADMIN_SELECTED) {
+    selectUser(ADMIN_SELECTED); // re-seeds the draft from the freshly loaded row
+  } else {
+    USER_DRAFT = null;
+    renderUsersTable();
+    renderUserDetails();
+  }
 }
 
 // ---- Add-user modal ---------------------------------------------------------
@@ -2735,12 +2970,21 @@ function openAddUser() {
 }
 function closeAddUser() { document.getElementById("add-user-modal").hidden = true; }
 
-async function initAdmin() {
-  // Server also enforces this; redirect non-admins away from the page.
+// requireCap sends the visitor home unless they hold cap, so an admin page never
+// renders as a wall of 403s. The server enforces the same capability on every
+// route the page calls; this is only to keep the UI honest.
+async function requireCap(cap) {
   try {
     const who = await apiFetch("whoami");
-    if (who.ok && !(await who.json()).is_admin) { location.href = PREFIX; return; }
-  } catch (e) { return; }
+    if (!who.ok) return false;
+    const caps = (await who.json()).caps || [];
+    if (!caps.includes(cap)) { location.href = PREFIX; return false; }
+    return true;
+  } catch (e) { return false; }
+}
+
+async function initAdmin() {
+  if (!(await requireCap("users.manage"))) return;
 
   document.getElementById("user-search").addEventListener("input", renderUsersTable);
   document.getElementById("role-filter").addEventListener("change", renderUsersTable);
@@ -2780,6 +3024,487 @@ async function initAdmin() {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeRowMenu(); closeAddUser(); } });
 
   loadUsers();
+}
+
+// ---- Roles page -------------------------------------------------------------
+// The three roles are fixed; what each one may do is not. The table lists them
+// like the user list, and the details panel edits the selected role's
+// capabilities. Capabilities in LOCKED can't be taken away (they would strand a
+// server with no way back into the admin pages), so they render disabled.
+
+let ROLES = [];          // [{key, label, desc, caps: []}]
+let ROLE_CAPS = [];      // capability catalog: [{key, label, desc}]
+let ROLE_LOCKED = {};    // role key -> [cap, ...]
+let ROLE_COUNTS = {};    // role key -> number of users
+let ROLE_SELECTED = null;
+let ROLE_DRAFT = null;   // Set of cap keys being edited in the details panel
+
+function rolesMsg() { return document.getElementById("roles-msg"); }
+
+function roleBadgeCls(key) {
+  return key === "admin" ? "admin" : key === "controller" ? "controller" : "muted";
+}
+
+function renderRolesTable() {
+  const body = document.getElementById("roles-body");
+  body.innerHTML = ROLES.map((r) => {
+    const sel = r.key === ROLE_SELECTED ? " selected" : "";
+    const n = ROLE_COUNTS[r.key] || 0;
+    const caps = r.caps.length
+      ? `${r.caps.length} of ${ROLE_CAPS.length}`
+      : `<span class="muted">None</span>`;
+    return `<tr class="um-row${sel}" data-r="${escapeHtml(r.key)}">
+      <td>
+        <div class="um-user">
+          <span class="badge ${roleBadgeCls(r.key)}">${escapeHtml(r.label)}</span>
+        </div>
+        <div class="rl-desc">${escapeHtml(r.desc)}</div>
+      </td>
+      <td class="muted">${caps}</td>
+      <td class="muted">${n} user${n === 1 ? "" : "s"}</td>
+      <td><span class="tm-edit">Edit</span></td>
+    </tr>`;
+  }).join("");
+  body.querySelectorAll(".um-row").forEach((tr) =>
+    tr.addEventListener("click", () => selectRole(tr.dataset.r)));
+}
+
+function selectRole(key) {
+  ROLE_SELECTED = key;
+  const r = ROLES.find((x) => x.key === key);
+  ROLE_DRAFT = new Set(r ? r.caps : []);
+  renderRolesTable();
+  renderRoleDetails();
+}
+
+// roleDirty reports whether the draft differs from the saved capability set.
+function roleDirty() {
+  const r = ROLES.find((x) => x.key === ROLE_SELECTED);
+  if (!r || !ROLE_DRAFT) return false;
+  return r.caps.length !== ROLE_DRAFT.size || r.caps.some((c) => !ROLE_DRAFT.has(c));
+}
+
+function renderRoleDetails() {
+  const host = document.getElementById("role-details");
+  const r = ROLES.find((x) => x.key === ROLE_SELECTED);
+  if (!r) {
+    host.classList.remove("filled");
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"/><path d="M9.5 12l2 2 3.5-4"/></svg>
+      <p>Select a role to view and edit its permissions.</p>
+    </div>`;
+    return;
+  }
+  const locked = ROLE_LOCKED[r.key] || [];
+  const n = ROLE_COUNTS[r.key] || 0;
+  const rows = ROLE_CAPS.map((c) => {
+    const on = ROLE_DRAFT.has(c.key);
+    const isLocked = locked.includes(c.key);
+    return `<label class="perm-row${isLocked ? " locked" : ""}">
+      <span class="perm-text">
+        <span class="perm-label">${escapeHtml(c.label)}</span>
+        <span class="perm-desc">${escapeHtml(c.desc)}</span>
+      </span>
+      <span class="toggle">
+        <input type="checkbox" data-cap="${escapeHtml(c.key)}" ${on ? "checked" : ""} ${isLocked ? "disabled" : ""}>
+        <span class="slider"></span>
+      </span>
+    </label>`;
+  }).join("");
+
+  host.classList.add("filled");
+  host.innerHTML = `
+    <div class="ud-head">
+      <div class="ud-id">
+        <div class="ud-name">${escapeHtml(r.label)}</div>
+        <span class="badge ${roleBadgeCls(r.key)}">${n} user${n === 1 ? "" : "s"}</span>
+      </div>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">About</div>
+      <p class="um-note muted">${escapeHtml(r.desc)}</p>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Permissions</div>
+      <div class="perm-list">${rows}</div>
+      ${locked.length ? `<p class="um-note muted">Dimmed permissions are required for the ${escapeHtml(r.label)} role and can't be removed.</p>` : ""}
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-actions">
+        <button class="btn-sm" id="role-save" ${roleDirty() ? "" : "disabled"}>Save changes</button>
+        <button class="secondary btn-sm" id="role-reset" ${roleDirty() ? "" : "disabled"}>Reset</button>
+      </div>
+    </div>`;
+
+  host.querySelectorAll(".perm-row input").forEach((cb) => cb.addEventListener("change", () => {
+    if (cb.checked) ROLE_DRAFT.add(cb.dataset.cap);
+    else ROLE_DRAFT.delete(cb.dataset.cap);
+    // Re-render only to refresh the Save/Reset enabled state.
+    renderRoleDetails();
+  }));
+  host.querySelector("#role-save").addEventListener("click", saveRole);
+  host.querySelector("#role-reset").addEventListener("click", () => selectRole(r.key));
+}
+
+async function saveRole() {
+  const r = ROLES.find((x) => x.key === ROLE_SELECTED);
+  if (!r) return;
+  const caps = ROLE_CAPS.map((c) => c.key).filter((k) => ROLE_DRAFT.has(k));
+  const resp = await apiFetch("admin/roles", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role: r.key, caps }),
+  });
+  if (!resp.ok) { showMsg(rolesMsg(), await resp.text(), "error"); return; }
+  showMsg(rolesMsg(), `Saved permissions for ${r.label}`, "ok");
+  ROLES = (await resp.json()).roles || ROLES;
+  renderRolesTable();
+  renderRoleDetails();
+}
+
+async function loadRoles() {
+  const body = document.getElementById("roles-body");
+  const resp = await apiFetch("admin/roles");
+  if (!resp.ok) {
+    body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(await resp.text())}</td></tr>`;
+    return;
+  }
+  const d = await resp.json();
+  ROLES = d.roles || [];
+  ROLE_CAPS = d.capabilities || [];
+  ROLE_LOCKED = d.locked || {};
+  ROLE_COUNTS = d.counts || {};
+  if (ROLE_SELECTED) selectRole(ROLE_SELECTED);
+  else { renderRolesTable(); renderRoleDetails(); }
+}
+
+async function initRoles() {
+  if (!(await requireCap("roles.manage"))) return;
+  loadRoles();
+}
+
+// ---- Groups page ------------------------------------------------------------
+// A group gathers regular users under one or more controllers; a controller can
+// only switch to the users in the groups they control. Members and controllers
+// are edited in the details panel and committed with Save.
+
+let GROUPS = [];
+let CAND_USERS = [];       // usernames eligible to be members
+let CAND_CONTROLLERS = []; // usernames eligible to control a group
+let GROUP_SELECTED = null;
+let GROUP_DRAFT = null;    // {name, description, members: Set, controllers: Set}
+
+function groupsMsg() { return document.getElementById("groups-msg"); }
+
+function groupMatchesFilter(g) {
+  const q = (document.getElementById("group-search").value || "").trim().toLowerCase();
+  if (!q) return true;
+  return g.name.toLowerCase().includes(q) || (g.description || "").toLowerCase().includes(q);
+}
+
+function renderGroupsTable() {
+  const body = document.getElementById("groups-body");
+  const count = document.getElementById("groups-count");
+  const rows = GROUPS.filter(groupMatchesFilter);
+  if (GROUPS.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">No groups yet — create one to get started.</td></tr>';
+    count.textContent = "";
+    return;
+  }
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">No groups match your search.</td></tr>';
+  } else {
+    body.innerHTML = rows.map((g) => {
+      const sel = g.id === GROUP_SELECTED ? " selected" : "";
+      const ctrls = g.controllers.length
+        ? g.controllers.map((c) => `<span class="badge controller">${escapeHtml(c)}</span>`).join(" ")
+        : `<span class="badge muted">None</span>`;
+      return `<tr class="um-row${sel}" data-g="${escapeHtml(g.id)}">
+        <td>
+          <div class="um-user"><span class="um-name">${escapeHtml(g.name)}</span></div>
+          ${g.description ? `<div class="rl-desc">${escapeHtml(g.description)}</div>` : ""}
+        </td>
+        <td><div class="ud-roles" style="margin:0">${ctrls}</div></td>
+        <td class="muted">${g.members.length} user${g.members.length === 1 ? "" : "s"}</td>
+        <td><span class="tm-edit">Edit</span></td>
+      </tr>`;
+    }).join("");
+  }
+  count.textContent = `Showing ${rows.length} of ${GROUPS.length} group${GROUPS.length === 1 ? "" : "s"}`;
+  body.querySelectorAll(".um-row").forEach((tr) =>
+    tr.addEventListener("click", () => selectGroup(tr.dataset.g)));
+}
+
+function selectGroup(id) {
+  GROUP_SELECTED = id;
+  const g = GROUPS.find((x) => x.id === id);
+  GROUP_DRAFT = g ? {
+    name: g.name,
+    description: g.description || "",
+    members: new Set(g.members),
+    controllers: new Set(g.controllers),
+  } : null;
+  renderGroupsTable();
+  renderGroupDetails();
+}
+
+// pickerRows renders a removable chip per selected name, plus a picker holding
+// the candidates that are not selected yet.
+function pickerRows(kind, selected, candidates) {
+  const chips = [...selected].sort().map((u) =>
+    `<span class="gm-chip">${escapeHtml(u)}<button class="gm-x" data-kind="${kind}" data-u="${escapeHtml(u)}" title="Remove">×</button></span>`
+  ).join("");
+  const free = candidates.filter((u) => !selected.has(u));
+  const picker = free.length
+    ? `<div class="gm-add">
+         <select class="um-select" data-picker="${kind}">
+           ${free.map((u) => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("")}
+         </select>
+         <button class="secondary btn-sm" data-add="${kind}">Add</button>
+       </div>`
+    : `<p class="um-note muted">${selected.size ? "Everyone eligible is already added." : "No eligible users."}</p>`;
+  return (chips ? `<div class="gm-chips">${chips}</div>` : `<p class="um-note muted">None yet.</p>`) + picker;
+}
+
+// groupDirty reports whether the draft differs from the saved group.
+function groupDirty() {
+  const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
+  if (!g || !GROUP_DRAFT) return false;
+  const sameSet = (set, arr) => set.size === arr.length && arr.every((x) => set.has(x));
+  return g.name !== GROUP_DRAFT.name
+    || (g.description || "") !== GROUP_DRAFT.description
+    || !sameSet(GROUP_DRAFT.members, g.members)
+    || !sameSet(GROUP_DRAFT.controllers, g.controllers);
+}
+
+function renderGroupDetails() {
+  const host = document.getElementById("group-details");
+  const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
+  if (!g || !GROUP_DRAFT) {
+    host.classList.remove("filled");
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/><circle cx="5" cy="9" r="2"/><path d="M2 20v-1a4 4 0 0 1 3-3.8"/><circle cx="19" cy="9" r="2"/><path d="M22 20v-1a4 4 0 0 0-3-3.8"/></svg>
+      <p>Select a group to manage its members and controllers.</p>
+    </div>`;
+    return;
+  }
+  host.classList.add("filled");
+  host.innerHTML = `
+    <div class="ud-head">
+      <div class="ud-id">
+        <div class="ud-name">${escapeHtml(GROUP_DRAFT.name)}</div>
+        <span class="badge muted">${GROUP_DRAFT.members.size} member${GROUP_DRAFT.members.size === 1 ? "" : "s"}</span>
+      </div>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Group</div>
+      <input id="g-name" class="em-input" type="text" placeholder="Group name" value="${escapeHtml(GROUP_DRAFT.name)}">
+      <input id="g-desc" class="em-input" style="margin-top:8px" type="text" placeholder="Description (optional)" value="${escapeHtml(GROUP_DRAFT.description)}">
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Controllers</div>
+      ${pickerRows("controllers", GROUP_DRAFT.controllers, CAND_CONTROLLERS)}
+      <p class="um-note muted">A controller can view and edit the time data of this group's members.</p>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-section-head">Members</div>
+      ${pickerRows("members", GROUP_DRAFT.members, CAND_USERS)}
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-actions">
+        <button class="btn-sm" id="g-save" ${groupDirty() ? "" : "disabled"}>Save changes</button>
+        <button class="secondary btn-sm" id="g-reset" ${groupDirty() ? "" : "disabled"}>Reset</button>
+        <button class="secondary btn-sm danger-btn" id="g-delete">Delete group</button>
+      </div>
+    </div>`;
+
+  host.querySelector("#g-name").addEventListener("input", (e) => {
+    GROUP_DRAFT.name = e.target.value;
+    const save = host.querySelector("#g-save"), reset = host.querySelector("#g-reset");
+    save.disabled = reset.disabled = !groupDirty();
+  });
+  host.querySelector("#g-desc").addEventListener("input", (e) => {
+    GROUP_DRAFT.description = e.target.value;
+    const save = host.querySelector("#g-save"), reset = host.querySelector("#g-reset");
+    save.disabled = reset.disabled = !groupDirty();
+  });
+  host.querySelectorAll(".gm-x").forEach((b) => b.addEventListener("click", () => {
+    GROUP_DRAFT[b.dataset.kind].delete(b.dataset.u);
+    renderGroupDetails();
+  }));
+  host.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => {
+    const kind = b.dataset.add;
+    const sel = host.querySelector(`select[data-picker="${kind}"]`);
+    if (sel && sel.value) GROUP_DRAFT[kind].add(sel.value);
+    renderGroupDetails();
+  }));
+  host.querySelector("#g-save").addEventListener("click", saveGroup);
+  host.querySelector("#g-reset").addEventListener("click", () => selectGroup(g.id));
+  host.querySelector("#g-delete").addEventListener("click", () => deleteGroup(g));
+}
+
+async function saveGroup() {
+  const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
+  if (!g || !GROUP_DRAFT) return;
+  const r = await apiFetch("admin/groups", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: g.id,
+      name: GROUP_DRAFT.name.trim(),
+      description: GROUP_DRAFT.description.trim(),
+      members: [...GROUP_DRAFT.members],
+      controllers: [...GROUP_DRAFT.controllers],
+    }),
+  });
+  if (!r.ok) { showMsg(groupsMsg(), await r.text(), "error"); return; }
+  showMsg(groupsMsg(), `Saved ${GROUP_DRAFT.name.trim()}`, "ok");
+  loadGroups();
+}
+
+async function deleteGroup(g) {
+  if (!confirm(`Delete the group "${g.name}"? Its controllers lose access to these users. The user accounts themselves are not touched.`)) return;
+  const r = await apiFetch("admin/group", {
+    method: "DELETE", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: g.id }),
+  });
+  if (!r.ok) { showMsg(groupsMsg(), await r.text(), "error"); return; }
+  showMsg(groupsMsg(), `Deleted ${g.name}`, "ok");
+  if (GROUP_SELECTED === g.id) { GROUP_SELECTED = null; GROUP_DRAFT = null; }
+  loadGroups();
+}
+
+async function loadGroups() {
+  const body = document.getElementById("groups-body");
+  const resp = await apiFetch("admin/groups");
+  if (!resp.ok) {
+    body.innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(await resp.text())}</td></tr>`;
+    return;
+  }
+  const d = await resp.json();
+  GROUPS = d.groups || [];
+  CAND_USERS = d.candidate_users || [];
+  CAND_CONTROLLERS = d.candidate_controllers || [];
+  if (GROUP_SELECTED && GROUPS.some((g) => g.id === GROUP_SELECTED)) selectGroup(GROUP_SELECTED);
+  else { GROUP_SELECTED = null; GROUP_DRAFT = null; renderGroupsTable(); renderGroupDetails(); }
+}
+
+function openAddGroup() {
+  document.getElementById("create-group-msg").innerHTML = "";
+  document.getElementById("new-group-name").value = "";
+  document.getElementById("new-group-desc").value = "";
+  document.getElementById("add-group-modal").hidden = false;
+  document.getElementById("new-group-name").focus();
+}
+function closeAddGroup() { document.getElementById("add-group-modal").hidden = true; }
+
+async function initGroups() {
+  if (!(await requireCap("groups.manage"))) return;
+
+  document.getElementById("group-search").addEventListener("input", renderGroupsTable);
+  document.getElementById("add-group-btn").addEventListener("click", openAddGroup);
+  document.getElementById("add-group-cancel").addEventListener("click", closeAddGroup);
+  document.getElementById("add-group-modal").addEventListener("click", (e) => {
+    if (e.target.id === "add-group-modal") closeAddGroup();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAddGroup(); });
+
+  const createMsg = document.getElementById("create-group-msg");
+  document.getElementById("create-group").addEventListener("click", async () => {
+    const name = document.getElementById("new-group-name").value.trim();
+    if (!name) { showMsg(createMsg, "Enter a group name", "error"); return; }
+    showMsg(createMsg, "Creating…", "");
+    const r = await apiFetch("admin/groups", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        description: document.getElementById("new-group-desc").value.trim(),
+        members: [], controllers: [],
+      }),
+    });
+    if (!r.ok) { showMsg(createMsg, await r.text(), "error"); return; }
+    showMsg(groupsMsg(), `Created ${name}`, "ok");
+    closeAddGroup();
+    GROUP_SELECTED = (await r.json()).id;
+    loadGroups();
+  });
+
+  loadGroups();
+}
+
+// ---- Own profile (Account page) ---------------------------------------------
+// The self-service half of the profile feature: same fields as the admin panel,
+// but scoped to the signed-in account via /profile.
+
+async function initOwnProfile(user) {
+  const msg = document.getElementById("pf-msg");
+  const avatarEl = document.getElementById("pf-avatar");
+  const clearBtn = document.getElementById("pf-clear");
+  const fileInput = document.getElementById("pf-file");
+  let avatar = "";
+
+  // paint keeps the picture, its Remove button and the initials fallback in sync.
+  const paint = () => {
+    if (avatar) {
+      avatarEl.classList.add("has-img");
+      avatarEl.innerHTML = `<img src="${escapeHtml(avatar)}" alt="">`;
+    } else {
+      avatarEl.classList.remove("has-img");
+      avatarEl.textContent = initials(user, currentFields());
+    }
+    clearBtn.hidden = !avatar;
+  };
+  const currentFields = () => {
+    const out = {};
+    for (const [key, id] of PROFILE_FIELDS) out[key] = document.getElementById("pf-" + id).value.trim();
+    return out;
+  };
+
+  try {
+    const r = await apiFetch("profile");
+    if (r.ok) {
+      const d = await r.json();
+      const p = d.profile || {};
+      for (const [key, id] of PROFILE_FIELDS) document.getElementById("pf-" + id).value = p[key] || "";
+      avatar = d.avatar || "";
+    }
+  } catch (e) { /* leave the form empty */ }
+  paint();
+
+  document.getElementById("pf-first").addEventListener("input", paint);
+  document.getElementById("pf-last").addEventListener("input", paint);
+  document.getElementById("pf-pick").addEventListener("click", async () => {
+    try {
+      const data = await pickAvatar(fileInput);
+      if (!data) return;
+      avatar = data;
+      paint();
+    } catch (e) { showMsg(msg, e.message, "error"); }
+  });
+  clearBtn.addEventListener("click", () => { avatar = ""; paint(); });
+
+  document.getElementById("pf-save").addEventListener("click", async () => {
+    const body = { ...currentFields(), avatar };
+    const r = await apiFetch("profile", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+    showMsg(msg, "Profile saved", "ok");
+    // Reflect the new name/picture in the sidebar without a reload.
+    const nameEl = document.getElementById("side-user");
+    if (nameEl) nameEl.textContent = displayName(user, currentFields());
+    const avEl = document.getElementById("avatar");
+    if (avEl) {
+      if (avatar) { avEl.classList.add("has-img"); avEl.innerHTML = `<img src="${escapeHtml(avatar)}" alt="">`; }
+      else { avEl.classList.remove("has-img"); avEl.textContent = initials(user, currentFields()); }
+    }
+  });
 }
 
 // ---- Tag manager ------------------------------------------------------------
@@ -3601,6 +4326,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("week-days")) return initEntries();
   if (document.getElementById("ie-input")) return initImpExp();
   if (document.getElementById("users-body")) return initAdmin();
+  if (document.getElementById("roles-body")) return initRoles();
+  if (document.getElementById("groups-body")) return initGroups();
   if (document.getElementById("servers-page")) return initServers();
   if (document.getElementById("oauth-page")) return initOAuth();
   if (document.getElementById("tags-manage")) return initTags();
