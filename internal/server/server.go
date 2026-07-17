@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.2.0"
+var Version = "0.2.1"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -63,6 +63,10 @@ type Server struct {
 	// groupsMu guards groups, the user groups and their controllers.
 	groupsMu sync.RWMutex
 	groups   []group
+
+	// modulesMu guards modules, the optional feature modules that are switched on.
+	modulesMu sync.RWMutex
+	modules   map[string]bool
 }
 
 // New constructs a Server, creating the data directory and loading (or creating)
@@ -101,9 +105,17 @@ func New(cfg *config.Config) (*Server, error) {
 	var oauthProviders []oauthProvider
 	var groups []group
 	roles := defaultRoleCaps()
+	// Optional modules default to off, so a server that never opted in (or a
+	// setup.json written before they existed) does not gain pages on upgrade.
+	modules := map[string]bool{}
 	if saved != nil {
 		oauthProviders = saved.OAuth
 		groups = saved.Groups
+		for key, on := range saved.Modules {
+			if validModule(key) {
+				modules[key] = on
+			}
+		}
 		// Merge over the defaults, so a role key added in a later version still
 		// gets its default capabilities on an older setup.json.
 		for key, caps := range saved.Roles {
@@ -132,6 +144,7 @@ func New(cfg *config.Config) (*Server, error) {
 		oauthProviders:   oauthProviders,
 		roles:            roles,
 		groups:           groups,
+		modules:          modules,
 	}, nil
 }
 
@@ -204,9 +217,15 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 	s.groupsMu.RLock()
 	groups := s.groups
 	s.groupsMu.RUnlock()
+	s.modulesMu.RLock()
+	modules := map[string]bool{}
+	for k, v := range s.modules {
+		modules[k] = v
+	}
+	s.modulesMu.RUnlock()
 	return setupState{
 		Backend: kind, DBURL: dbURL, RegistrationOpen: &open,
-		OAuth: providers, Roles: roles, Groups: groups,
+		OAuth: providers, Roles: roles, Groups: groups, Modules: modules,
 	}
 }
 
@@ -368,7 +387,7 @@ func (s *Server) mainHandler(w http.ResponseWriter, r *http.Request) {
 			s.write(w, s.assetHandler(r, assetPath, "app"))
 		default:
 			assetPath := strings.Trim(strings.TrimPrefix(path, cfg.PathPrefix), "/")
-			s.write(w, s.webUI(assetPath))
+			s.write(w, s.webUI(r, assetPath))
 		}
 		return
 	}
@@ -378,16 +397,45 @@ func (s *Server) mainHandler(w http.ResponseWriter, r *http.Request) {
 
 // webUI serves the embedded web UI (login, register, dashboard) for the web
 // asset group.
-func (s *Server) webUI(assetPath string) response {
+func (s *Server) webUI(r *http.Request, assetPath string) response {
+	// A page belonging to a switched-off module does not exist. Hiding only the
+	// nav entry would leave the page reachable by typing its URL.
+	if mod, gated := moduleForPage[assetPath]; gated && !s.moduleEnabled(mod) {
+		return textResp(404, "not found: the "+mod+" module is not enabled on this server")
+	}
 	asset := webui.Get(assetPath, s.cfg.PathPrefix)
 	if !asset.Found {
 		return textResp(404, "not found")
 	}
-	return response{
-		status:  200,
-		headers: map[string]string{"Content-Type": asset.ContentType},
-		body:    asset.Body,
+	headers := map[string]string{
+		"Content-Type":  asset.ContentType,
+		"Cache-Control": cacheControl(r, asset),
 	}
+	// The version is a build id, not a secret; exposing it makes "which build is
+	// this container actually running?" answerable from curl -I.
+	headers["X-Tagged-Build"] = webui.Version
+	return response{status: 200, headers: headers, body: asset.Body}
+}
+
+// cacheControl decides how long a UI asset may be reused.
+//
+// HTML must never be cached: it is what carries the ?v=<build> links, so a stale
+// copy would keep pointing a browser at the previous build's assets forever --
+// exactly the "I updated the container but Safari shows the old page" trap.
+// Safari in particular caches aggressively when a response says nothing, which
+// is what these responses used to do.
+//
+// Anything requested with a ?v= is safe to keep for a year: the URL changes
+// whenever the bytes do, so a cached entry can never be stale. Assets fetched
+// without one (a favicon a browser guesses at, say) get a short window.
+func cacheControl(r *http.Request, asset webui.Asset) string {
+	if asset.IsHTML {
+		return "no-cache, no-store, must-revalidate"
+	}
+	if r.URL.Query().Get("v") != "" {
+		return "public, max-age=31536000, immutable"
+	}
+	return "public, max-age=300"
 }
 
 // assetHandler is a placeholder for the original compiled app assets (PScript/

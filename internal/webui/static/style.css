@@ -6,35 +6,35 @@
   font-weight: 300;
   font-style: normal;
   font-display: swap;
-  src: url("fonts/RobotoMono-Light.ttf") format("truetype");
+  src: url("fonts/RobotoMono-Light.ttf?v={{V}}") format("truetype");
 }
 @font-face {
   font-family: "Roboto Mono";
   font-weight: 400;
   font-style: normal;
   font-display: swap;
-  src: url("fonts/RobotoMono-Regular.ttf") format("truetype");
+  src: url("fonts/RobotoMono-Regular.ttf?v={{V}}") format("truetype");
 }
 @font-face {
   font-family: "Roboto Mono";
   font-weight: 500;
   font-style: normal;
   font-display: swap;
-  src: url("fonts/RobotoMono-Medium.ttf") format("truetype");
+  src: url("fonts/RobotoMono-Medium.ttf?v={{V}}") format("truetype");
 }
 @font-face {
   font-family: "Roboto Mono";
   font-weight: 600;
   font-style: normal;
   font-display: swap;
-  src: url("fonts/RobotoMono-SemiBold.ttf") format("truetype");
+  src: url("fonts/RobotoMono-SemiBold.ttf?v={{V}}") format("truetype");
 }
 @font-face {
   font-family: "Roboto Mono";
   font-weight: 700;
   font-style: normal;
   font-display: swap;
-  src: url("fonts/RobotoMono-Bold.ttf") format("truetype");
+  src: url("fonts/RobotoMono-Bold.ttf?v={{V}}") format("truetype");
 }
 
 /* ---- Theme (from the macOS Tagged app) ------------------------------------ */
@@ -1093,4 +1093,286 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .side-col { grid-template-columns: 1fr; }
   .alloc { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---- Shift planner --------------------------------------------------------- */
+/* Shift kinds. Each kind gets one hue, used by the chip, the legend dot and the
+   details panel, so a colour reads the same everywhere on the page. */
+:root {
+  --sh-morning: #3BA55D;
+  --sh-day: #4C82F7;
+  --sh-evening: #DEAA22;
+  --sh-night: #A66CFF;
+  --sh-open: #E5484D;
+  --sh-absence: #5E5E63;
+}
+
+.avatar.sm { width: 26px; height: 26px; font-size: 0.68rem; }
+
+/* A seven-day grid needs more room than the 1400px the other pages cap at. */
+#shifts-layout { max-width: 1600px; }
+
+/* Five tiles in the width four normally take, so the value has to come down a
+   step to stay on one line. */
+.tiles.five { grid-template-columns: repeat(5, 1fr); }
+.tiles.five .tile { padding: 14px; }
+.tiles.five .tile .v { font-size: 1.2rem; white-space: nowrap; }
+.tiles.five .tile .sub { margin-top: 8px; }
+.pl-panel { padding: 0; overflow: hidden; }
+
+/* The planner is one grid: a member column plus seven day columns. Every cell is
+   a direct child; group headers span the full width with grid-column: 1 / -1. */
+.pl-grid {
+  display: grid;
+  grid-template-columns: 210px repeat(7, minmax(92px, 1fr));
+  min-width: 780px;
+}
+/* Column headers carry the week's dates, so they read as content rather than as
+   the small uppercase labels the admin tables use. */
+.pl-head {
+  padding: 12px 10px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--stroke);
+  white-space: nowrap;
+  text-align: center;
+}
+.pl-head.today { color: var(--accent); font-weight: 600; }
+/* The member column header sits over names, not over a day, so it stays left. */
+.pl-head.pl-mem { padding-left: 16px; color: var(--text-3); text-align: left; }
+
+.pl-group {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--stroke);
+  cursor: pointer;
+  user-select: none;
+}
+.pl-group:hover { background: var(--bg); }
+.pl-group .pl-caret { transition: transform 0.15s; width: 14px; height: 14px; color: var(--text-3); }
+.pl-group.collapsed .pl-caret { transform: rotate(-90deg); }
+.pl-group .pl-gname { font-weight: 600; font-size: 0.85rem; }
+.pl-group .pl-gtot { font-size: 0.72rem; color: var(--text-3); }
+
+/* Member cell: avatar, name, role. */
+.pl-mem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--stroke);
+  border-right: 1px solid var(--stroke);
+  min-width: 0;
+}
+.pl-mem .pl-mn { font-size: 0.82rem; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-mem .pl-mr { font-size: 0.68rem; color: var(--text-3); }
+
+/* Day cell: holds a chip, or the empty/add affordance. */
+.pl-cell {
+  border-bottom: 1px solid var(--stroke);
+  border-right: 1px solid var(--stroke);
+  padding: 6px;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pl-cell:last-child { border-right: none; }
+.pl-cell.today { background: rgba(222, 170, 34, 0.03); }
+.pl-cell.weekend { background: rgba(255, 255, 255, 0.015); }
+
+.pl-empty {
+  width: 100%;
+  height: 100%;
+  min-height: 46px;
+  border: 1px dashed transparent;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pl-empty:hover { filter: none; border-color: var(--stroke-strong); color: var(--text-2); }
+.pl-empty:hover .pl-dash { display: none; }
+.pl-empty .pl-add { display: none; }
+.pl-empty:hover .pl-add { display: inline; }
+
+/* Shift chip. --c is set per kind by the renderer. */
+.pl-chip {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid color-mix(in srgb, var(--c) 40%, transparent);
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+  border-radius: 10px;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pl-chip:hover { filter: none; background: color-mix(in srgb, var(--c) 20%, transparent); }
+.pl-chip.selected { outline: 1px solid var(--c); outline-offset: 1px; }
+.pl-chip .pl-t { font-size: 0.72rem; font-weight: 500; color: var(--c); white-space: nowrap; }
+.pl-chip .pl-h { font-size: 0.66rem; color: var(--text-3); }
+/* An absence is not scheduled time: a dashed outline keeps it from reading as a
+   shift now that no chip has an accented edge. */
+.pl-chip.absence { border-style: dashed; }
+
+/* Open-shift row: unassigned slots the group still has to fill. */
+.pl-mem.pl-open .pl-mn { color: var(--text-2); }
+.pl-open-ic {
+  width: 26px; height: 26px; flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px dashed var(--stroke-strong);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-3);
+}
+
+/* ---- Mini calendar --------------------------------------------------------- */
+/* Reuses the dashboard's .cal-head / .cal-grid / .cal-day styles. Only the bits
+   the planner adds live here, scoped to .sh-cal so the dashboard is untouched:
+   its days are static divs, the planner's are buttons that pick a week. */
+.sh-cal .cal-title { font-weight: 600; font-size: 0.9rem; }
+.sh-cal .cal-day {
+  background: none;
+  border: none;
+  font-family: var(--font);
+  cursor: pointer;
+}
+.sh-cal .cal-day:hover { filter: none; background: var(--surface-raised); color: var(--text-1); }
+.sh-cal .cal-day.inweek { background: var(--accent-dim); color: var(--accent); }
+/* Today keeps the dashboard's filled marker even inside the selected week, so
+   the two states stay tellable apart. */
+.sh-cal .cal-day.today, .sh-cal .cal-day.today.inweek { background: var(--accent); color: #0C0C0E; font-weight: 600; }
+
+/* ---- Shift details --------------------------------------------------------- */
+.sh-details .sd-when { font-size: 0.95rem; font-weight: 600; }
+.sh-details .sd-date { font-size: 0.74rem; color: var(--text-3); margin-bottom: 14px; }
+.sh-details .sd-row { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-2); margin-top: 8px; }
+.sh-details .sd-row svg { width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-3); }
+.sh-details .sd-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: 0 0 auto; }
+.sh-details .sd-actions { display: flex; gap: 8px; margin-top: 16px; }
+
+/* ---- Group status + legend -------------------------------------------------- */
+.sh-stat { margin-bottom: 14px; }
+.sh-stat:last-child { margin-bottom: 0; }
+.sh-stat-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.8rem; }
+.sh-stat-top .sh-sn { color: var(--text-1); }
+.sh-stat-top .sh-sv { color: var(--text-3); font-size: 0.72rem; }
+.sh-legend { display: flex; flex-direction: column; gap: 9px; }
+.sh-leg { display: flex; align-items: center; gap: 9px; font-size: 0.76rem; color: var(--text-2); }
+.sh-leg .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: 0 0 auto; }
+
+.sh-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+@media (max-width: 1080px) {
+  .tiles.five { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 760px) {
+  .tiles.five { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ---- Skills ---------------------------------------------------------------- */
+/* Proficiency levels. One hue per level, shared by the row glyph, the details
+   list and the distribution ring, so a level reads the same everywhere. */
+:root {
+  --lv-1: #E5484D;
+  --lv-2: #E9913C;
+  --lv-3: #DEAA22;
+  --lv-4: #3BA55D;
+  --lv-5: #2FB79E;
+}
+
+.head-actions { display: flex; gap: 8px; }
+
+/* Square skill mark, coloured by category -- the round .avatar reads as a
+   person, and a skill is not one. */
+.sk-ic {
+  width: 30px; height: 30px; flex: 0 0 auto;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--c) 16%, transparent);
+  color: var(--c);
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+}
+.sk-ic.lg { width: 44px; height: 44px; border-radius: 10px; font-size: 0.8rem; }
+
+/* The global `label` rule is for form field captions and shouts in uppercase.
+   This one captions a checkbox sitting in a toolbar, so it opts back out. */
+.sk-check {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.8rem; color: var(--text-2); cursor: pointer; white-space: nowrap;
+  text-transform: none; letter-spacing: normal;
+}
+.sk-check input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.sk-table td { vertical-align: middle; }
+.sk-cat { display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-2); white-space: nowrap; }
+.sk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: 0 0 auto; }
+
+/* Level glyph: one bar per level on the skill's scale. A bar is lit when at
+   least one member holds that level and grey when nobody does, so the row shows
+   at a glance how far up the scale the team actually reaches. */
+.sk-levels { display: flex; gap: 5px; }
+.sk-lv { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.sk-lv i { display: block; width: 26px; height: 4px; border-radius: 99px; background: var(--surface-raised); }
+.sk-lv.on i { background: var(--c); }
+.sk-lv span { font-size: 0.58rem; color: var(--text-3); line-height: 1; }
+.sk-lv.on span { color: var(--text-2); }
+
+.sk-cov { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.sk-cov .sk-pct { font-size: 0.8rem; width: 34px; flex: 0 0 auto; }
+.sk-cov .bar { flex: 1; margin-top: 0; }
+
+.sk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sk-pager { display: flex; align-items: center; gap: 4px; }
+.sk-pager button {
+  background: none; border: 1px solid transparent; color: var(--text-2);
+  font-family: var(--font); font-size: 0.76rem; min-width: 26px; height: 26px;
+  border-radius: 7px; padding: 0 6px; cursor: pointer;
+}
+.sk-pager button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text-1); filter: none; }
+.sk-pager button.active { background: var(--accent); color: #0C0C0E; font-weight: 600; }
+.sk-pager button:disabled { color: var(--text-3); opacity: 0.4; cursor: default; }
+.sk-pager svg { width: 13px; height: 13px; vertical-align: -2px; }
+
+/* Details panel */
+.sk-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.sk-head-row h3 { font-size: 0.98rem; margin: 0; font-weight: 600; }
+.sd-meta { font-size: 0.68rem; color: var(--text-3); margin-top: 6px; }
+.sd-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.sd-sec-head .ud-section-head { margin-bottom: 0; }
+.sd-desc { font-size: 0.82rem; color: var(--text-2); line-height: 1.55; margin: 0; }
+.sd-lv-list { display: flex; flex-direction: column; gap: 10px; }
+.sd-lv { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; }
+.sd-lv .n { color: var(--text-3); width: 10px; font-size: 0.74rem; }
+.sd-lv .sk-dot { width: 9px; height: 9px; }
+.sd-lv .nm { color: var(--text-1); }
+.sd-lv .ct { margin-left: auto; color: var(--text-3); font-size: 0.74rem; }
+
+.sd-dist { display: flex; align-items: center; gap: 16px; }
+.sd-dist .donut-wrap { width: 96px; height: 96px; }
+.sd-dist .legend { gap: 7px; }
+.sd-dist .legend-row { font-size: 0.74rem; gap: 8px; }
+.sd-dist .legend-pct { width: auto; font-weight: 400; color: var(--text-3); }
+
+.sd-used { display: flex; flex-wrap: wrap; gap: 6px; }
+.sd-used span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--text-2); background: var(--surface-raised); border: 1px solid var(--stroke); border-radius: 8px; padding: 5px 9px; }
+.sd-used svg { width: 12px; height: 12px; color: var(--text-3); }
+
+@media (max-width: 1080px) {
+  .sk-cov { min-width: 110px; }
 }

@@ -37,13 +37,16 @@ func (s *Server) isAdmin(username string, db store.UserDB) bool {
 func (s *Server) whoamiHandler(username string, db store.UserDB) response {
 	caps := s.capsOf(username, db)
 	return jsonResp(200, map[string]any{
-		"username":               username,
-		"role":                   s.userRole(username, db),
-		"caps":                   capList(caps),
-		"profile":                readProfile(db),
-		"avatar":                 readAvatar(db),
-		"is_admin":               s.isAdmin(username, db),
-		"is_controller":          s.isController(username, db),
+		"username":      username,
+		"role":          s.userRole(username, db),
+		"caps":          capList(caps),
+		"profile":       readProfile(db),
+		"avatar":        readAvatar(db),
+		"is_admin":      s.isAdmin(username, db),
+		"is_controller": s.isController(username, db),
+		// Which optional modules are on, so every page can reveal exactly the nav
+		// entries that lead somewhere.
+		"modules":                s.enabledModules(),
 		"has_password":           hasPassword(db),
 		"totp_enabled":           totpEnabled(db),
 		"backup_codes_remaining": len(backupHashes(db)),
@@ -405,28 +408,47 @@ func (s *Server) setStoredController(username string, isController bool) error {
 	})
 }
 
-// adminGetServer returns server-wide settings shown on the Admin · Servers page.
+// adminGetServer returns server-wide settings shown on the Admin · Settings page:
+// the self-registration switch and the optional module catalog.
 func (s *Server) adminGetServer() response {
 	return jsonResp(200, map[string]any{
 		"registration_open": s.registrationEnabled(),
+		"modules":           s.listModules(),
 	})
 }
 
-// adminSetServer updates server-wide settings. Currently only the
-// self-registration switch. Body is JSON {"registration_open": bool}.
+// adminSetServer updates server-wide settings. Body is JSON carrying either
+// {"registration_open": bool} or {"module": "shifts", "enabled": bool}; each
+// request changes one switch, matching how the page toggles them.
 func (s *Server) adminSetServer(req *request) response {
 	raw, err := req.getBody(64 * 1024)
 	if err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	var body struct {
-		RegistrationOpen *bool `json:"registration_open"`
+		RegistrationOpen *bool  `json:"registration_open"`
+		Module           string `json:"module"`
+		Enabled          *bool  `json:"enabled"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		return textResp(400, "bad request: body must be JSON with registration_open")
+		return textResp(400, "bad request: body must be JSON")
 	}
+
+	if body.Module != "" {
+		if !validModule(body.Module) {
+			return textResp(400, "unknown module: "+body.Module)
+		}
+		if body.Enabled == nil {
+			return textResp(400, "enabled is required when setting a module")
+		}
+		if err := s.setModuleEnabled(body.Module, *body.Enabled); err != nil {
+			return textResp(500, "internal error: "+err.Error())
+		}
+		return jsonResp(200, map[string]any{"status": "ok", "module": body.Module, "enabled": *body.Enabled})
+	}
+
 	if body.RegistrationOpen == nil {
-		return textResp(400, "registration_open is required")
+		return textResp(400, "registration_open or module is required")
 	}
 	if err := s.setRegistrationEnabled(*body.RegistrationOpen); err != nil {
 		return textResp(500, "internal error: "+err.Error())

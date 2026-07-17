@@ -2,16 +2,56 @@
 // for the Go TimeTagger server. Pages talk to the JSON API at
 // <path_prefix>api/v2/. The path prefix is injected into HTML at serve time via
 // the {{PREFIX}} placeholder so the UI works under any configured prefix.
+//
+// Caching. HTML is served no-cache and carries a ?v=<Version> on every asset it
+// references; the assets themselves are then immutable for a year (see the
+// server's webUI handler). Version is derived from the embedded bytes, so a new
+// build serves new URLs and browsers fetch them instead of reusing a stale copy
+// -- without anyone having to clear their cache.
 package webui
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
+	"io/fs"
 	"path"
 	"strings"
 )
 
 //go:embed static/*
 var files embed.FS
+
+// Version identifies this build's assets: the first 12 hex digits of a hash over
+// every embedded file's path and contents. Any change to any asset changes it.
+var Version = computeVersion()
+
+// computeVersion hashes the embedded tree. fs.WalkDir yields entries in
+// lexical order, so the result depends only on the contents, not on the walk.
+func computeVersion() string {
+	h := sha256.New()
+	err := fs.WalkDir(files, "static", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		b, err := files.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		h.Write([]byte(p))
+		h.Write(b)
+		return nil
+	})
+	if err != nil {
+		// A build with unreadable embedded assets is broken anyway; fall back to
+		// a constant rather than panicking at init.
+		return "dev"
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
 
 // route maps a request path (the part after the path prefix) to a file in the
 // embedded static dir.
@@ -35,6 +75,10 @@ func route(reqPath string) string {
 		return "roles.html"
 	case "groups":
 		return "groups.html"
+	case "shifts":
+		return "shifts.html"
+	case "skills":
+		return "skills.html"
 	case "settings":
 		return "settings.html"
 	case "oauth":
@@ -55,9 +99,11 @@ type Asset struct {
 	Body        []byte
 	ContentType string
 	Found       bool
+	IsHTML      bool // HTML is never cached; it carries the ?v= links
 }
 
-// Get resolves reqPath to an embedded asset, injecting prefix into HTML files.
+// Get resolves reqPath to an embedded asset, injecting the path prefix and the
+// build version into HTML files.
 func Get(reqPath, prefix string) Asset {
 	name := route(reqPath)
 	// Guard against path traversal.
@@ -69,10 +115,17 @@ func Get(reqPath, prefix string) Asset {
 		return Asset{Found: false}
 	}
 	ct := contentType(name)
-	if strings.HasSuffix(name, ".html") {
-		body = []byte(strings.ReplaceAll(string(body), "{{PREFIX}}", prefix))
+	isHTML := strings.HasSuffix(name, ".html")
+	switch {
+	case isHTML:
+		s := strings.ReplaceAll(string(body), "{{PREFIX}}", prefix)
+		body = []byte(strings.ReplaceAll(s, "{{V}}", Version))
+	case strings.HasSuffix(name, ".css"):
+		// The stylesheet references the fonts itself, so it needs the version
+		// too -- otherwise they are the one thing left on a short cache.
+		body = []byte(strings.ReplaceAll(string(body), "{{V}}", Version))
 	}
-	return Asset{Body: body, ContentType: ct, Found: true}
+	return Asset{Body: body, ContentType: ct, Found: true, IsHTML: isHTML}
 }
 
 func contentType(name string) string {

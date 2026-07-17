@@ -2,6 +2,9 @@
 // Tagged web UI client. Talks to the JSON API under <prefix>api/v2/.
 
 const PREFIX = window.TT_PREFIX || "/";
+// Build id, injected into every page. Assets are requested as ?v=<VERSION> so a
+// new build never reuses the previous one's cached JS/CSS.
+const VERSION = window.TT_V || "";
 const API = PREFIX + "api/v2/";
 const TOKEN_KEY = "tt_webtoken";
 const USER_KEY = "tt_username";
@@ -535,6 +538,14 @@ const NAV_CAP = {
   oauth: "oauth.manage",
 };
 
+// NAV_MODULE maps a nav entry to the optional module that must be switched on for
+// it to lead anywhere. Off by default, so these stay hidden until an admin
+// enables them on the Settings page.
+const NAV_MODULE = {
+  "nav-shifts": "shifts",
+  "nav-skills": "skills",
+};
+
 // revealChrome makes one whoami call to reveal role-specific UI: the Admin nav
 // section (per capability) and the user switcher for controllers.
 async function revealChrome() {
@@ -545,7 +556,15 @@ async function revealChrome() {
     window.TT_IS_ADMIN = !!d.is_admin;
     window.TT_IS_CONTROLLER = !!d.is_controller;
     window.TT_CAPS = d.caps || [];
+    window.TT_MODULES = d.modules || [];
     const can = (c) => window.TT_CAPS.includes(c);
+
+    // Module pages start hidden in the markup and are revealed only where the
+    // server says the module is on; its page 404s otherwise.
+    for (const [id, key] of Object.entries(NAV_MODULE)) {
+      const a = document.getElementById(id);
+      if (a && window.TT_MODULES.includes(key)) a.style.display = "";
+    }
 
     // Show the signed-in user by name and picture once whoami answers; the
     // sidebar starts with the username and initials from localStorage.
@@ -1019,13 +1038,18 @@ async function savePref(key, prop, value) {
 let selDate = midnight(new Date());
 let calMonth = midnight(new Date());
 
-function renderDonut(segments, totalSec) {
+// donutSVG builds the ring's contents for a 0 0 42 42 viewBox: a track circle
+// plus one arc per segment, drawn with stroke-dasharray on a 100-unit
+// circumference so a segment's length is its percentage. Segments are {sec,
+// color}; `total` is what the parts sum to. Returns markup so any panel can host
+// a ring -- the dashboard writes it into #donut, the Skills page into its own.
+function donutSVG(segments, total) {
   const CX = 21, CY = 21, R = 15.915, SW = 5;
   let parts = `<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--surface-raised)" stroke-width="${SW}"/>`;
-  if (totalSec > 0) {
+  if (total > 0) {
     let cum = 0;
     const segs = segments.map((s) => {
-      const pct = (s.sec / totalSec) * 100;
+      const pct = (s.sec / total) * 100;
       if (pct <= 0) return "";
       const c = `<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="${s.color}" stroke-width="${SW}" stroke-dasharray="${pct.toFixed(3)} ${(100 - pct).toFixed(3)}" stroke-dashoffset="${(-cum).toFixed(3)}"/>`;
       cum += pct;
@@ -1033,7 +1057,11 @@ function renderDonut(segments, totalSec) {
     });
     parts += `<g transform="rotate(-90 ${CX} ${CY})">${segs.join("")}</g>`;
   }
-  document.getElementById("donut").innerHTML = parts;
+  return parts;
+}
+
+function renderDonut(segments, totalSec) {
+  document.getElementById("donut").innerHTML = donutSVG(segments, totalSec);
 }
 
 function badge(key) {
@@ -4165,6 +4193,61 @@ async function initServers() {
       toggle.disabled = false;
     }
   });
+
+  loadModules();
+}
+
+// ---- Modules ----------------------------------------------------------------
+// Optional pages (Shifts, Skills) an operator switches on per server. The server
+// is the source of truth: a module that is off has no page and no nav entry.
+
+async function loadModules() {
+  const host = document.getElementById("modules-list");
+  const msg = document.getElementById("modules-msg");
+  if (!host) return;
+  let mods;
+  try {
+    const r = await apiFetch("admin/server");
+    if (!r.ok) throw new Error(await r.text());
+    mods = (await r.json()).modules || [];
+  } catch (e) {
+    host.textContent = "Could not load modules";
+    return;
+  }
+  if (!mods.length) { host.textContent = "No optional modules on this server."; return; }
+  host.classList.remove("muted");
+  host.innerHTML = mods.map((m) => `
+    <label class="setting-row" for="mod-${escapeHtml(m.key)}">
+      <span class="setting-label">
+        <strong>${escapeHtml(m.label)}</strong>
+        <span class="muted">${escapeHtml(m.desc)}</span>
+      </span>
+      <span class="toggle">
+        <input type="checkbox" id="mod-${escapeHtml(m.key)}" data-mod="${escapeHtml(m.key)}" ${m.enabled ? "checked" : ""}>
+        <span class="slider"></span>
+      </span>
+    </label>`).join("");
+
+  host.querySelectorAll("input[data-mod]").forEach((t) => t.addEventListener("change", async () => {
+    const key = t.dataset.mod, on = t.checked;
+    t.disabled = true;
+    showMsg(msg, "Saving…", "");
+    try {
+      const r = await apiFetch("admin/server", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ module: key, enabled: on }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      // The nav is built from whoami, so it only picks this up on the next page
+      // load -- say so rather than leaving the operator wondering.
+      showMsg(msg, `${key} module ${on ? "enabled" : "disabled"}. Reload to update the menu.`, "ok");
+    } catch (e) {
+      t.checked = !on; // revert on failure
+      showMsg(msg, "Could not save: " + (e.message || "error"), "error");
+    } finally {
+      t.disabled = false;
+    }
+  }));
 }
 
 // initOAuth guards the placeholder OAuth page; nothing to load yet.
@@ -4298,6 +4381,9 @@ function applyFavicon() {
   if (!window.matchMedia) return;
   const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const base = PREFIX + "images/" + (dark ? "favicon_dark" : "favicon_light") + "/";
+  // These links are built here rather than in the HTML, so they have to carry
+  // the build version themselves to get the same cache treatment.
+  const v = VERSION ? "?v=" + encodeURIComponent(VERSION) : "";
   document.querySelectorAll('link[rel~="icon"], link[rel="apple-touch-icon"]').forEach((l) => l.remove());
   const add = (rel, href, type, sizes) => {
     const l = document.createElement("link");
@@ -4306,14 +4392,927 @@ function applyFavicon() {
     if (sizes) l.sizes = sizes;
     document.head.appendChild(l);
   };
-  add("icon", base + "favicon-32x32.png", "image/png", "32x32");
-  add("icon", base + "favicon-16x16.png", "image/png", "16x16");
-  add("icon", base + "favicon.ico", "image/x-icon");
-  add("apple-touch-icon", base + "apple-touch-icon.png");
+  add("icon", base + "favicon-32x32.png" + v, "image/png", "32x32");
+  add("icon", base + "favicon-16x16.png" + v, "image/png", "16x16");
+  add("icon", base + "favicon.ico" + v, "image/x-icon");
+  add("apple-touch-icon", base + "apple-touch-icon.png" + v);
 }
 applyFavicon();
 if (window.matchMedia) {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyFavicon);
+}
+
+// ---- Shift planner ----------------------------------------------------------
+// A week grid of planned shifts, grouped by the groups the viewer controls. This
+// is the design pass: the page renders from the SAMPLE_* fixtures below and every
+// edit stays in memory. Wiring replaces buildSampleWeek/loadShifts with the API
+// and leaves the render functions as they are.
+
+// SHIFT_KINDS is the catalog: one hue and one canonical window per kind. `open`
+// is a slot nobody is assigned to yet; `absence` is time the member is away.
+const SHIFT_KINDS = [
+  { key: "morning", label: "Morning", window: "06:00 – 14:00", color: "var(--sh-morning)" },
+  { key: "day", label: "Day", window: "08:00 – 16:00", color: "var(--sh-day)" },
+  { key: "evening", label: "Evening", window: "13:00 – 21:00", color: "var(--sh-evening)" },
+  { key: "night", label: "Night", window: "22:00 – 06:00", color: "var(--sh-night)" },
+  { key: "open", label: "Open shift", window: "unassigned", color: "var(--sh-open)" },
+  { key: "absence", label: "Absence", window: "away", color: "var(--sh-absence)" },
+];
+function kindDef(key) { return SHIFT_KINDS.find((k) => k.key === key) || SHIFT_KINDS[1]; }
+
+// Sample groups. Each member carries a profile in the shape the profile API
+// returns, so wiring only has to swap the fixture for GET admin/groups plus the
+// members' profiles -- the render path already reads them the way every other
+// page does. `pattern` is design-only: it seeds a plausible week.
+const SAMPLE_GROUPS = [
+  { id: "support", name: "Support", members: [
+    { username: "alice", profile: { first_name: "Alice", last_name: "Johnson", job: "Support Lead" }, pattern: { start: "09:00", end: "17:00", kind: "evening", days: [1, 2, 3, 4, 5] } },
+    { username: "bob", profile: { first_name: "Bob", last_name: "Martin", job: "Support Agent" }, pattern: { start: "13:00", end: "21:00", kind: "evening", days: [1, 2, 3, 5] } },
+    { username: "charlie", profile: { first_name: "Charlie", last_name: "Davis", job: "Support Agent" }, pattern: { start: "17:00", end: "01:00", kind: "night", days: [3, 4, 5] } },
+  ] },
+  { id: "development", name: "Development", members: [
+    { username: "diana", profile: { first_name: "Diana", last_name: "Prince", job: "Developer" }, pattern: { start: "08:00", end: "16:00", kind: "day", days: [1, 2, 3, 4, 5] } },
+    { username: "ethan", profile: { first_name: "Ethan", last_name: "Hunt", job: "Developer" }, pattern: { start: "08:00", end: "16:00", kind: "day", days: [1, 3, 5] } },
+    { username: "fiona", profile: { first_name: "Fiona", last_name: "Gallagher", job: "QA Engineer" }, pattern: { start: "10:00", end: "18:00", kind: "day", days: [1, 2, 3, 4, 5] } },
+  ] },
+  { id: "operations", name: "Operations", members: [
+    { username: "george", profile: { first_name: "George", last_name: "Miller", job: "Ops Lead" }, pattern: { start: "06:00", end: "14:00", kind: "morning", days: [1, 2, 3, 4, 5] } },
+    { username: "hannah", profile: { first_name: "Hannah", last_name: "Lee", job: "Ops Engineer" }, pattern: { start: "14:00", end: "22:00", kind: "evening", days: [1, 2, 3, 4, 5] } },
+    { username: "ian", profile: { first_name: "Ian", last_name: "Wright", job: "Ops Engineer" }, pattern: { start: "22:00", end: "06:00", kind: "night", days: [1, 2, 3, 4, 5] } },
+  ] },
+];
+
+let PL_GROUPS = [];
+let PL_SHIFTS = [];              // {id, group, user (null = open), date, start, end, kind, note}
+let PL_WEEK = null;              // Date: midnight of the displayed week's first day
+let PL_CAL = null;               // Date: first of the month the mini calendar shows
+let PL_SEL = null;               // id of the selected shift
+let PL_COLLAPSED = new Set();    // group ids collapsed in the grid
+let PL_SEEDED = new Set();       // sample weeks already generated
+let PL_TAB = "schedule";
+let PL_SEQ = 0;
+let PL_EDIT = null;              // {id} when editing, {date, user, group} when creating
+
+function shiftsMsg() { return document.getElementById("shifts-msg"); }
+function plId() { return "s" + (++PL_SEQ); }
+function ymd(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+function plDays() { return Array.from({ length: 7 }, (_, i) => addDays(PL_WEEK, i)); }
+
+// shiftMinutes returns a shift's length, treating an end at or before the start
+// as running past midnight (a 22:00 – 06:00 night is 8h, not -16h).
+function shiftMinutes(s) {
+  if (s.kind === "absence") return 0;
+  const [sh, sm] = s.start.split(":").map(Number);
+  const [eh, em] = s.end.split(":").map(Number);
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins <= 0) mins += 24 * 60;
+  return mins;
+}
+function plTotalMins(list) { return list.reduce((a, s) => a + shiftMinutes(s), 0); }
+function weekShifts() {
+  const from = ymd(PL_WEEK), to = ymd(addDays(PL_WEEK, 6));
+  return PL_SHIFTS.filter((s) => s.date >= from && s.date <= to);
+}
+function groupOf(id) { return PL_GROUPS.find((g) => g.id === id); }
+function memberOf(username) {
+  for (const g of PL_GROUPS) {
+    const m = g.members.find((x) => x.username === username);
+    if (m) return m;
+  }
+  return null;
+}
+// Members are presented like everywhere else: their profile name if they have
+// one, otherwise the username they log in with.
+function plMemberName(m) { return displayName(m.username, m.profile); }
+function plMemberInitials(m) { return initials(m.username, m.profile); }
+function plName(username) { const m = memberOf(username); return m ? plMemberName(m) : username; }
+
+// buildSampleWeek fills a week from each member's pattern, plus a couple of open
+// shifts and one absence so every state in the legend is visible. Design-only.
+function buildSampleWeek(weekStart) {
+  const key = ymd(weekStart);
+  if (PL_SEEDED.has(key)) return;
+  PL_SEEDED.add(key);
+  for (const g of PL_GROUPS) {
+    for (const m of g.members) {
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(weekStart, i);
+        if (!m.pattern.days.includes(d.getDay())) continue;
+        PL_SHIFTS.push({
+          id: plId(), group: g.id, user: m.username, date: ymd(d),
+          start: m.pattern.start, end: m.pattern.end, kind: m.pattern.kind, note: "",
+        });
+      }
+    }
+  }
+  const sat = addDays(weekStart, 5);
+  PL_SHIFTS.push({ id: plId(), group: "support", user: null, date: ymd(sat), start: "10:00", end: "18:00", kind: "open", note: "Weekend cover" });
+  const thu = addDays(weekStart, 3);
+  PL_SHIFTS.push({ id: plId(), group: "development", user: "ethan", date: ymd(thu), start: "00:00", end: "00:00", kind: "absence", note: "Paid leave" });
+}
+
+function renderPlTiles() {
+  const list = weekShifts();
+  const assigned = list.filter((s) => s.user && s.kind !== "absence");
+  const open = list.filter((s) => s.kind === "open");
+  const absences = list.filter((s) => s.kind === "absence");
+  const total = plTotalMins(assigned);
+  // Contracted week = 40h per member; anything above it is the overtime estimate.
+  const members = PL_GROUPS.reduce((a, g) => a + g.members.length, 0);
+  const contracted = members * 40 * 60;
+  const over = Math.max(0, total - contracted);
+  const covered = list.length ? Math.round(((list.length - open.length) / list.length) * 100) : 100;
+  const tiles = [
+    { k: "Total scheduled", v: fmtHM(total * 60), sub: `${assigned.length} shift${assigned.length === 1 ? "" : "s"} across ${members} member${members === 1 ? "" : "s"}` },
+    { k: "Coverage", v: covered + "%", sub: open.length ? `${open.length} slot${open.length === 1 ? "" : "s"} unfilled` : "All shifts covered", pos: !open.length },
+    { k: "Overtime (est.)", v: fmtHM(over * 60), sub: total ? `${((over / total) * 100).toFixed(1)}% of total` : "—" },
+    { k: "Open shifts", v: String(open.length), sub: "This week" },
+    { k: "Absences", v: String(absences.length), sub: "This week" },
+  ];
+  document.getElementById("sh-tiles").innerHTML = tiles.map((t) => `
+    <div class="tile">
+      <div class="k">${escapeHtml(t.k)}</div>
+      <div class="v">${escapeHtml(t.v)}</div>
+      <div class="sub${t.pos ? " pos" : ""}">${escapeHtml(t.sub)}</div>
+    </div>`).join("");
+}
+
+// plChip renders one shift, or the empty cell's add affordance.
+function plChip(s) {
+  const k = kindDef(s.kind);
+  const sel = s.id === PL_SEL ? " selected" : "";
+  const label = s.kind === "absence" ? "Absent" : `${s.start} – ${s.end}`;
+  const sub = s.kind === "absence" ? escapeHtml(s.note || "Away") : fmtHM(shiftMinutes(s) * 60);
+  return `<button class="pl-chip ${escapeHtml(s.kind)}${sel}" style="--c:${k.color}" data-shift="${escapeHtml(s.id)}">
+    <span class="pl-t">${escapeHtml(label)}</span>
+    <span class="pl-h">${sub}</span>
+  </button>`;
+}
+function plEmpty(user, group, date) {
+  return `<button class="pl-empty" data-add="1" data-user="${user == null ? "" : escapeHtml(user)}" data-group="${escapeHtml(group)}" data-date="${escapeHtml(date)}">
+    <span class="pl-dash">–</span><span class="pl-add">+ Add</span>
+  </button>`;
+}
+
+function renderPlanner() {
+  const grid = document.getElementById("pl-grid");
+  const days = plDays();
+  const todayKey = ymd(new Date());
+  const list = weekShifts();
+  const at = (user, date) => list.find((s) => s.user === user && s.date === date);
+
+  let html = `<div class="pl-head pl-mem">Group / member</div>`;
+  html += days.map((d) => {
+    const t = ymd(d) === todayKey ? " today" : "";
+    return `<div class="pl-head${t}">${DOW_BY_DAY[d.getDay()].slice(0, 1) + DOW_BY_DAY[d.getDay()].slice(1).toLowerCase()} ${d.getDate()}</div>`;
+  }).join("");
+
+  for (const g of PL_GROUPS) {
+    const gShifts = list.filter((s) => s.group === g.id && s.kind !== "absence");
+    const collapsed = PL_COLLAPSED.has(g.id);
+    html += `<div class="pl-group${collapsed ? " collapsed" : ""}" data-group="${escapeHtml(g.id)}">
+      <svg class="pl-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      <span class="pl-gname">${escapeHtml(g.name)}</span>
+      <span class="pl-gtot">Total ${escapeHtml(fmtHM(plTotalMins(gShifts) * 60))}</span>
+    </div>`;
+    if (collapsed) continue;
+
+    for (const m of g.members) {
+      html += `<div class="pl-mem">
+        <span class="avatar sm">${escapeHtml(plMemberInitials(m))}</span>
+        <span style="min-width:0">
+          <div class="pl-mn">${escapeHtml(plMemberName(m))}</div>
+          <div class="pl-mr">${escapeHtml(m.profile.job || "")}</div>
+        </span>
+      </div>`;
+      html += days.map((d) => {
+        const key = ymd(d);
+        const s = at(m.username, key);
+        const cls = (key === todayKey ? " today" : "") + (d.getDay() === 0 || d.getDay() === 6 ? " weekend" : "");
+        return `<div class="pl-cell${cls}">${s ? plChip(s) : plEmpty(m.username, g.id, key)}</div>`;
+      }).join("");
+    }
+
+    // Open-shift row: one per group, holding the slots nobody is assigned to.
+    html += `<div class="pl-mem pl-open">
+      <span class="pl-open-ic"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+      <span class="pl-mn">Open shift</span>
+    </div>`;
+    html += days.map((d) => {
+      const key = ymd(d);
+      const s = list.find((x) => x.group === g.id && x.user === null && x.date === key);
+      const cls = (key === todayKey ? " today" : "") + (d.getDay() === 0 || d.getDay() === 6 ? " weekend" : "");
+      return `<div class="pl-cell${cls}">${s ? plChip(s) : plEmpty(null, g.id, key)}</div>`;
+    }).join("");
+  }
+  grid.innerHTML = html;
+
+  grid.querySelectorAll(".pl-group").forEach((el) => el.addEventListener("click", () => {
+    const id = el.dataset.group;
+    if (PL_COLLAPSED.has(id)) PL_COLLAPSED.delete(id); else PL_COLLAPSED.add(id);
+    renderPlanner();
+  }));
+  grid.querySelectorAll(".pl-chip").forEach((el) => el.addEventListener("click", () => {
+    PL_SEL = el.dataset.shift;
+    renderPlanner();
+    renderPlDetails();
+  }));
+  grid.querySelectorAll(".pl-empty").forEach((el) => el.addEventListener("click", () =>
+    openShiftModal(null, { user: el.dataset.user || null, group: el.dataset.group, date: el.dataset.date })));
+}
+
+function renderPlDetails() {
+  const host = document.getElementById("sh-details");
+  const s = PL_SHIFTS.find((x) => x.id === PL_SEL);
+  if (!s) {
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/></svg>
+      <p>Select a shift to see its details.</p>
+    </div>`;
+    return;
+  }
+  const k = kindDef(s.kind);
+  const d = new Date(s.date + "T00:00:00");
+  const when = s.kind === "absence" ? "Absent all day"
+    : `${s.start} – ${s.end} (${fmtHM(shiftMinutes(s) * 60)})`;
+  host.innerHTML = `
+    <div class="sd-when">${escapeHtml(when)}</div>
+    <div class="sd-date">${WEEKDAY_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}</div>
+    <div class="sd-row"><span class="sd-dot" style="--c:${k.color}"></span>${escapeHtml(k.label)}</div>
+    <div class="sd-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg>
+      ${s.user ? escapeHtml(plName(s.user)) : "Unassigned"}
+    </div>
+    <div class="sd-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3"/><path d="M12 21s7-6 7-11a7 7 0 1 0-14 0c0 5 7 11 7 11z"/></svg>
+      ${escapeHtml(s.note || "No note")}
+    </div>
+    <div class="sd-row" style="gap:6px;flex-wrap:wrap">
+      <span class="badge muted">${escapeHtml(groupOf(s.group) ? groupOf(s.group).name : s.group)}</span>
+      <span class="badge" style="background:color-mix(in srgb, ${k.color} 16%, transparent);color:${k.color}">${escapeHtml(k.label)}</span>
+    </div>
+    <div class="sd-actions">
+      <button class="secondary btn-sm" id="sd-edit">Edit shift</button>
+      <button class="secondary btn-sm danger-btn" id="sd-del">Delete shift</button>
+    </div>`;
+  host.querySelector("#sd-edit").addEventListener("click", () => openShiftModal(s.id));
+  host.querySelector("#sd-del").addEventListener("click", () => deleteShift(s));
+}
+
+function renderPlStatus() {
+  const list = weekShifts();
+  const totals = PL_GROUPS.map((g) => ({
+    name: g.name,
+    mins: plTotalMins(list.filter((s) => s.group === g.id && s.kind !== "absence")),
+  }));
+  const max = Math.max(1, ...totals.map((t) => t.mins));
+  const sum = totals.reduce((a, t) => a + t.mins, 0);
+  document.getElementById("sh-status").innerHTML = totals.map((t) => `
+    <div class="sh-stat">
+      <div class="sh-stat-top"><span class="sh-sn">${escapeHtml(t.name)}</span><span class="sh-sv">${escapeHtml(fmtHM(t.mins * 60))} scheduled</span></div>
+      <div class="bar"><span style="width:${(t.mins / max) * 100}%"></span></div>
+    </div>`).join("") + `
+    <div class="sh-stat" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--stroke)">
+      <div class="sh-stat-top"><span class="sh-sn">Total</span><span class="sh-sv">${escapeHtml(fmtHM(sum * 60))}</span></div>
+    </div>`;
+}
+
+function renderPlLegend() {
+  document.getElementById("sh-legend").innerHTML = SHIFT_KINDS.map((k) => `
+    <div class="sh-leg"><span class="dot" style="--c:${k.color}"></span>${escapeHtml(k.label)} <span class="muted">(${escapeHtml(k.window)})</span></div>`).join("");
+}
+
+function renderPlCal() {
+  const grid = document.getElementById("sh-cal-grid");
+  document.getElementById("sh-cal-title").textContent = MONTHS[PL_CAL.getMonth()] + " " + PL_CAL.getFullYear();
+  const first = new Date(PL_CAL.getFullYear(), PL_CAL.getMonth(), 1);
+  const start = weekStartOf(first);
+  const todayKey = ymd(new Date());
+  const wFrom = ymd(PL_WEEK), wTo = ymd(addDays(PL_WEEK, 6));
+  let html = orderedDOW().map((d) => `<div class="cal-dow">${d.slice(0, 2)}</div>`).join("");
+  for (let i = 0; i < 42; i++) {
+    const d = addDays(start, i);
+    const key = ymd(d);
+    const cls = [
+      d.getMonth() === PL_CAL.getMonth() ? "" : "out",
+      key >= wFrom && key <= wTo ? "inweek" : "",
+      key === todayKey ? "today" : "",
+    ].filter(Boolean).join(" ");
+    html += `<button class="cal-day ${cls}" data-d="${key}">${d.getDate()}</button>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll(".cal-day").forEach((b) => b.addEventListener("click", () => {
+    setPlWeek(weekStartOf(new Date(b.dataset.d + "T00:00:00")));
+  }));
+}
+
+function renderPlTeam() {
+  const list = weekShifts();
+  const rows = [];
+  for (const g of PL_GROUPS) {
+    for (const m of g.members) {
+      const own = list.filter((s) => s.user === m.username && s.kind !== "absence");
+      rows.push(`<tr>
+        <td>
+          <div class="um-user"><span class="avatar sm">${escapeHtml(plMemberInitials(m))}</span><span class="um-name">${escapeHtml(plMemberName(m))}</span></div>
+          <div class="rl-desc">${escapeHtml(m.profile.job || "")}</div>
+        </td>
+        <td class="muted">${escapeHtml(g.name)}</td>
+        <td class="muted">${own.length}</td>
+        <td>${escapeHtml(fmtHM(plTotalMins(own) * 60))}</td>
+      </tr>`);
+    }
+  }
+  document.getElementById("sh-team-body").innerHTML = rows.join("");
+}
+
+function renderShifts() {
+  document.getElementById("sh-range").textContent = weekTitle(PL_WEEK);
+  renderPlTiles();
+  renderPlanner();
+  renderPlDetails();
+  renderPlStatus();
+  renderPlCal();
+  renderPlTeam();
+}
+
+function setPlWeek(d) {
+  PL_WEEK = weekStartOf(d);
+  PL_CAL = new Date(PL_WEEK.getFullYear(), PL_WEEK.getMonth(), 1);
+  buildSampleWeek(PL_WEEK);
+  // Drop a selection the new week no longer shows, so the details panel never
+  // describes a shift that is not on screen.
+  if (PL_SEL && !weekShifts().some((s) => s.id === PL_SEL)) PL_SEL = null;
+  renderShifts();
+}
+
+// ---- Shift editor -----------------------------------------------------------
+
+function openShiftModal(id, seed) {
+  const s = id ? PL_SHIFTS.find((x) => x.id === id) : null;
+  PL_EDIT = s ? { id: s.id } : (seed || {});
+  document.getElementById("sh-modal-title").textContent = s ? "Edit shift" : "New shift";
+  document.getElementById("sh-modal-msg").innerHTML = "";
+
+  // The member picker offers everyone in the group, plus the unassigned slot.
+  const gid = s ? s.group : seed.group;
+  const g = groupOf(gid);
+  const opts = [`<option value="">Open shift (unassigned)</option>`].concat(
+    (g ? g.members : []).map((m) => `<option value="${escapeHtml(m.username)}">${escapeHtml(plMemberName(m))}</option>`));
+  const userSel = document.getElementById("sh-f-user");
+  userSel.innerHTML = opts.join("");
+  userSel.value = (s ? s.user : seed.user) || "";
+
+  document.getElementById("sh-f-kind").innerHTML = SHIFT_KINDS
+    .map((k) => `<option value="${escapeHtml(k.key)}">${escapeHtml(k.label)}</option>`).join("");
+  document.getElementById("sh-f-date").value = s ? s.date : seed.date;
+  document.getElementById("sh-f-start").value = s ? s.start : "09:00";
+  document.getElementById("sh-f-end").value = s ? s.end : "17:00";
+  document.getElementById("sh-f-kind").value = s ? s.kind : (seed.user ? "day" : "open");
+  document.getElementById("sh-f-note").value = s ? s.note : "";
+  document.getElementById("sh-modal").hidden = false;
+  document.getElementById("sh-f-start").focus();
+}
+function closeShiftModal() { document.getElementById("sh-modal").hidden = true; PL_EDIT = null; }
+
+function saveShift() {
+  const msg = document.getElementById("sh-modal-msg");
+  const user = document.getElementById("sh-f-user").value || null;
+  const date = document.getElementById("sh-f-date").value;
+  const start = document.getElementById("sh-f-start").value;
+  const end = document.getElementById("sh-f-end").value;
+  let kind = document.getElementById("sh-f-kind").value;
+  const note = document.getElementById("sh-f-note").value.trim();
+  if (!date) { showMsg(msg, "Pick a date", "error"); return; }
+  if (kind !== "absence" && (!start || !end)) { showMsg(msg, "Enter a start and end time", "error"); return; }
+  if (kind !== "absence" && start === end) { showMsg(msg, "Start and end cannot be the same", "error"); return; }
+  // An unassigned slot is an open shift by definition, and vice versa.
+  if (!user && kind !== "open" && kind !== "absence") kind = "open";
+  if (user && kind === "open") { showMsg(msg, "An open shift cannot have a member assigned", "error"); return; }
+
+  const existing = PL_EDIT && PL_EDIT.id ? PL_SHIFTS.find((x) => x.id === PL_EDIT.id) : null;
+  // One shift per member per day keeps the grid one chip per cell.
+  const clash = PL_SHIFTS.find((x) => x !== existing && x.date === date && x.user === user
+    && (user !== null || x.group === (existing ? existing.group : PL_EDIT.group)));
+  if (clash) { showMsg(msg, user ? `${plName(user)} already has a shift that day` : "This group already has an open shift that day", "error"); return; }
+
+  if (existing) {
+    Object.assign(existing, { user, date, start, end, kind, note });
+    PL_SEL = existing.id;
+  } else {
+    const s = { id: plId(), group: PL_EDIT.group, user, date, start, end, kind, note };
+    PL_SHIFTS.push(s);
+    PL_SEL = s.id;
+  }
+  closeShiftModal();
+  setPlWeek(new Date(date + "T00:00:00"));
+  showMsg(shiftsMsg(), existing ? "Shift updated" : "Shift added", "ok");
+}
+
+function deleteShift(s) {
+  if (!confirm(`Delete this shift${s.user ? " for " + plName(s.user) : ""} on ${s.date}?`)) return;
+  PL_SHIFTS = PL_SHIFTS.filter((x) => x.id !== s.id);
+  if (PL_SEL === s.id) PL_SEL = null;
+  renderShifts();
+  showMsg(shiftsMsg(), "Shift deleted", "ok");
+}
+
+function setPlTab(tab) {
+  PL_TAB = tab;
+  document.querySelectorAll("#sh-tabs .vs-btn").forEach((b) => {
+    const on = b.dataset.view === tab;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.getElementById("sh-schedule").hidden = tab !== "schedule";
+  document.getElementById("sh-team").hidden = tab !== "team";
+}
+
+function initShifts() {
+  PL_GROUPS = SAMPLE_GROUPS;
+  renderPlLegend();
+
+  document.getElementById("sh-today").addEventListener("click", () => setPlWeek(new Date()));
+  document.getElementById("sh-prev").addEventListener("click", () => setPlWeek(addDays(PL_WEEK, -7)));
+  document.getElementById("sh-next").addEventListener("click", () => setPlWeek(addDays(PL_WEEK, 7)));
+  document.getElementById("sh-cal-prev").addEventListener("click", () => {
+    PL_CAL = new Date(PL_CAL.getFullYear(), PL_CAL.getMonth() - 1, 1);
+    renderPlCal();
+  });
+  document.getElementById("sh-cal-next").addEventListener("click", () => {
+    PL_CAL = new Date(PL_CAL.getFullYear(), PL_CAL.getMonth() + 1, 1);
+    renderPlCal();
+  });
+  document.querySelectorAll("#sh-tabs .vs-btn").forEach((b) =>
+    b.addEventListener("click", () => setPlTab(b.dataset.view)));
+
+  document.getElementById("sh-modal-cancel").addEventListener("click", closeShiftModal);
+  document.getElementById("sh-modal-save").addEventListener("click", saveShift);
+  document.getElementById("sh-modal").addEventListener("click", (e) => {
+    if (e.target.id === "sh-modal") closeShiftModal();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeShiftModal(); });
+
+  setPlTab("schedule");
+  setPlWeek(new Date());
+}
+
+// ---- Skills -----------------------------------------------------------------
+// A catalog of skills, each with a proficiency scale and a rating per team
+// member. This is the design pass: it renders from the SAMPLE_SKILLS fixture and
+// the same fictional org the planner uses, and every edit stays in memory.
+// Wiring replaces loadSkills() with the API and leaves the render path alone.
+
+// SKILL_LEVELS is the proficiency scale, low to high. A skill may use a shorter
+// scale (see `scale`), never a longer one.
+const SKILL_LEVELS = [
+  { n: 1, label: "Basic", color: "var(--lv-1)" },
+  { n: 2, label: "Intermediate", color: "var(--lv-2)" },
+  { n: 3, label: "Advanced", color: "var(--lv-3)" },
+  { n: 4, label: "Expert", color: "var(--lv-4)" },
+  { n: 5, label: "Master", color: "var(--lv-5)" },
+];
+const SKILL_CATS = [
+  { key: "development", label: "Development", color: "#4C82F7" },
+  { key: "devops", label: "DevOps", color: "#2FB79E" },
+  { key: "database", label: "Database", color: "#A66CFF" },
+  { key: "cloud", label: "Cloud", color: "#E9913C" },
+  { key: "design", label: "Design", color: "#EB459E" },
+  { key: "security", label: "Security", color: "#E5484D" },
+  { key: "data", label: "Data", color: "#3BA55D" },
+];
+function catDef(key) { return SKILL_CATS.find((c) => c.key === key) || SKILL_CATS[0]; }
+function levelDef(n) { return SKILL_LEVELS[n - 1] || SKILL_LEVELS[0]; }
+
+// Sample catalog. `mark` is the square badge's text, `scale` how many levels the
+// skill defines, `spread` roughly how much of the team holds it (0-100), and
+// `added` when it entered the catalog. Ratings are derived (see skRatings).
+const SAMPLE_SKILLS = [
+  { id: "SKL-0001", name: "Go (Golang)", mark: "GO", cat: "development", scale: 5, spread: 85, added: "2025-11-04", desc: "Programming language for building scalable backend services." },
+  { id: "SKL-0002", name: "JavaScript / TypeScript", mark: "JS", cat: "development", scale: 5, spread: 90, added: "2025-11-04", desc: "Language of the web UI and the Node tooling around it." },
+  { id: "SKL-0003", name: "Python", mark: "PY", cat: "development", scale: 5, spread: 70, added: "2026-01-12", desc: "Scripting, automation and data work." },
+  { id: "SKL-0004", name: "React", mark: "RE", cat: "development", scale: 4, spread: 65, added: "2026-02-02", desc: "Component framework used by the customer-facing apps." },
+  { id: "SKL-0005", name: "Docker", mark: "DK", cat: "devops", scale: 5, spread: 95, added: "2025-11-04", desc: "Container images and local development environments." },
+  { id: "SKL-0006", name: "Kubernetes", mark: "K8", cat: "devops", scale: 5, spread: 60, added: "2026-03-18", desc: "Orchestration for the production clusters." },
+  { id: "SKL-0007", name: "CI/CD", mark: "CI", cat: "devops", scale: 4, spread: 80, added: "2025-12-01", desc: "Build, test and release pipelines." },
+  { id: "SKL-0008", name: "Terraform", mark: "TF", cat: "cloud", scale: 4, spread: 55, added: "2026-06-30", desc: "Infrastructure as code across the cloud accounts." },
+  { id: "SKL-0009", name: "AWS", mark: "AW", cat: "cloud", scale: 5, spread: 62, added: "2025-11-20", desc: "Hosting, networking and managed services." },
+  { id: "SKL-0010", name: "PostgreSQL", mark: "PG", cat: "database", scale: 5, spread: 72, added: "2025-11-04", desc: "Primary relational store behind the Performance Server." },
+  { id: "SKL-0011", name: "Redis", mark: "RD", cat: "database", scale: 3, spread: 45, added: "2026-07-02", desc: "Caching and ephemeral state." },
+  { id: "SKL-0012", name: "UI/UX Design", mark: "UX", cat: "design", scale: 5, spread: 50, added: "2026-01-26", desc: "Interaction design, flows and usability review." },
+  { id: "SKL-0013", name: "Figma", mark: "FG", cat: "design", scale: 4, spread: 58, added: "2026-02-14", desc: "Design files, prototypes and the shared component library." },
+  { id: "SKL-0014", name: "Security Auditing", mark: "SC", cat: "security", scale: 5, spread: 40, added: "2026-07-08", desc: "Threat modelling and review of authentication paths." },
+  { id: "SKL-0015", name: "SQL / Analytics", mark: "SQ", cat: "data", scale: 4, spread: 68, added: "2026-05-11", desc: "Reporting queries and usage analysis." },
+  { id: "SKL-0016", name: "AngularJS", mark: "NG", cat: "development", scale: 3, spread: 30, added: "2025-11-04", desc: "Retired front-end framework, kept for the legacy admin.", archived: true },
+];
+
+let SKILLS = [];
+let SK_SELECTED = null;
+let SK_PAGE = 1;
+const SK_PER_PAGE = 10;
+
+function skillsMsg() { return document.getElementById("skills-msg"); }
+
+// skTeam is everyone the catalog rates: the same fictional org the planner
+// shows. Wiring: the members of the groups the viewer controls.
+function skTeam() { return SAMPLE_GROUPS.flatMap((g) => g.members); }
+
+// skHash is a small deterministic string hash (FNV-1a plus a murmur3 finalizer).
+// It stands in for stored ratings so the fixture looks plausible and, more
+// importantly, stays stable across renders instead of reshuffling on every
+// repaint. The finalizer matters: plain FNV-1a leaves near-identical keys
+// ("SKL-0006|alice" vs "SKL-0007|alice") correlated in exactly the low bits the
+// callers reduce with %, which skewed coverage badly away from each skill's
+// spread.
+function skHash(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+  h ^= h >>> 16; h = Math.imul(h, 2246822507) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 3266489909) >>> 0;
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+// skRatings derives {username: level} for a skill. A member holds the skill when
+// their hash falls inside its spread; the level comes from a second, independent
+// hash so holding a skill does not correlate with being good at it. Coverage
+// still lands a little off `spread` -- nine people is a small sample, and that
+// is what a real roster looks like.
+function skRatings(skill) {
+  const out = {};
+  for (const m of skTeam()) {
+    if (skHash(skill.id + "|" + m.username) % 100 >= skill.spread) continue;
+    out[m.username] = 1 + (skHash(m.username + "@" + skill.id) % skill.scale);
+  }
+  return out;
+}
+
+// skCounts returns how many members sit at each level, indexed 1..5.
+function skCounts(skill) {
+  const counts = [0, 0, 0, 0, 0, 0];
+  for (const lv of Object.values(skRatings(skill))) counts[lv]++;
+  return counts;
+}
+function skRated(skill) { return Object.keys(skRatings(skill)).length; }
+// Coverage is the share of the team that holds the skill at all -- not how good
+// they are at it, which is what the level distribution is for.
+function skCoverage(skill) {
+  const team = skTeam().length;
+  return team ? Math.round((skRated(skill) / team) * 100) : 0;
+}
+function skAvgLevel(skill) {
+  const lv = Object.values(skRatings(skill));
+  return lv.length ? lv.reduce((a, b) => a + b, 0) / lv.length : 0;
+}
+
+function skActive() { return SKILLS.filter((s) => !s.archived); }
+function skShowArchived() { return document.getElementById("sk-archived").checked; }
+
+// skFiltered applies the toolbar: search, category, held-level and the archived
+// switch.
+function skFiltered() {
+  const q = (document.getElementById("sk-search").value || "").trim().toLowerCase();
+  const cat = document.getElementById("sk-cat-filter").value;
+  const lv = document.getElementById("sk-level-filter").value;
+  return SKILLS.filter((s) => {
+    if (s.archived && !skShowArchived()) return false;
+    if (cat && s.cat !== cat) return false;
+    if (lv && skCounts(s)[Number(lv)] === 0) return false;
+    if (q && !s.name.toLowerCase().includes(q) && !(s.desc || "").toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function renderSkTiles() {
+  const active = skActive();
+  const cats = [...new Set(active.map((s) => s.cat))];
+  const cov = active.length ? Math.round(active.reduce((a, s) => a + skCoverage(s), 0) / active.length) : 0;
+  // Skills the team has real depth in: somebody is at Expert or above. An
+  // *average* of 4+ would need nearly everyone at expert level, so it read 0 for
+  // every plausible roster and told you nothing.
+  const expert = active.filter((s) => skCounts(s).slice(4).some((n) => n > 0)).length;
+  // "Recent" is the last 30 days, measured from today rather than stored.
+  const cutoff = ymd(addDays(new Date(), -30));
+  const fresh = active.filter((s) => (s.added || "") >= cutoff).length;
+  const tiles = [
+    { k: "Total skills", v: String(active.length), sub: fresh ? `+${fresh} in the last 30 days` : "None added recently", pos: fresh > 0 },
+    { k: "Categories", v: String(cats.length), sub: cats.slice(0, 3).map((c) => catDef(c).label).join(", ") + (cats.length > 3 ? "…" : "") },
+    { k: "Team coverage", v: cov + "%", sub: `Average across ${active.length} skill${active.length === 1 ? "" : "s"}` },
+    { k: "Expert skills", v: String(expert), sub: "With an expert on the team" },
+  ];
+  document.getElementById("sk-tiles").innerHTML = tiles.map((t) => `
+    <div class="tile">
+      <div class="k">${escapeHtml(t.k)}</div>
+      <div class="v">${escapeHtml(t.v)}</div>
+      <div class="sub${t.pos ? " pos" : ""}">${escapeHtml(t.sub)}</div>
+    </div>`).join("");
+}
+
+// skLevelGlyph renders the scale as one bar per level, lit where somebody on the
+// team holds it.
+function skLevelGlyph(skill) {
+  const counts = skCounts(skill);
+  const bars = [];
+  for (let n = 1; n <= skill.scale; n++) {
+    const on = counts[n] > 0;
+    bars.push(`<span class="sk-lv${on ? " on" : ""}" style="--c:${levelDef(n).color}" title="${escapeHtml(levelDef(n).label)}: ${counts[n]}">
+      <i></i><span>${n}</span>
+    </span>`);
+  }
+  return `<div class="sk-levels">${bars.join("")}</div>`;
+}
+
+function renderSkTable() {
+  const body = document.getElementById("skills-body");
+  const rows = skFiltered();
+  const pages = Math.max(1, Math.ceil(rows.length / SK_PER_PAGE));
+  if (SK_PAGE > pages) SK_PAGE = pages;
+  const from = (SK_PAGE - 1) * SK_PER_PAGE;
+  const page = rows.slice(from, from + SK_PER_PAGE);
+
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="5" class="muted">${SKILLS.length ? "No skills match your filters." : "No skills yet — add one to get started."}</td></tr>`;
+  } else {
+    body.innerHTML = page.map((s) => {
+      const c = catDef(s.cat);
+      const cov = skCoverage(s);
+      const sel = s.id === SK_SELECTED ? " selected" : "";
+      return `<tr class="um-row${sel}" data-s="${escapeHtml(s.id)}">
+        <td>
+          <div class="um-user">
+            <span class="sk-ic" style="--c:${c.color}">${escapeHtml(s.mark)}</span>
+            <span class="um-name">${escapeHtml(s.name)}${s.archived ? ' <span class="badge muted">Archived</span>' : ""}</span>
+          </div>
+        </td>
+        <td><span class="sk-cat"><span class="sk-dot" style="--c:${c.color}"></span>${escapeHtml(c.label)}</span></td>
+        <td>${skLevelGlyph(s)}</td>
+        <td>
+          <div class="sk-cov">
+            <span class="sk-pct">${cov}%</span>
+            <div class="bar"><span style="width:${cov}%"></span></div>
+          </div>
+        </td>
+        <td>
+          <div class="te-menu">
+            <button class="sk-menu-btn" aria-label="Actions">⋯</button>
+            <div class="menu-pop">
+              <button class="sk-m-details">Details</button>
+              <button class="sk-m-archive">${s.archived ? "Restore" : "Archive"}</button>
+              <button class="danger sk-m-delete">Delete</button>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  document.getElementById("sk-count").textContent = rows.length
+    ? `Showing ${from + 1} to ${Math.min(from + SK_PER_PAGE, rows.length)} of ${rows.length} skill${rows.length === 1 ? "" : "s"}`
+    : "";
+  renderSkPager(pages);
+
+  body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", () => selectSkill(tr.dataset.s)));
+  body.querySelectorAll(".sk-menu-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const pop = btn.nextElementSibling;
+    const wasOpen = pop.classList.contains("open");
+    closeAllMenus();
+    if (!wasOpen) pop.classList.add("open");
+  }));
+  const rowSkill = (el) => SKILLS.find((x) => x.id === el.closest(".um-row").dataset.s);
+  body.querySelectorAll(".sk-m-details").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation(); closeAllMenus(); selectSkill(rowSkill(b).id);
+  }));
+  body.querySelectorAll(".sk-m-archive").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation(); closeAllMenus(); toggleArchiveSkill(rowSkill(b));
+  }));
+  body.querySelectorAll(".sk-m-delete").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation(); closeAllMenus(); deleteSkill(rowSkill(b));
+  }));
+}
+
+function renderSkPager(pages) {
+  const host = document.getElementById("sk-pager");
+  if (pages <= 1) { host.innerHTML = ""; return; }
+  const arrow = (d) => d < 0
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>`;
+  let html = `<button data-p="${SK_PAGE - 1}" ${SK_PAGE === 1 ? "disabled" : ""} aria-label="Previous page">${arrow(-1)}</button>`;
+  for (let p = 1; p <= pages; p++) {
+    html += `<button data-p="${p}" class="${p === SK_PAGE ? "active" : ""}">${p}</button>`;
+  }
+  html += `<button data-p="${SK_PAGE + 1}" ${SK_PAGE === pages ? "disabled" : ""} aria-label="Next page">${arrow(1)}</button>`;
+  host.innerHTML = html;
+  host.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    if (b.disabled) return;
+    SK_PAGE = Number(b.dataset.p);
+    renderSkTable();
+  }));
+}
+
+function selectSkill(id) {
+  SK_SELECTED = id;
+  renderSkTable();
+  renderSkDetails();
+}
+
+function renderSkDetails() {
+  const host = document.getElementById("skill-details");
+  const s = SKILLS.find((x) => x.id === SK_SELECTED);
+  if (!s) {
+    host.classList.remove("filled");
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
+      <p>Select a skill to see its levels and team coverage.</p>
+    </div>`;
+    return;
+  }
+  host.classList.add("filled");
+  const c = catDef(s.cat);
+  const counts = skCounts(s);
+  const rated = skRated(s);
+  const segs = SKILL_LEVELS.slice(0, s.scale)
+    .map((l) => ({ sec: counts[l.n], color: l.color, label: l.label, n: l.n }))
+    .filter((x) => x.sec > 0);
+
+  host.innerHTML = `
+    <div class="ud-head">
+      <span class="sk-ic lg" style="--c:${c.color}">${escapeHtml(s.mark)}</span>
+      <div class="ud-id">
+        <div class="sk-head-row"><h3>${escapeHtml(s.name)}</h3></div>
+        <span class="badge ${s.archived ? "muted" : "ok"}">${s.archived ? "Archived" : "Active"}</span>
+        <div class="sd-meta">ID: ${escapeHtml(s.id)}</div>
+      </div>
+    </div>
+
+    <div class="ud-section">
+      <div class="sd-sec-head"><div class="ud-section-head">Category</div></div>
+      <span class="sk-cat"><span class="sk-dot" style="--c:${c.color}"></span>${escapeHtml(c.label)}</span>
+    </div>
+
+    <div class="ud-section">
+      <div class="sd-sec-head"><div class="ud-section-head">Description</div></div>
+      <p class="sd-desc">${escapeHtml(s.desc || "No description.")}</p>
+    </div>
+
+    <div class="ud-section">
+      <div class="sd-sec-head"><div class="ud-section-head">Proficiency levels</div></div>
+      <div class="sd-lv-list">
+        ${SKILL_LEVELS.slice(0, s.scale).map((l) => `
+          <div class="sd-lv">
+            <span class="n">${l.n}</span>
+            <span class="sk-dot" style="--c:${l.color}"></span>
+            <span class="nm">${escapeHtml(l.label)}</span>
+            <span class="ct">${counts[l.n]} member${counts[l.n] === 1 ? "" : "s"}</span>
+          </div>`).join("")}
+      </div>
+    </div>
+
+    <div class="ud-section">
+      <div class="sd-sec-head"><div class="ud-section-head">Team proficiency distribution</div></div>
+      ${rated === 0 ? `<p class="sd-desc">Nobody on the team holds this skill yet.</p>` : `
+        <div class="sd-dist">
+          <div class="donut-wrap">
+            <svg viewBox="0 0 42 42" width="96" height="96">${donutSVG(segs, rated)}</svg>
+            <div class="donut-center"><div><div class="d-total">${skCoverage(s)}%</div><div class="d-label">Coverage</div></div></div>
+          </div>
+          <div class="legend">
+            ${segs.map((x) => `<div class="legend-row">
+              <span class="dot" style="background:${x.color}"></span>
+              <span class="legend-name">${x.n} ${escapeHtml(x.label)}</span>
+              <span class="legend-pct">${x.sec} (${Math.round((x.sec / rated) * 100)}%)</span>
+            </div>`).join("")}
+          </div>
+        </div>`}
+      <p class="um-note muted" style="margin-top:12px">${rated} of ${skTeam().length} team members hold this skill.</p>
+    </div>
+
+    <div class="ud-section">
+      <div class="sd-sec-head"><div class="ud-section-head">Used in</div></div>
+      <div class="sd-used">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Time entries</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/></svg>Shifts</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5"/><rect x="7" y="11" width="3" height="8"/><rect x="13" y="7" width="3" height="12"/></svg>Reports</span>
+      </div>
+    </div>
+
+    <div class="ud-section">
+      <div class="ud-actions">
+        <button class="secondary btn-sm" id="sk-archive">${s.archived ? "Restore skill" : "Archive skill"}</button>
+        <button class="secondary btn-sm danger-btn" id="sk-delete">Delete skill</button>
+      </div>
+    </div>`;
+
+  host.querySelector("#sk-archive").addEventListener("click", () => toggleArchiveSkill(s));
+  host.querySelector("#sk-delete").addEventListener("click", () => deleteSkill(s));
+}
+
+function toggleArchiveSkill(s) {
+  s.archived = !s.archived;
+  showMsg(skillsMsg(), s.archived ? `Archived ${s.name}` : `Restored ${s.name}`, "ok");
+  renderSkills();
+}
+
+function deleteSkill(s) {
+  if (!confirm(`Delete the skill "${s.name}"? Team ratings for it are removed too.`)) return;
+  SKILLS = SKILLS.filter((x) => x.id !== s.id);
+  if (SK_SELECTED === s.id) SK_SELECTED = null;
+  showMsg(skillsMsg(), `Deleted ${s.name}`, "ok");
+  renderSkills();
+}
+
+function renderSkills() {
+  renderSkTiles();
+  renderSkTable();
+  renderSkDetails();
+}
+
+// exportSkills downloads the catalog as JSON, ratings resolved.
+function exportSkills() {
+  const out = SKILLS.map((s) => ({
+    id: s.id, name: s.name, category: s.cat, description: s.desc,
+    scale: s.scale, archived: !!s.archived, added: s.added,
+    levels: SKILL_LEVELS.slice(0, s.scale).map((l) => l.label),
+    ratings: skRatings(s),
+  }));
+  const blob = new Blob([JSON.stringify({ skills: out }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "skills.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showMsg(skillsMsg(), `Exported ${out.length} skills`, "ok");
+}
+
+function openAddSkill() {
+  document.getElementById("create-skill-msg").innerHTML = "";
+  document.getElementById("new-skill-name").value = "";
+  document.getElementById("new-skill-desc").value = "";
+  document.getElementById("add-skill-modal").hidden = false;
+  document.getElementById("new-skill-name").focus();
+}
+function closeAddSkill() { document.getElementById("add-skill-modal").hidden = true; }
+
+// skMark derives the square badge's letters: initials of the first two words, or
+// the first two characters of a single word.
+function skMark(name) {
+  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const s = words.length >= 2 ? words[0][0] + words[1][0] : (words[0] || "?").slice(0, 2);
+  return s.toUpperCase();
+}
+// skNextId keeps the SKL-#### sequence going past whatever the fixture ends on.
+function skNextId() {
+  const max = SKILLS.reduce((a, s) => Math.max(a, Number((s.id.split("-")[1] || 0))), 0);
+  return "SKL-" + String(max + 1).padStart(4, "0");
+}
+
+function createSkill() {
+  const msg = document.getElementById("create-skill-msg");
+  const name = document.getElementById("new-skill-name").value.trim();
+  if (!name) { showMsg(msg, "Enter a skill name", "error"); return; }
+  if (SKILLS.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+    showMsg(msg, "A skill with that name already exists", "error"); return;
+  }
+  const s = {
+    id: skNextId(), name, mark: skMark(name),
+    cat: document.getElementById("new-skill-cat").value,
+    desc: document.getElementById("new-skill-desc").value.trim(),
+    scale: 5, spread: 0, added: ymd(new Date()),
+  };
+  SKILLS.push(s);
+  closeAddSkill();
+  SK_SELECTED = s.id;
+  showMsg(skillsMsg(), `Created ${name}`, "ok");
+  renderSkills();
+}
+
+function initSkills() {
+  SKILLS = SAMPLE_SKILLS.map((s) => ({ ...s }));
+
+  const catOpts = SKILL_CATS.map((c) => `<option value="${c.key}">${escapeHtml(c.label)}</option>`).join("");
+  document.getElementById("sk-cat-filter").innerHTML = `<option value="">All categories</option>` + catOpts;
+  document.getElementById("new-skill-cat").innerHTML = catOpts;
+  document.getElementById("sk-level-filter").innerHTML = `<option value="">All levels</option>` +
+    SKILL_LEVELS.map((l) => `<option value="${l.n}">${l.n} · ${escapeHtml(l.label)}</option>`).join("");
+
+  const rerender = () => { SK_PAGE = 1; renderSkTable(); };
+  document.getElementById("sk-search").addEventListener("input", rerender);
+  document.getElementById("sk-cat-filter").addEventListener("change", rerender);
+  document.getElementById("sk-level-filter").addEventListener("change", rerender);
+  document.getElementById("sk-archived").addEventListener("change", () => { SK_PAGE = 1; renderSkills(); });
+
+  document.getElementById("add-skill-btn").addEventListener("click", openAddSkill);
+  document.getElementById("add-skill-cancel").addEventListener("click", closeAddSkill);
+  document.getElementById("create-skill").addEventListener("click", createSkill);
+  document.getElementById("export-skills-btn").addEventListener("click", exportSkills);
+  document.getElementById("add-skill-modal").addEventListener("click", (e) => {
+    if (e.target.id === "add-skill-modal") closeAddSkill();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAddSkill(); });
+  // The row menus are popovers: any click elsewhere dismisses them.
+  document.addEventListener("click", closeAllMenus);
+
+  renderSkills();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -4322,6 +5321,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("register-form")) return initRegister();
   if (!getToken()) { location.href = PREFIX + "login"; return; }
   fillSidebar();
+  if (document.getElementById("pl-grid")) return initShifts();
+  if (document.getElementById("skills-body")) return initSkills();
   if (document.getElementById("cal-grid")) return initDashboard();
   if (document.getElementById("week-days")) return initEntries();
   if (document.getElementById("ie-input")) return initImpExp();

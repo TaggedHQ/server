@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tagged · Time entries</title>
-  <link rel="stylesheet" href="{{PREFIX}}style.css">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{PREFIX}}images/favicon_light/favicon-32x32.png">
-  <script>window.TT_PREFIX = "{{PREFIX}}";</script>
+  <link rel="stylesheet" href="{{PREFIX}}style.css?v={{V}}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{PREFIX}}images/favicon_light/favicon-32x32.png?v={{V}}">
+  <script>window.TT_PREFIX = "{{PREFIX}}"; window.TT_V = "{{V}}";</script>
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <div class="side-brand">
-        <img class="logo" src="{{PREFIX}}images/Taggd-Colored.svg" alt="Tagged logo">
+        <img class="logo" src="{{PREFIX}}images/Taggd-Colored.svg?v={{V}}" alt="Tagged logo">
         <span class="brandmark" style="letter-spacing:.12em;color:var(--text-1)">Tagged</span>
       </div>
       <nav class="nav">
@@ -27,6 +27,14 @@
         <a href="{{PREFIX}}tags">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
           <span>Tags</span>
+        </a>
+        <a id="nav-shifts" href="{{PREFIX}}shifts" style="display:none">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="M8 14h3"/></svg>
+          <span>Shifts</span>
+        </a>
+        <a id="nav-skills" href="{{PREFIX}}skills" style="display:none">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
+          <span>Skills</span>
         </a>
         <a href="{{PREFIX}}impexp">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
@@ -267,6 +275,6 @@
     </div>
   </div>
 
-  <script src="{{PREFIX}}app.js"></script>
+  <script src="{{PREFIX}}app.js?v={{V}}"></script>
 </body>
 </html>

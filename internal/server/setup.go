@@ -30,6 +30,10 @@ type setupState struct {
 	// Groups holds the user groups and their controllers. Managed from the
 	// Admin · Groups page.
 	Groups []group `json:"groups,omitempty"`
+	// Modules maps an optional feature module ("shifts", "skills") to whether it
+	// is switched on. An absent map (older setup.json) or an absent key means
+	// off: modules are opt-in. Managed from the Admin · Settings page.
+	Modules map[string]bool `json:"modules,omitempty"`
 }
 
 const setupFile = "setup.json"
