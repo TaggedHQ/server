@@ -83,6 +83,8 @@ var adminRouteCap = map[string]string{
 	"/admin":       capRolesManage,
 	"/controller":  capRolesManage,
 	"/roles":       capRolesManage,
+	"/role":        capRolesManage,
+	"/userrole":    capRolesManage,
 	"/groups":      capGroupsManage,
 	"/group":       capGroupsManage,
 	"/user-groups": capGroupsManage,
@@ -145,6 +147,19 @@ func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[stri
 		case "PUT", "POST":
 			return s.adminSetRole(req)
 		}
+	case "/role":
+		switch req.method() {
+		case "POST":
+			return s.adminCreateRole(req)
+		case "PUT":
+			return s.adminRenameRole(req)
+		case "DELETE":
+			return s.adminDeleteRole(req)
+		}
+	case "/userrole":
+		if req.method() == "PUT" || req.method() == "POST" {
+			return s.adminSetUserRole(req, adminUser)
+		}
 	case "/groups":
 		switch req.method() {
 		case "GET":
@@ -185,7 +200,9 @@ type userRow struct {
 	Registered   bool        `json:"registered"`    // has a password set (vs. token-only)
 	IsAdmin      bool        `json:"is_admin"`      // effective admin (config OR stored role)
 	ConfigAdmin  bool        `json:"config_admin"`  // root admin from config (role can't be toggled)
-	IsController bool        `json:"is_controller"` // stored controller role (can switch to other users)
+	IsController bool        `json:"is_controller"` // role grants "switch to users"
+	Role         string      `json:"role"`          // role key the account holds
+	RoleLabel    string      `json:"role_label"`    // its display name
 	Disabled     bool        `json:"disabled"`      // deactivated: data kept, but cannot log in
 	TOTPEnabled  bool        `json:"totp_enabled"`  // authenticator app confirmed
 	Passkeys     int         `json:"passkeys"`      // number of registered WebAuthn credentials
@@ -213,6 +230,10 @@ func (s *Server) adminListUsers() response {
 		row.Registered = snap.Registered
 		row.IsAdmin = configAdmin || snap.Admin
 		row.IsController = snap.Controller
+		row.Role = snap.Role
+		if def, ok := s.findRole(snap.Role); ok {
+			row.RoleLabel = def.Label
+		}
 		row.Disabled = snap.Disabled
 		row.TOTPEnabled = snap.TOTPEnabled
 		row.Passkeys = snap.Passkeys
@@ -232,6 +253,7 @@ type userSnapshotData struct {
 	Registered  bool
 	Admin       bool
 	Controller  bool
+	Role        string
 	Disabled    bool
 	TOTPEnabled bool
 	Passkeys    int
@@ -247,10 +269,14 @@ func (s *Server) userSnapshot(username string) userSnapshotData {
 		return userSnapshotData{}
 	}
 	defer db.Close()
+	role := s.userRole(username, db)
 	return userSnapshotData{
-		Registered:  dbRegistered(db),
-		Admin:       dbAdminFlag(db),
-		Controller:  dbControllerFlag(db),
+		Registered: dbRegistered(db),
+		Role:       role,
+		// Derived from the role rather than the stored booleans, so a custom
+		// role that grants "switch to users" reads as a controller too.
+		Admin:       role == roleAdmin,
+		Controller:  s.roleHasCap(role, capUsersActAs),
 		Disabled:    dbDisabledFlag(db),
 		TOTPEnabled: totpEnabled(db),
 		Passkeys:    len(storedCredentials(db)),

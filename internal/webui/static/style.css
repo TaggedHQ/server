@@ -491,7 +491,7 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
    their own cards, so they get more room than the plainer panels on the other
    admin pages. The track grows with the window rather than taking a fixed
    412px, which would squeeze the table on a 1280-wide screen. */
-#users-layout, #groups-layout { grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 412px); }
+#users-layout, #groups-layout, #roles-layout { grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 412px); }
 .main-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .side-col { display: flex; flex-direction: column; gap: 16px; }
 
@@ -1189,9 +1189,11 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 
 /* ---- Responsive ------------------------------------------------------------ */
 @media (max-width: 1080px) {
-  /* #users-layout is listed too: its id beats .content on specificity, so the
-     users page would otherwise keep its two columns here. */
-  .content, #users-layout { grid-template-columns: minmax(0, 1fr); }
+  /* The three admin layouts are listed by id as well: an id beats .content on
+     specificity, so without them those pages keep their two columns here and
+     the table is squeezed into half a narrow screen. Any new id added to the
+     wide rule above has to be added here too. */
+  .content, #users-layout, #groups-layout, #roles-layout { grid-template-columns: minmax(0, 1fr); }
   .side-col { display: grid; grid-template-columns: repeat(2, 1fr); }
   .um-details { position: static; grid-column: 1 / -1; }
 }

@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.2.4"
+var Version = "0.2.5"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -64,7 +64,7 @@ type Server struct {
 
 	// rolesMu guards roles, the role -> capabilities permission matrix.
 	rolesMu sync.RWMutex
-	roles   map[string][]string
+	roles   []roleDef
 
 	// groupsMu guards groups, the user groups and their controllers.
 	groupsMu sync.RWMutex
@@ -114,7 +114,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 	var oauthProviders []oauthProvider
 	var groups []group
-	roles := defaultRoleCaps()
+	roles := defaultRoles()
 	// Optional modules default to off, so a server that never opted in (or a
 	// setup.json written before they existed) does not gain pages on upgrade.
 	modules := map[string]bool{}
@@ -126,12 +126,15 @@ func New(cfg *config.Config) (*Server, error) {
 				modules[key] = on
 			}
 		}
-		// Merge over the defaults, so a role key added in a later version still
-		// gets its default capabilities on an older setup.json.
-		for key, caps := range saved.Roles {
-			if _, known := roleMeta[key]; known {
-				roles[key] = caps
-			}
+		// Prefer the full definitions; fall back to the legacy capability-only
+		// matrix so a setup.json written before roles were addable keeps its
+		// edits. Either way the two system roles are forced back in, so a
+		// hand-edited file can never leave the server with no admin role.
+		switch {
+		case len(saved.RoleDefs) > 0:
+			roles = ensureSystemRoles(saved.RoleDefs)
+		case len(saved.Roles) > 0:
+			roles = ensureSystemRoles(rolesFromLegacyCaps(saved.Roles))
 		}
 	}
 	backend, err := store.NewBackend(kind, rootUserDir, dbURL)
@@ -220,12 +223,7 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 	s.oauthMu.RLock()
 	providers := s.oauthProviders
 	s.oauthMu.RUnlock()
-	s.rolesMu.RLock()
-	roles := map[string][]string{}
-	for k, v := range s.roles {
-		roles[k] = v
-	}
-	s.rolesMu.RUnlock()
+	roles := s.listRoles()
 	s.groupsMu.RLock()
 	groups := s.groups
 	s.groupsMu.RUnlock()
@@ -237,7 +235,7 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 	s.modulesMu.RUnlock()
 	return setupState{
 		Backend: kind, DBURL: dbURL, RegistrationOpen: &open,
-		OAuth: providers, Roles: roles, Groups: groups, Modules: modules,
+		OAuth: providers, RoleDefs: roles, Groups: groups, Modules: modules,
 	}
 }
 

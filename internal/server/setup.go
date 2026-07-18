@@ -23,10 +23,13 @@ type setupState struct {
 	// OAuth holds the configured external identity providers (client secrets
 	// included — hence the 0600 file). Managed from the Admin · OAuth page.
 	OAuth []oauthProvider `json:"oauth,omitempty"`
-	// Roles maps a role key ("user"/"admin"/"controller") to the capabilities it
-	// grants. Absent (older setup.json) falls back to defaultRoleCaps. Managed
-	// from the Admin · Roles page.
+	// Roles is the legacy capability matrix: role key -> capabilities, for the
+	// three built-in roles. Only read now, and only when RoleDefs is absent, so
+	// a setup.json written before roles were addable keeps its edits.
 	Roles map[string][]string `json:"roles,omitempty"`
+	// RoleDefs holds the full role list, including any the operator added.
+	// Managed from the Admin · Roles page.
+	RoleDefs []roleDef `json:"role_defs,omitempty"`
 	// Groups holds the user groups and their controllers. Managed from the
 	// Admin · Groups page.
 	Groups []group `json:"groups,omitempty"`

@@ -91,6 +91,12 @@
             <h1>Roles &amp; Permissions</h1>
             <p class="page-sub">Choose what each role is allowed to do on your Tagged server.</p>
           </div>
+          <div class="head-actions">
+            <button id="add-role-btn">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New role
+            </button>
+          </div>
         </div>
 
         <div class="panel um-panel">
@@ -116,6 +122,27 @@
           </div>
         </div>
       </aside>
+    </div>
+  </div>
+
+  <!-- New / edit role modal -->
+  <div class="modal-overlay" id="role-modal" hidden>
+    <div class="sheet" style="max-width:440px">
+      <div class="sheet-title" id="rm-title">New role</div>
+      <div class="sheet-section">
+        <div class="sheet-label">Name</div>
+        <input id="rm-name" class="em-input" type="text" placeholder="Team lead" autocomplete="off">
+      </div>
+      <div class="sheet-section">
+        <div class="sheet-label">Description <span class="muted" style="text-transform:none;letter-spacing:0">(optional)</span></div>
+        <input id="rm-desc" class="em-input" type="text" placeholder="What this role is for" autocomplete="off">
+      </div>
+      <p class="muted um-note" style="text-align:center;margin:0 0 4px">Permissions are set on the role after it exists.</p>
+      <div id="rm-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="rm-cancel">Cancel</button>
+        <button id="rm-save">Create role</button>
+      </div>
     </div>
   </div>
 

@@ -135,13 +135,16 @@ func (s *Server) validateGroupUsers(members, controllers []string) ([]string, []
 		return out, nil
 	}
 
+	// Which side of a group a user belongs on follows one capability, not a role
+	// name: a role that can switch to other users oversees groups, and any other
+	// role belongs to them. That way a custom role behaves like the built-in
+	// Controller purely by being granted "switch to users".
 	cleanMembers, err := clean(members, "user", func(u string) error {
 		if s.isConfigAdmin(u) {
-			return fmt.Errorf("%q is a config-defined admin and cannot be a group member", u)
+			return fmt.Errorf("%q is a config-defined admin and oversees every group", u)
 		}
-		_, storedAdmin, storedController := s.userFlags(u)
-		if storedAdmin || storedController {
-			return fmt.Errorf("%q is not a regular user - only users with the User role can be group members", u)
+		if s.userHoldsCap(u, capUsersActAs) {
+			return fmt.Errorf("%q can switch to other users, so they control groups rather than belong to one", u)
 		}
 		return nil
 	})
@@ -152,9 +155,8 @@ func (s *Server) validateGroupUsers(members, controllers []string) ([]string, []
 		if s.isConfigAdmin(u) {
 			return nil // root admins may oversee any group
 		}
-		_, _, storedController := s.userFlags(u)
-		if !storedController {
-			return fmt.Errorf("%q does not have the Controller role", u)
+		if !s.userHoldsCap(u, capUsersActAs) {
+			return fmt.Errorf("%q does not have a role with the %q permission", u, capUsersActAs)
 		}
 		return nil
 	})
@@ -227,12 +229,11 @@ func (s *Server) adminGetGroups() response {
 			controllers = append(controllers, m.Username)
 			continue
 		}
-		switch {
-		case snap.Admin:
-			// admins are neither members nor controllers
-		case snap.Controller:
+		// Same split validateGroupUsers enforces: the "switch to users"
+		// capability decides which side of a group someone can be on.
+		if s.roleHasCap(snap.Role, capUsersActAs) {
 			controllers = append(controllers, m.Username)
-		default:
+		} else {
 			users = append(users, m.Username)
 		}
 	}

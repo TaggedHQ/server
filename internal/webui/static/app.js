@@ -2643,11 +2643,14 @@ const PROFILE_FIELDS = [
 ];
 
 // roleOf maps a user record to a single primary role badge.
+// roleOf maps a user record to its role badge. The server sends the role key and
+// label, so a custom role shows its own name; the class still keys off the two
+// built-ins plus "can switch to users", which is what the colours mean.
 function roleOf(u) {
-  if (u.config_admin) return { key: "admin", label: "Admin · config", cls: "admin" };
-  if (u.is_admin) return { key: "admin", label: "Admin", cls: "admin" };
-  if (u.is_controller) return { key: "controller", label: "Controller", cls: "controller" };
-  return { key: "user", label: "User", cls: "muted" };
+  const key = u.role || (u.is_admin ? "admin" : u.is_controller ? "controller" : "user");
+  const label = u.config_admin ? "Admin · config" : (u.role_label || key);
+  const cls = key === "admin" ? "admin" : u.is_controller ? "controller" : "muted";
+  return { key, label, cls };
 }
 
 function statusOf(u) {
@@ -3003,13 +3006,15 @@ function renderUserDetails() {
   }
 
   // Roles card.
+  const def = (ADMIN_ROLES || []).find((r) => r.key === role.key);
   const roleNote = u.config_admin
     ? "Configured root admin — the role is fixed in the server config."
-    : ROLE_BLURB[role.key];
+    : (def && def.desc) || "";
   const rolesCard = udCard("Roles", `
     <div class="ud-roles"><span class="badge ${role.cls}">${escapeHtml(role.label)}</span></div>
     <p class="muted um-note">${escapeHtml(roleNote)}</p>`,
-    u.config_admin || isSelf ? "" : `<button class="secondary btn-sm" id="d-manage-roles">Manage</button>`);
+    u.config_admin || isSelf || !(window.TT_CAPS || []).includes("roles.manage")
+      ? "" : `<button class="secondary btn-sm" id="d-manage-roles">Manage</button>`);
 
   // Security card: password and second factors, each with its own reset.
   const factors = mfaSummary(u);
@@ -3057,12 +3062,18 @@ function renderUserDetails() {
   }
 }
 
-// ROLE_BLURB explains, in the details panel, what the selected role can do.
-const ROLE_BLURB = {
-  admin: "Full access to all features and settings, including user management.",
-  controller: "Can view and manage the time of the users in their groups.",
-  user: "Can track and manage their own time only.",
-};
+// ADMIN_ROLES is the server's role list, so the users page offers exactly the
+// roles that exist -- including any the operator added.
+let ADMIN_ROLES = [];
+
+// loadAdminRoles fetches it. A visitor without roles.manage gets a 403; the
+// Manage button is hidden for them anyway, so an empty list is the right
+// fallback rather than an error.
+async function loadAdminRoles() {
+  const r = await apiFetch("admin/roles");
+  if (!r.ok) { ADMIN_ROLES = []; return; }
+  ADMIN_ROLES = (await r.json()).roles || [];
+}
 
 // ---- Edit profile modal -----------------------------------------------------
 
@@ -3183,13 +3194,13 @@ function openEditRoles(username) {
   ROLE_PICK = roleOf(u).key;
   const m = editRolesModal();
   m.querySelector("#er-msg").innerHTML = "";
-  m.querySelector("#er-options").innerHTML = ["admin", "controller", "user"].map((key) => {
-    const label = key === "admin" ? "Admin" : key === "controller" ? "Controller" : "User";
-    return `<label class="role-choice${ROLE_PICK === key ? " on" : ""}" data-role="${key}">
-      <input type="radio" name="er-role" value="${key}" ${ROLE_PICK === key ? "checked" : ""}>
+  m.querySelector("#er-options").innerHTML = (ADMIN_ROLES || []).map((role) => {
+    const on = ROLE_PICK === role.key;
+    return `<label class="role-choice${on ? " on" : ""}" data-role="${escapeHtml(role.key)}">
+      <input type="radio" name="er-role" value="${escapeHtml(role.key)}" ${on ? "checked" : ""}>
       <span class="role-choice-text">
-        <span class="role-choice-label">${label}</span>
-        <span class="role-choice-desc">${escapeHtml(ROLE_BLURB[key])}</span>
+        <span class="role-choice-label">${escapeHtml(role.label)}</span>
+        <span class="role-choice-desc">${escapeHtml(role.desc || "")}</span>
       </span>
     </label>`;
   }).join("");
@@ -3202,31 +3213,20 @@ function openEditRoles(username) {
 
 function closeEditRoles() { editRolesModal().hidden = true; }
 
-// applyRolePick writes the chosen role. The two flags behind it are separate
-// endpoints, so a change may take two calls; admin is cleared first so the user
-// is never briefly both.
+// applyRolePick writes the chosen role. One call now: the server stores the role
+// key directly rather than the pair of booleans the three built-ins used to be.
 async function applyRolePick(username) {
   const u = ADMIN_USERS.find((x) => x.username === username);
   if (!u || !ROLE_PICK) return;
   const msg = editRolesModal().querySelector("#er-msg");
-  const want = ROLE_PICK;
-  if (roleOf(u).key === want) { closeEditRoles(); return; }
-
-  const steps = [];
-  if (u.is_admin && want !== "admin") steps.push(["admin/admin", { username, is_admin: false }]);
-  if (u.is_controller !== (want === "controller")) {
-    steps.push(["admin/controller", { username, is_controller: want === "controller" }]);
-  }
-  if (want === "admin" && !u.is_admin) steps.push(["admin/admin", { username, is_admin: true }]);
+  if (roleOf(u).key === ROLE_PICK) { closeEditRoles(); return; }
 
   showMsg(msg, "Saving…", "");
-  for (const [path, body] of steps) {
-    const r = await apiFetch(path, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) { showMsg(msg, await r.text(), "error"); loadUsers(); return; }
-  }
+  const r = await apiFetch("admin/userrole", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, role: ROLE_PICK }),
+  });
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
   closeEditRoles();
   showMsg(adminMsg(), `Updated the role for ${username}`, "ok");
   // A role change can invalidate the user's group membership, which the server
@@ -3381,8 +3381,9 @@ async function initAdmin() {
     closeEditRoles();
   });
 
-  // Groups first: the details panel reads membership out of them, and a visitor
-  // without groups.manage simply gets no Groups card.
+  // Roles and groups first: the details panel renders both out of them, and a
+  // visitor without the matching permission simply gets no card.
+  await loadAdminRoles();
   await loadUserGroups();
   loadUsers();
 }
@@ -3423,11 +3424,33 @@ function renderRolesTable() {
       </td>
       <td class="muted">${caps}</td>
       <td class="muted">${n} user${n === 1 ? "" : "s"}</td>
-      <td><span class="tm-edit">Edit</span></td>
+      <td><button class="um-dots" data-r="${escapeHtml(r.key)}" title="Actions">⋯</button></td>
     </tr>`;
   }).join("");
-  body.querySelectorAll(".um-row").forEach((tr) =>
-    tr.addEventListener("click", () => selectRole(tr.dataset.r)));
+  body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", (e) => {
+    if (e.target.closest(".um-dots")) return; // dots handled separately
+    selectRole(tr.dataset.r);
+  }));
+  body.querySelectorAll(".um-dots").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openRoleRowMenu(b, b.dataset.r);
+  }));
+}
+
+// openRoleRowMenu mirrors the users and groups tables. A built-in role offers
+// no rename or delete, so it gets no menu at all rather than two dead entries.
+function openRoleRowMenu(anchor, key) {
+  const r = ROLES.find((x) => x.key === key);
+  if (!r || r.system) return;
+  const rect = anchor.getBoundingClientRect();
+  selectRole(key);
+  openDotsMenu(rect, [
+    `<button data-act="edit">Edit role</button>`,
+    `<button class="danger" data-act="delete">Delete role</button>`,
+  ], (act) => {
+    if (act === "edit") openEditRole(key);
+    else if (act === "delete") deleteRole(r);
+  });
 }
 
 function selectRole(key) {
@@ -3473,32 +3496,34 @@ function renderRoleDetails() {
     </label>`;
   }).join("");
 
+  const head = `<div class="ud-head">
+    <span class="gr-avatar">${escapeHtml(groupInitials(r.label))}</span>
+    <div class="ud-id">
+      <div class="ud-name-row">
+        <span class="ud-name">${escapeHtml(r.label)}</span>
+        ${r.system ? `<span class="badge muted">Built in</span>` : ""}
+      </div>
+      ${r.desc ? `<p class="gr-desc">${escapeHtml(r.desc)}</p>` : `<p class="gr-desc ud-unset">No description</p>`}
+      <span class="ud-state">${n} user${n === 1 ? "" : "s"}</span>
+    </div>
+  </div>`;
+
+  const permsCard = udCard("Permissions", `
+    <div class="perm-list">${rows}</div>
+    ${locked.length ? `<p class="um-note muted" style="margin-top:10px">Dimmed permissions are required for the ${escapeHtml(r.label)} role and can't be removed.</p>` : ""}
+    <div class="ud-danger" style="margin-top:14px">
+      <button id="role-save" ${roleDirty() ? "" : "disabled"}>Save changes</button>
+      <button class="secondary" id="role-reset" ${roleDirty() ? "" : "disabled"}>Reset</button>
+    </div>`);
+
+  // A built-in role keeps its name; only its permissions are editable.
+  const actions = `<div class="ud-danger">
+    <button class="secondary" id="role-edit" ${r.system ? "disabled title=\"Built-in roles cannot be renamed\"" : ""}>Edit role</button>
+    <button class="danger-btn" id="role-delete" ${r.system ? "disabled title=\"Built-in roles cannot be deleted\"" : ""}>Delete role</button>
+  </div>`;
+
   host.classList.add("filled");
-  host.innerHTML = `
-    <div class="ud-head">
-      <div class="ud-id">
-        <div class="ud-name">${escapeHtml(r.label)}</div>
-        <span class="badge ${roleBadgeCls(r.key)}">${n} user${n === 1 ? "" : "s"}</span>
-      </div>
-    </div>
-
-    <div class="ud-section">
-      <div class="ud-section-head">About</div>
-      <p class="um-note muted">${escapeHtml(r.desc)}</p>
-    </div>
-
-    <div class="ud-section">
-      <div class="ud-section-head">Permissions</div>
-      <div class="perm-list">${rows}</div>
-      ${locked.length ? `<p class="um-note muted">Dimmed permissions are required for the ${escapeHtml(r.label)} role and can't be removed.</p>` : ""}
-    </div>
-
-    <div class="ud-section">
-      <div class="ud-actions">
-        <button class="btn-sm" id="role-save" ${roleDirty() ? "" : "disabled"}>Save changes</button>
-        <button class="secondary btn-sm" id="role-reset" ${roleDirty() ? "" : "disabled"}>Reset</button>
-      </div>
-    </div>`;
+  host.innerHTML = head + permsCard + actions;
 
   host.querySelectorAll(".perm-row input").forEach((cb) => cb.addEventListener("change", () => {
     if (cb.checked) ROLE_DRAFT.add(cb.dataset.cap);
@@ -3508,6 +3533,78 @@ function renderRoleDetails() {
   }));
   host.querySelector("#role-save").addEventListener("click", saveRole);
   host.querySelector("#role-reset").addEventListener("click", () => selectRole(r.key));
+  if (!r.system) {
+    host.querySelector("#role-edit").addEventListener("click", () => openEditRole(r.key));
+    host.querySelector("#role-delete").addEventListener("click", () => deleteRole(r));
+  }
+}
+
+// ---- New / edit role modal --------------------------------------------------
+// One modal serves both: with a key it renames, without one it creates.
+
+let ROLE_EDIT_KEY = null;
+
+function roleModal() { return document.getElementById("role-modal"); }
+
+function openNewRole() {
+  ROLE_EDIT_KEY = null;
+  const m = roleModal();
+  m.querySelector("#rm-title").textContent = "New role";
+  m.querySelector("#rm-name").value = "";
+  m.querySelector("#rm-desc").value = "";
+  m.querySelector("#rm-save").textContent = "Create role";
+  m.querySelector("#rm-msg").innerHTML = "";
+  m.hidden = false;
+  m.querySelector("#rm-name").focus();
+}
+
+function openEditRole(key) {
+  const r = ROLES.find((x) => x.key === key);
+  if (!r || r.system) return;
+  ROLE_EDIT_KEY = key;
+  const m = roleModal();
+  m.querySelector("#rm-title").textContent = "Edit role";
+  m.querySelector("#rm-name").value = r.label;
+  m.querySelector("#rm-desc").value = r.desc || "";
+  m.querySelector("#rm-save").textContent = "Save role";
+  m.querySelector("#rm-msg").innerHTML = "";
+  m.hidden = false;
+  m.querySelector("#rm-name").focus();
+}
+
+function closeRoleModal() { roleModal().hidden = true; }
+
+async function applyRoleModal() {
+  const m = roleModal();
+  const msg = m.querySelector("#rm-msg");
+  const label = m.querySelector("#rm-name").value.trim();
+  const desc = m.querySelector("#rm-desc").value.trim();
+  if (!label) { showMsg(msg, "A role name is required", "error"); return; }
+  showMsg(msg, "Saving…", "");
+  const editing = !!ROLE_EDIT_KEY;
+  const r = await apiFetch("admin/role", {
+    method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(editing ? { role: ROLE_EDIT_KEY, label, desc } : { label, desc, caps: [] }),
+  });
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  const out = await r.json();
+  closeRoleModal();
+  showMsg(rolesMsg(), editing ? `Saved ${label}` : `Created ${label}`, "ok");
+  // Land on the new role so its permissions can be set straight away.
+  if (!editing && out.key) ROLE_SELECTED = out.key;
+  loadRoles();
+}
+
+async function deleteRole(r) {
+  if (!confirm(`Delete the role "${r.label}"?\n\nUsers keep their accounts; the role simply stops being available.`)) return;
+  const resp = await apiFetch("admin/role", {
+    method: "DELETE", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role: r.key }),
+  });
+  if (!resp.ok) { showMsg(rolesMsg(), await resp.text(), "error"); return; }
+  showMsg(rolesMsg(), `Deleted ${r.label}`, "ok");
+  if (ROLE_SELECTED === r.key) ROLE_SELECTED = null;
+  loadRoles();
 }
 
 async function saveRole() {
@@ -3543,6 +3640,25 @@ async function loadRoles() {
 
 async function initRoles() {
   if (!(await requireCap("roles.manage"))) return;
+
+  document.getElementById("add-role-btn").addEventListener("click", openNewRole);
+  document.getElementById("rm-cancel").addEventListener("click", closeRoleModal);
+  roleModal().addEventListener("click", (e) => {
+    if (e.target.id === "role-modal") closeRoleModal();
+  });
+  document.getElementById("rm-save").addEventListener("click", applyRoleModal);
+
+  // Close the row menu on outside click / scroll / escape.
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#um-row-menu") && !e.target.closest(".um-dots")) closeRowMenu();
+  });
+  window.addEventListener("scroll", closeRowMenu, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    closeRowMenu();
+    closeRoleModal();
+  });
+
   loadRoles();
 }
 
