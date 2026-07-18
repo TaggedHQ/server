@@ -148,7 +148,72 @@
       <div id="create-group-msg" class="msg"></div>
       <div class="sheet-actions">
         <button class="secondary" id="add-group-cancel">Cancel</button>
-        <button id="create-group">Create group</button>
+        <button id="create-group">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage members / controllers. One modal serves both lists. -->
+  <div class="modal-overlay" id="group-people-modal" hidden>
+    <div class="sheet" style="max-width:480px">
+      <div class="sheet-title" id="gp-title">Manage members</div>
+      <p id="gp-intro" class="muted um-note" style="text-align:center;margin:-8px 0 16px"></p>
+      <div class="sheet-section">
+        <div class="sheet-section-head">
+          <div class="sheet-label">On this group</div>
+          <span id="gp-chosen-count" class="muted gr-count"></span>
+        </div>
+        <div id="gp-chosen" class="gr-chosen"></div>
+      </div>
+      <div class="sheet-section">
+        <div class="sheet-label" style="margin-bottom:8px">Add someone</div>
+        <div class="search-field gr-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="gp-search" type="text" placeholder="Search by name, e-mail or username…" autocomplete="off">
+        </div>
+        <div id="gp-results" class="gr-results"></div>
+      </div>
+      <div id="gp-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="gp-cancel">Cancel</button>
+        <button id="gp-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit group modal -->
+  <div class="modal-overlay" id="edit-group-modal" hidden>
+    <div class="sheet" style="max-width:440px">
+      <div class="sheet-title">Edit group</div>
+      <div class="sheet-section">
+        <div class="sheet-label">Name</div>
+        <input id="eg-name" class="em-input" type="text" placeholder="Design team" autocomplete="off">
+      </div>
+      <div class="sheet-section">
+        <div class="sheet-label">Description <span class="muted" style="text-transform:none;letter-spacing:0">(optional)</span></div>
+        <input id="eg-desc" class="em-input" type="text" placeholder="What this group is for" autocomplete="off">
+      </div>
+      <div id="eg-group-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="eg-group-cancel">Cancel</button>
+        <button id="eg-group-save">Save group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Duplicate group modal -->
+  <div class="modal-overlay" id="duplicate-group-modal" hidden>
+    <div class="sheet" style="max-width:440px">
+      <div class="sheet-title">Duplicate group</div>
+      <p id="dg-intro" class="muted um-note" style="text-align:center;margin:-8px 0 16px"></p>
+      <div class="sheet-section">
+        <div class="sheet-label">Name for the copy</div>
+        <input id="dg-name" class="em-input" type="text" autocomplete="off">
+      </div>
+      <div id="dg-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="dg-cancel">Cancel</button>
+        <button id="dg-save">Duplicate</button>
       </div>
     </div>
   </div>

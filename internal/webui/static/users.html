@@ -114,6 +114,7 @@
               <option value="">All status</option>
               <option value="registered">Registered</option>
               <option value="nopw">No password</option>
+              <option value="disabled">Deactivated</option>
             </select>
           </div>
           <div class="table-wrap">
@@ -160,6 +161,64 @@
       <div class="sheet-actions">
         <button class="secondary" id="add-user-cancel">Cancel</button>
         <button id="create-user">Create user</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit profile modal (filled in by the details panel) -->
+  <div class="modal-overlay" id="edit-profile-modal" hidden>
+    <div class="sheet" style="max-width:520px">
+      <div class="sheet-title">Edit profile</div>
+      <div class="sheet-section">
+        <div class="pf-photo">
+          <span id="ep-avatar"></span>
+          <div class="pf-photo-actions">
+            <div class="pf-photo-label">Profile picture</div>
+            <div class="ud-actions">
+              <button class="secondary btn-sm" id="ep-pick">Upload picture</button>
+              <button class="secondary btn-sm danger-btn" id="ep-clear" hidden>Remove</button>
+            </div>
+            <p class="muted um-note">JPEG or PNG. It is cropped to a square.</p>
+          </div>
+        </div>
+        <div id="ep-fields"></div>
+        <input type="file" id="ep-file" accept="image/jpeg,image/png" hidden>
+      </div>
+      <div id="ep-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="ep-cancel">Cancel</button>
+        <button id="ep-save">Save profile</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage groups modal. A user can be in more than one, so these are checkboxes. -->
+  <div class="modal-overlay" id="edit-groups-modal" hidden>
+    <div class="sheet" style="max-width:480px">
+      <div class="sheet-title">Manage groups</div>
+      <p id="eg-intro" class="muted um-note" style="text-align:center;margin:-8px 0 16px"></p>
+      <div class="sheet-section">
+        <div id="eg-options" class="group-choices"></div>
+      </div>
+      <div id="eg-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="eg-cancel">Cancel</button>
+        <button id="eg-save">Save groups</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage roles modal -->
+  <div class="modal-overlay" id="edit-roles-modal" hidden>
+    <div class="sheet" style="max-width:480px">
+      <div class="sheet-title">Manage roles</div>
+      <div class="sheet-section">
+        <div id="er-options" class="role-choices"></div>
+      </div>
+      <div id="er-msg" class="msg"></div>
+      <div class="sheet-actions">
+        <button class="secondary" id="er-cancel">Cancel</button>
+        <button id="er-save">Save role</button>
       </div>
     </div>
   </div>

@@ -370,7 +370,7 @@ func (s *Server) webauthnLoginFinish(req *request) response {
 	}
 	webtoken, err := s.getWebtokenUnsafe(username, false)
 	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
+		return tokenErrResp(err)
 	}
 	return response{
 		status:  200,

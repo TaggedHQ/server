@@ -487,6 +487,11 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
   max-width: 1400px;
 }
 .content.single { grid-template-columns: minmax(0, 720px); justify-content: center; }
+/* The user and group details panels carry label/value rows, member lists and
+   their own cards, so they get more room than the plainer panels on the other
+   admin pages. The track grows with the window rather than taking a fixed
+   412px, which would squeeze the table on a 1280-wide screen. */
+#users-layout, #groups-layout { grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 412px); }
 .main-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .side-col { display: flex; flex-direction: column; gap: 16px; }
 
@@ -1002,20 +1007,81 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .um-empty { text-align: center; color: var(--text-3); padding: 30px 16px; }
 .um-empty svg { width: 40px; height: 40px; opacity: 0.5; margin-bottom: 12px; }
 .um-empty p { margin: 0; font-size: 0.84rem; line-height: 1.5; }
-.ud-head { display: flex; align-items: center; gap: 14px; padding-bottom: 18px; border-bottom: 1px solid var(--stroke); }
-.ud-id { min-width: 0; }
-.ud-name { font-weight: 600; color: var(--text-1); font-size: 0.98rem; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ud-section { padding: 16px 0; border-bottom: 1px solid var(--stroke); }
-.ud-section:last-child { border-bottom: none; padding-bottom: 0; }
-.ud-section-head { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-3); margin-bottom: 12px; }
+/* The panel is a stack of cards: an identity header, then one card per topic,
+   each with its own action button, and the account-level actions last. */
+.ud-head { display: flex; align-items: center; gap: 14px; padding: 2px 2px 18px; }
+.ud-id { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ud-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ud-name { font-weight: 600; color: var(--text-1); font-size: 0.98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ud-username { font-size: 0.78rem; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ud-state { font-size: 0.78rem; color: var(--text-3); }
+.ud-state.on { color: #3BA55D; }
+
+.ud-card {
+  background: var(--surface-raised); border: 1px solid var(--stroke);
+  border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;
+}
+.ud-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.ud-card-title { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-3); }
 .ud-field { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 0.84rem; }
 .ud-field .k { color: var(--text-3); }
 .ud-field .v { color: var(--text-1); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ud-roles { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.ud-unset { color: var(--text-3); }
+.ud-ok { color: #3BA55D; }
+.ud-roles { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+/* .gm-chip's right padding is tight to sit close to the groups page's remove
+   "×". The details panel's chips are read-only, so they get an even inset. */
+.ud-card .gm-chip { padding: 4px 11px; }
+.ud-card .gm-chips { margin-bottom: 10px; }
 .ud-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* A security row: label + status on the left, its own reset on the right. */
+.ud-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--stroke); }
+.ud-line:last-child { border-bottom: none; padding-bottom: 0; }
+.ud-line:first-child { padding-top: 0; }
+.ud-line-text { min-width: 0; }
+.ud-line-label { font-size: 0.84rem; color: var(--text-1); }
+.ud-line-sub { font-size: 0.75rem; color: var(--text-3); margin-top: 3px; }
+
+/* Account-level actions, kept clear of the cards above them. */
+.ud-danger { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.ud-danger button { width: 100%; }
+
+/* A deactivated account reads as inactive in the list. */
+.um-row.off .um-name, .um-row.off .um-sub { opacity: 0.55; }
+.um-row.off .um-avatar { opacity: 0.5; }
+
+/* Group picker in the manage-groups modal. Multi-select, so the list can grow
+   past the sheet — it scrolls rather than pushing the buttons off screen. */
+.group-choices { display: flex; flex-direction: column; max-height: 46vh; overflow-y: auto; }
+.group-choice {
+  display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 12px 0;
+  border-bottom: 1px solid var(--stroke); cursor: pointer;
+  text-transform: none; letter-spacing: normal; font-size: 1rem;
+}
+.group-choice:last-child { border-bottom: none; }
+.group-choice input { margin: 2px 0 0; accent-color: var(--accent); }
+.group-choice-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.group-choice-label { font-size: 0.86rem; color: var(--text-1); }
+.group-choice.on .group-choice-label { color: var(--accent); }
+.group-choice-desc { font-size: 0.75rem; color: var(--text-3); line-height: 1.45; }
+
+/* Role picker in the manage-roles modal */
+.role-choices { display: flex; flex-direction: column; }
+.role-choice {
+  display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 12px 0;
+  border-bottom: 1px solid var(--stroke); cursor: pointer;
+  text-transform: none; letter-spacing: normal; font-size: 1rem;
+}
+.role-choice:last-child { border-bottom: none; }
+.role-choice input { margin: 2px 0 0; accent-color: var(--accent); }
+.role-choice-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.role-choice-label { font-size: 0.86rem; color: var(--text-1); }
+.role-choice.on .role-choice-label { color: var(--accent); }
+.role-choice-desc { font-size: 0.75rem; color: var(--text-3); line-height: 1.45; }
 .um-note { font-size: 0.8rem; margin: 0; }
 .danger-btn { color: var(--danger); }
-.danger-btn:not(:disabled):hover { border-color: var(--danger); color: var(--danger); }
+.danger-btn:not(:disabled):hover { border-color: var(--danger); color: #fff; }
 
 .sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
@@ -1058,6 +1124,54 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .perm-desc { font-size: 0.75rem; color: var(--text-3); line-height: 1.4; }
 
 /* Groups page */
+/* A group's own avatar: square-ish rather than round, so it never reads as a
+   person in a panel that lists people right underneath it. */
+.gr-avatar {
+  flex: none; width: 48px; height: 48px; border-radius: 14px;
+  display: grid; place-items: center;
+  background: var(--accent-dim); color: var(--accent);
+  font-size: 0.98rem; font-weight: 600; letter-spacing: 0.02em;
+}
+.gr-desc { font-size: 0.78rem; color: var(--text-2); line-height: 1.5; margin: 2px 0 0; }
+
+/* One person in the controllers / members card. */
+.gr-people { display: flex; flex-direction: column; }
+.gr-person { display: flex; align-items: center; gap: 10px; padding: 7px 0; min-width: 0; }
+.gr-person .um-avatar { width: 28px; height: 28px; font-size: 0.64rem; }
+.gr-person-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.gr-person-name { font-size: 0.84rem; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gr-person-sub { font-size: 0.72rem; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Manage-members / manage-controllers modal. Two halves: who is on the group
+   now, and a search box offering everyone who is not. Both scroll on their own
+   so a long directory never pushes the buttons off the sheet. */
+.gr-count { font-size: 0.72rem; }
+.gr-chosen { max-height: 22vh; overflow-y: auto; }
+.gr-chosen .gr-person, .gr-result {
+  display: flex; align-items: center; gap: 10px; padding: 7px 0;
+  border-bottom: 1px solid var(--stroke); min-width: 0;
+}
+.gr-chosen .gr-person:last-child, .gr-result:last-child { border-bottom: none; }
+.gr-chosen .gr-person .gr-person-text, .gr-result .gr-person-text { flex: 1; }
+.gr-result .um-avatar { width: 28px; height: 28px; font-size: 0.64rem; }
+/* Keeps the Add / Remove control from being squeezed by a long name. */
+.gr-person-btn { flex: none; }
+.danger-link {
+  background: none; border: none; color: var(--text-3); font-size: 0.78rem;
+  font-weight: 500; padding: 4px 8px; border-radius: 7px;
+}
+.danger-link:hover { background: none; filter: none; color: var(--danger); }
+
+.gr-search { flex: none; }
+.gr-search input { font-size: 0.84rem; }
+.gr-results { max-height: 26vh; overflow-y: auto; margin-top: 4px; }
+.gr-result-note { padding: 10px 2px 2px; margin: 0; }
+
+/* This sheet is the tallest one in the app: two lists plus a search box. The
+   two lists are held to a share of the viewport so Save stays on screen at any
+   height, and the sheet itself scrolls as a backstop. */
+#group-people-modal .sheet { max-height: calc(100vh - 28px); overflow-y: auto; }
+
 .gm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .gm-chip {
   display: inline-flex; align-items: center; gap: 6px;
@@ -1075,7 +1189,9 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 
 /* ---- Responsive ------------------------------------------------------------ */
 @media (max-width: 1080px) {
-  .content { grid-template-columns: minmax(0, 1fr); }
+  /* #users-layout is listed too: its id beats .content on specificity, so the
+     users page would otherwise keep its two columns here. */
+  .content, #users-layout { grid-template-columns: minmax(0, 1fr); }
   .side-col { display: grid; grid-template-columns: repeat(2, 1fr); }
   .um-details { position: static; grid-column: 1 / -1; }
 }

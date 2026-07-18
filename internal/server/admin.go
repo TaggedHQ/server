@@ -12,6 +12,21 @@ import (
 // adminFlagKey is the userinfo key holding a per-user stored admin role.
 const adminFlagKey = "is_admin"
 
+// disabledFlagKey is the userinfo key holding the per-user deactivated flag. A
+// deactivated account keeps all its data but cannot log in, and its existing
+// tokens stop working (see authenticate).
+const disabledFlagKey = "disabled"
+
+// dbDisabledFlag reports whether an already-open user database is deactivated.
+func dbDisabledFlag(db store.UserDB) bool {
+	ob, err := db.Get("userinfo", disabledFlagKey)
+	if err != nil || ob == nil {
+		return false
+	}
+	b, _ := ob["value"].(bool)
+	return b
+}
+
 // dbAdminFlag reads the stored admin role from an already-open user database.
 func dbAdminFlag(db store.UserDB) bool {
 	ob, err := db.Get("userinfo", adminFlagKey)
@@ -56,20 +71,23 @@ func (s *Server) whoamiHandler(username string, db store.UserDB) response {
 
 // adminRouteCap maps each admin sub-route to the capability it requires.
 var adminRouteCap = map[string]string{
-	"":            capUsersManage,
-	"/":           capUsersManage,
-	"/users":      capUsersManage,
-	"/users/":     capUsersManage,
-	"/password":   capUsersManage,
-	"/user":       capUsersManage,
-	"/profile":    capUsersManage,
-	"/admin":      capRolesManage,
-	"/controller": capRolesManage,
-	"/roles":      capRolesManage,
-	"/groups":     capGroupsManage,
-	"/group":      capGroupsManage,
-	"/server":     capServerManage,
-	"/oauth":      capOAuthManage,
+	"":             capUsersManage,
+	"/":            capUsersManage,
+	"/users":       capUsersManage,
+	"/users/":      capUsersManage,
+	"/password":    capUsersManage,
+	"/user":        capUsersManage,
+	"/profile":     capUsersManage,
+	"/disable":     capUsersManage,
+	"/mfa":         capUsersManage,
+	"/admin":       capRolesManage,
+	"/controller":  capRolesManage,
+	"/roles":       capRolesManage,
+	"/groups":      capGroupsManage,
+	"/group":       capGroupsManage,
+	"/user-groups": capGroupsManage,
+	"/server":      capServerManage,
+	"/oauth":       capOAuthManage,
 }
 
 // adminHandler dispatches admin-only sub-routes. `sub` is the path after
@@ -104,6 +122,14 @@ func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[stri
 		if req.method() == "PUT" || req.method() == "POST" {
 			return s.adminSetProfile(req)
 		}
+	case "/disable":
+		if req.method() == "PUT" || req.method() == "POST" {
+			return s.adminSetDisabled(req, adminUser)
+		}
+	case "/mfa":
+		if req.method() == "DELETE" {
+			return s.adminResetMFA(req)
+		}
 	case "/admin":
 		if req.method() == "PUT" || req.method() == "POST" {
 			return s.adminSetAdmin(req, adminUser)
@@ -129,6 +155,10 @@ func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[stri
 	case "/group":
 		if req.method() == "DELETE" {
 			return s.adminDeleteGroup(req)
+		}
+	case "/user-groups":
+		if req.method() == "PUT" || req.method() == "POST" {
+			return s.adminSetUserGroups(req)
 		}
 	case "/server":
 		switch req.method() {
@@ -156,6 +186,9 @@ type userRow struct {
 	IsAdmin      bool        `json:"is_admin"`      // effective admin (config OR stored role)
 	ConfigAdmin  bool        `json:"config_admin"`  // root admin from config (role can't be toggled)
 	IsController bool        `json:"is_controller"` // stored controller role (can switch to other users)
+	Disabled     bool        `json:"disabled"`      // deactivated: data kept, but cannot log in
+	TOTPEnabled  bool        `json:"totp_enabled"`  // authenticator app confirmed
+	Passkeys     int         `json:"passkeys"`      // number of registered WebAuthn credentials
 	Profile      userProfile `json:"profile"`
 	Avatar       string      `json:"avatar"` // data URI, or "" when unset
 	SizeBytes    int64       `json:"size_bytes"`
@@ -180,6 +213,9 @@ func (s *Server) adminListUsers() response {
 		row.Registered = snap.Registered
 		row.IsAdmin = configAdmin || snap.Admin
 		row.IsController = snap.Controller
+		row.Disabled = snap.Disabled
+		row.TOTPEnabled = snap.TOTPEnabled
+		row.Passkeys = snap.Passkeys
 		row.Profile = snap.Profile
 		row.Avatar = snap.Avatar
 		users = append(users, row)
@@ -193,11 +229,14 @@ func (s *Server) adminListUsers() response {
 
 // userSnapshot is everything the admin user list needs about one account.
 type userSnapshotData struct {
-	Registered bool
-	Admin      bool
-	Controller bool
-	Profile    userProfile
-	Avatar     string
+	Registered  bool
+	Admin       bool
+	Controller  bool
+	Disabled    bool
+	TOTPEnabled bool
+	Passkeys    int
+	Profile     userProfile
+	Avatar      string
 }
 
 // userSnapshot opens a user DB once and reads the role flags together with the
@@ -209,11 +248,14 @@ func (s *Server) userSnapshot(username string) userSnapshotData {
 	}
 	defer db.Close()
 	return userSnapshotData{
-		Registered: dbRegistered(db),
-		Admin:      dbAdminFlag(db),
-		Controller: dbControllerFlag(db),
-		Profile:    readProfile(db),
-		Avatar:     readAvatar(db),
+		Registered:  dbRegistered(db),
+		Admin:       dbAdminFlag(db),
+		Controller:  dbControllerFlag(db),
+		Disabled:    dbDisabledFlag(db),
+		TOTPEnabled: totpEnabled(db),
+		Passkeys:    len(storedCredentials(db)),
+		Profile:     readProfile(db),
+		Avatar:      readAvatar(db),
 	}
 }
 
@@ -309,6 +351,108 @@ func (s *Server) adminDeleteUser(req *request, adminUser string) response {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	if err := s.pruneUserFromGroups(username); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	return jsonResp(200, map[string]any{"status": "ok"})
+}
+
+// adminSetDisabled deactivates or reactivates a user. Deactivating keeps every
+// entry and setting, but the account can no longer log in and its outstanding
+// tokens are revoked, so open sessions stop working right away.
+func (s *Server) adminSetDisabled(req *request, adminUser string) response {
+	raw, err := req.getBody(64 * 1024)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	var body struct {
+		Username string `json:"username"`
+		Disabled bool   `json:"disabled"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return textResp(400, "bad request: body must be JSON with username and disabled")
+	}
+	username := strings.TrimSpace(body.Username)
+	if username == "" {
+		return textResp(400, "username is required")
+	}
+	// Both guards mirror adminSetAdmin: never let an admin lock themselves out,
+	// and never let the config-defined root admin be shut out of their own server.
+	if username == adminUser {
+		return textResp(400, "you cannot deactivate your own account")
+	}
+	if body.Disabled && s.isConfigAdmin(username) {
+		return textResp(400, "this user is a config-defined admin and cannot be deactivated")
+	}
+	db, err := s.openUserDB(username)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	defer db.Close()
+	st := now()
+	if err := db.Write(func(tx store.WTx) error {
+		return tx.Upsert("userinfo", store.Item{"key": disabledFlagKey, "st": st, "mt": st, "value": body.Disabled})
+	}); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	if body.Disabled {
+		// Rotating both seeds invalidates every token already handed out.
+		if _, err := s.getTokenSeedFromDB(db, "webtoken", true); err != nil {
+			return textResp(500, "internal error: "+err.Error())
+		}
+		if _, err := s.getTokenSeedFromDB(db, "apitoken", true); err != nil {
+			return textResp(500, "internal error: "+err.Error())
+		}
+	}
+	return jsonResp(200, map[string]any{"status": "ok"})
+}
+
+// adminResetMFA clears a user's second factors. It is the way back in for
+// someone who lost their device — they can log in with their password alone
+// afterwards, and re-enrol from their account page. "scope" picks what goes:
+// "totp" (authenticator secret and backup codes), "passkeys", or "all" (the
+// default), which is what the details panel sends.
+func (s *Server) adminResetMFA(req *request) response {
+	raw, err := req.getBody(64 * 1024)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	var body struct {
+		Username string `json:"username"`
+		Scope    string `json:"scope"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return textResp(400, "bad request: body must be JSON with username")
+	}
+	username := strings.TrimSpace(body.Username)
+	if username == "" {
+		return textResp(400, "username is required")
+	}
+	scope := strings.ToLower(strings.TrimSpace(body.Scope))
+	if scope == "" {
+		scope = "all"
+	}
+	if scope != "all" && scope != "totp" && scope != "passkeys" {
+		return textResp(400, `scope must be "totp", "passkeys" or "all"`)
+	}
+	db, err := s.openUserDB(username)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	defer db.Close()
+
+	var steps []error
+	if scope == "all" || scope == "totp" {
+		steps = append(steps,
+			userinfoPut(db, totpEnabledKey, false),
+			userinfoPut(db, totpSecretKey, ""),
+			userinfoPut(db, totpPendingKey, ""),
+			userinfoPut(db, totpBackupKey, ""),
+		)
+	}
+	if scope == "all" || scope == "passkeys" {
+		steps = append(steps, saveStoredCredentials(db, nil))
+	}
+	if err := firstErr(steps...); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"status": "ok"})

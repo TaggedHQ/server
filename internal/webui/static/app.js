@@ -1737,7 +1737,7 @@ function entryCard(r) {
     <div class="te-time"><div class="t1">${clock(r.t1)}</div><div class="t2">${clock(r.t2)}</div></div>
     <div class="te-body"><div class="te-desc ${descText ? "" : "none"}">${descText ? escapeHtml(descText) : "No description"}</div>${tagBadges ? `<div class="te-tags">${tagBadges}</div>` : ""}</div>
     <div class="te-dur">${fmtHM(recDur(r))}</div>
-    <div class="te-menu"><button class="te-menu-btn" aria-label="Menu">⋯</button><div class="menu-pop"><button class="edit">Edit</button><button class="danger delete">Delete</button></div></div>
+    <div class="te-menu"><button class="te-menu-btn" aria-label="Menu">⋯</button><div class="menu-pop"><button class="edit">Edit</button><button class="danger-btn">Delete</button></div></div>
   </div>`;
 }
 
@@ -2521,6 +2521,10 @@ function fmtDate(epoch) {
 let ADMIN_USERS = [];
 let ADMIN_SELECTED = null;
 let USER_DRAFT = null; // profile fields + avatar being edited in the details panel
+// Groups are server-wide, so the page loads them once and reads each user's
+// membership out of them. null means "not loaded" (no groups.manage permission),
+// which hides the Groups card rather than showing an empty one.
+let ADMIN_GROUPS = null;
 
 // initials derives up to two avatar letters from a profile name, falling back to
 // the username / email.
@@ -2626,6 +2630,9 @@ function roleOf(u) {
 }
 
 function statusOf(u) {
+  // Deactivated outranks the password state: it is the one that decides whether
+  // the account can be used at all.
+  if (u.disabled) return { key: "disabled", label: "Deactivated", cls: "muted" };
   return u.registered
     ? { key: "registered", label: "Registered", cls: "ok" }
     : { key: "nopw", label: "No password", cls: "muted" };
@@ -2664,11 +2671,12 @@ function renderUsersTable() {
       const role = roleOf(u);
       const st = statusOf(u);
       const sel = u.username === ADMIN_SELECTED ? " selected" : "";
+      const off = u.disabled ? " off" : "";
       const name = displayName(u.username, u.profile);
       // The second line carries the username once a real name takes the first,
       // then falls back to the job title so the row still says something useful.
       const sub = fullName(u.profile) ? u.username : (u.profile || {}).job || "";
-      return `<tr class="um-row${sel}" data-u="${uAttr}">
+      return `<tr class="um-row${sel}${off}" data-u="${uAttr}">
         <td>
           <div class="um-user">
             ${avatarHtml(u.username, u.profile, u.avatar)}
@@ -2702,26 +2710,6 @@ function renderUsersTable() {
 
 function adminMsg() { return document.getElementById("users-msg"); }
 
-async function actMakeAdmin(username, make) {
-  if (!confirm(`${make ? "Grant admin rights to" : "Revoke admin rights from"} ${username}?`)) return;
-  const r = await apiFetch("admin/admin", {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, is_admin: make }),
-  });
-  if (r.ok) { showMsg(adminMsg(), `${make ? "Granted" : "Revoked"} admin for ${username}`, "ok"); loadUsers(); }
-  else showMsg(adminMsg(), await r.text(), "error");
-}
-
-async function actMakeController(username, make) {
-  if (!confirm(`${make ? "Grant controller rights to" : "Revoke controller rights from"} ${username}?`)) return;
-  const r = await apiFetch("admin/controller", {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, is_controller: make }),
-  });
-  if (r.ok) { showMsg(adminMsg(), `${make ? "Granted" : "Revoked"} controller for ${username}`, "ok"); loadUsers(); }
-  else showMsg(adminMsg(), await r.text(), "error");
-}
-
 async function actResetPassword(username) {
   const pw = prompt(`New password for ${username}:`);
   if (pw === null) return;
@@ -2731,6 +2719,50 @@ async function actResetPassword(username) {
     body: JSON.stringify({ username, password: pw }),
   });
   showMsg(adminMsg(), r.ok ? `Password reset for ${username}` : (await r.text()), r.ok ? "ok" : "error");
+}
+
+// MFA_SCOPES: what each reset clears, and how to describe it. The row menu
+// offers the two factors separately; the details panel resets both at once.
+const MFA_SCOPES = {
+  totp: {
+    confirm: "Their authenticator app and backup codes stop working. Any passkeys stay.",
+    done: "Authenticator reset",
+  },
+  passkeys: {
+    confirm: "Every registered passkey is removed. Their authenticator app, if any, stays.",
+    done: "Passkeys removed",
+  },
+  all: {
+    confirm: "Their authenticator app, backup codes and passkeys all stop working.",
+    done: "Two-factor reset",
+  },
+};
+
+// actResetMFA clears second factors, for a user who lost their device.
+async function actResetMFA(username, scope = "all") {
+  const s = MFA_SCOPES[scope] || MFA_SCOPES.all;
+  if (!confirm(`Reset two-factor for ${username}?\n\n${s.confirm}\n\nThey can sign in with their password alone until they set it up again.`)) return;
+  const r = await apiFetch("admin/mfa", {
+    method: "DELETE", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, scope }),
+  });
+  if (r.ok) { showMsg(adminMsg(), `${s.done} for ${username}`, "ok"); loadUsers(); }
+  else showMsg(adminMsg(), await r.text(), "error");
+}
+
+// actSetDisabled deactivates or reactivates an account. Deactivating keeps all
+// data but signs the user out everywhere and blocks further logins.
+async function actSetDisabled(username, disabled) {
+  const q = disabled
+    ? `Deactivate ${username}?\n\nTheir data is kept, but they are signed out everywhere and cannot log in until you reactivate them.`
+    : `Reactivate ${username}? They will be able to log in again.`;
+  if (!confirm(q)) return;
+  const r = await apiFetch("admin/disable", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, disabled }),
+  });
+  if (r.ok) { showMsg(adminMsg(), `${disabled ? "Deactivated" : "Reactivated"} ${username}`, "ok"); loadUsers(); }
+  else showMsg(adminMsg(), await r.text(), "error");
 }
 
 async function actDeleteUser(username) {
@@ -2747,75 +2779,78 @@ async function actDeleteUser(username) {
 }
 
 // ---- Row "⋯" menu -----------------------------------------------------------
+// Shared by the users and groups tables: same look, same placement, one copy of
+// the positioning rules.
 
 function closeRowMenu() {
   const m = document.getElementById("um-row-menu");
   if (m) m.remove();
 }
 
-function openRowMenu(anchor, username) {
+// openDotsMenu pops `items` (button markup) under `r`, a DOMRect of the button
+// that was clicked, and calls onPick with the chosen button's data-act. It takes
+// a rect rather than the element because a caller may re-render the table (and
+// so replace the button) before the menu opens. The menu closes before the
+// action runs, so an action that opens a modal is not left sitting behind one.
+function openDotsMenu(r, items, onPick) {
   closeRowMenu();
-  const u = ADMIN_USERS.find((x) => x.username === username);
-  if (!u) return;
-  const me = localStorage.getItem(USER_KEY) || "";
-  const isSelf = username === me;
-  const storedAdmin = u.is_admin && !u.config_admin;
-  const items = [];
-  items.push(`<button data-act="details">View details</button>`);
-  if (!u.config_admin && !isSelf) {
-    items.push(storedAdmin
-      ? `<button data-act="revoke-admin">Revoke admin</button>`
-      : `<button data-act="make-admin">Make admin</button>`);
-  }
-  if (!u.config_admin && !u.is_admin) {
-    items.push(u.is_controller
-      ? `<button data-act="revoke-controller">Revoke controller</button>`
-      : `<button data-act="make-controller">Make controller</button>`);
-  }
-  items.push(`<button data-act="reset">Reset password</button>`);
-  if (!isSelf) items.push(`<button class="danger" data-act="delete">Delete user</button>`);
-
+  if (!items.length) return;
   const menu = document.createElement("div");
   menu.id = "um-row-menu";
   menu.className = "menu-pop open";
   menu.innerHTML = items.join("");
   document.body.appendChild(menu);
-  const r = anchor.getBoundingClientRect();
   menu.style.position = "fixed";
+  // .menu-pop pins itself to right:0 for its in-flow use. Left unset here, the
+  // fixed box would stretch from `left` all the way to the viewport edge.
+  menu.style.right = "auto";
   menu.style.top = (r.bottom + 4) + "px";
   menu.style.left = Math.max(8, r.right - menu.offsetWidth) + "px";
+  // Keep the menu on screen when the anchor sits near the bottom edge.
+  const h = menu.offsetHeight;
+  if (r.bottom + 4 + h > window.innerHeight - 8) {
+    menu.style.top = Math.max(8, r.top - 4 - h) + "px";
+  }
 
   menu.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
-    const act = b.dataset.act;
     closeRowMenu();
-    if (act === "details") selectUser(username);
-    else if (act === "make-admin") actMakeAdmin(username, true);
-    else if (act === "revoke-admin") actMakeAdmin(username, false);
-    else if (act === "make-controller") actMakeController(username, true);
-    else if (act === "revoke-controller") actMakeController(username, false);
-    else if (act === "reset") actResetPassword(username);
-    else if (act === "delete") actDeleteUser(username);
+    onPick(b.dataset.act);
   }));
+}
+
+function openRowMenu(anchor, username) {
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  if (!u) return;
+  const me = localStorage.getItem(USER_KEY) || "";
+  const isSelf = username === me;
+  // Roles and profile are edited in the details panel, so the row menu carries
+  // only the account actions — and only the resets that have something to clear.
+  const items = [`<button data-act="reset">Reset password</button>`];
+  if (u.totp_enabled) items.push(`<button data-act="reset-totp">Reset 2FA</button>`);
+  if (u.passkeys) items.push(`<button data-act="reset-passkeys">Reset passkeys</button>`);
+  if (!isSelf) {
+    items.push(u.disabled
+      ? `<button data-act="activate">Reactivate user</button>`
+      : `<button data-act="deactivate">Deactivate user</button>`);
+    items.push(`<button class="danger" data-act="delete">Delete user</button>`);
+  }
+
+  openDotsMenu(anchor.getBoundingClientRect(), items, (act) => {
+    if (act === "reset") actResetPassword(username);
+    else if (act === "reset-totp") actResetMFA(username, "totp");
+    else if (act === "reset-passkeys") actResetMFA(username, "passkeys");
+    else if (act === "deactivate") actSetDisabled(username, true);
+    else if (act === "activate") actSetDisabled(username, false);
+    else if (act === "delete") actDeleteUser(username);
+  });
 }
 
 // ---- Details panel ----------------------------------------------------------
 
 function selectUser(username) {
   ADMIN_SELECTED = username;
-  const u = ADMIN_USERS.find((x) => x.username === username);
-  // The details panel edits a draft, so an unsaved change never desyncs the row.
-  USER_DRAFT = u ? { ...(u.profile || {}), avatar: u.avatar || "" } : null;
   renderUsersTable();
   renderUserDetails();
-}
-
-// userDirty reports whether the draft differs from the saved profile.
-function userDirty() {
-  const u = ADMIN_USERS.find((x) => x.username === ADMIN_SELECTED);
-  if (!u || !USER_DRAFT) return false;
-  const p = u.profile || {};
-  if ((u.avatar || "") !== USER_DRAFT.avatar) return true;
-  return PROFILE_FIELDS.some(([key]) => (p[key] || "") !== (USER_DRAFT[key] || ""));
 }
 
 // profileFormHtml renders the shared field grid from a draft object.
@@ -2834,6 +2869,44 @@ function profileFormHtml(draft) {
   </div>`;
 }
 
+// udRow renders one label/value line inside a details card.
+function udRow(label, value, cls = "") {
+  return `<div class="ud-field"><span class="k">${escapeHtml(label)}</span>
+    <span class="v ${cls}">${value}</span></div>`;
+}
+
+// udCard wraps a titled section with an optional action button in its header.
+function udCard(title, body, action = "") {
+  return `<div class="ud-card">
+    <div class="ud-card-head"><span class="ud-card-title">${escapeHtml(title)}</span>${action}</div>
+    ${body}
+  </div>`;
+}
+
+// groupSlotOf reports which side of a group a user can be on. It mirrors the
+// server's validateGroupUsers: controllers oversee groups, regular users belong
+// to them, and stored admins can be neither.
+function groupSlotOf(u) {
+  if (u.config_admin) return "controllers"; // root admins may oversee any group
+  if (u.is_admin) return null;
+  return u.is_controller ? "controllers" : "members";
+}
+
+// groupsOf returns the groups a user is currently in, on their own side.
+function groupsOf(u) {
+  const slot = groupSlotOf(u);
+  if (!slot || !ADMIN_GROUPS) return [];
+  return ADMIN_GROUPS.filter((g) => (g[slot] || []).includes(u.username));
+}
+
+// mfaSummary describes the second factors on an account in one line each.
+function mfaSummary(u) {
+  const parts = [];
+  if (u.totp_enabled) parts.push("Authenticator app");
+  if (u.passkeys) parts.push(`${u.passkeys} passkey${u.passkeys === 1 ? "" : "s"}`);
+  return parts;
+}
+
 function renderUserDetails() {
   const host = document.getElementById("user-details");
   const u = ADMIN_USERS.find((x) => x.username === ADMIN_SELECTED);
@@ -2848,108 +2921,300 @@ function renderUserDetails() {
   const me = localStorage.getItem(USER_KEY) || "";
   const isSelf = u.username === me;
   const role = roleOf(u);
-  const st = statusOf(u);
-  const storedAdmin = u.is_admin && !u.config_admin;
+  const p = u.profile || {};
 
-  // Roles section buttons.
-  let roleBtns = "";
-  if (u.config_admin) {
-    roleBtns = `<p class="muted um-note">This is a configured root admin — the role can't be changed here.</p>`;
-  } else {
-    if (!isSelf) {
-      roleBtns += storedAdmin
-        ? `<button class="secondary btn-sm" id="d-admin" data-make="0">Revoke admin</button>`
-        : `<button class="secondary btn-sm" id="d-admin" data-make="1">Make admin</button>`;
-    }
-    if (!u.is_admin) {
-      roleBtns += u.is_controller
-        ? `<button class="secondary btn-sm" id="d-ctrl" data-make="0">Revoke controller</button>`
-        : `<button class="secondary btn-sm" id="d-ctrl" data-make="1">Make controller</button>`;
-    }
-    if (!roleBtns && isSelf) roleBtns = `<p class="muted um-note">You can't change your own admin role.</p>`;
-  }
-
-  host.classList.add("filled");
-  host.innerHTML = `
-    <div class="ud-head">
-      ${avatarHtml(u.username, USER_DRAFT, USER_DRAFT.avatar, "lg")}
-      <div class="ud-id">
-        <div class="ud-name">${escapeHtml(displayName(u.username, USER_DRAFT))}</div>
+  // Header card: who this is, at a glance.
+  const state = u.disabled
+    ? `<span class="ud-state off"><span class="status-dot"></span>Deactivated</span>`
+    : `<span class="ud-state on"><span class="status-dot ok"></span>Active</span>`;
+  const head = `<div class="ud-head">
+    ${avatarHtml(u.username, p, u.avatar, "lg")}
+    <div class="ud-id">
+      <div class="ud-name-row">
+        <span class="ud-name">${escapeHtml(displayName(u.username, p))}</span>
         <span class="badge ${role.cls}">${escapeHtml(role.label)}</span>
       </div>
+      ${fullName(p) ? `<div class="ud-username">${escapeHtml(u.username)}</div>` : ""}
+      ${state}
     </div>
+  </div>`;
 
-    <div class="ud-section">
-      <div class="ud-section-head">Account</div>
-      <div class="ud-field"><span class="k">Username</span><span class="v">${escapeHtml(u.username)}</span></div>
-      <div class="ud-field"><span class="k">Status</span><span class="v"><span class="status-dot ${st.cls}"></span>${escapeHtml(st.label)}</span></div>
-      <div class="ud-field"><span class="k">Storage</span><span class="v">${fmtBytes(u.size_bytes)}</span></div>
-      <div class="ud-field"><span class="k">Last active</span><span class="v">${fmtDate(u.modified)}</span></div>
+  // Profile card — read-only here; the pencil opens the edit modal.
+  const name = fullName(p);
+  const profileRows = [
+    udRow("Full name", name ? escapeHtml(name) : '<span class="ud-unset">Not set</span>'),
+    udRow("Job", p.job ? escapeHtml(p.job) : '<span class="ud-unset">Not set</span>'),
+    udRow("Department", p.department ? escapeHtml(p.department) : '<span class="ud-unset">Not set</span>'),
+    udRow("E-mail", p.email ? escapeHtml(p.email) : '<span class="ud-unset">Not set</span>'),
+    udRow("Phone", p.phone ? escapeHtml(p.phone) : '<span class="ud-unset">Not set</span>'),
+    udRow("Mobile", p.mobile ? escapeHtml(p.mobile) : '<span class="ud-unset">Not set</span>'),
+    udRow("Storage", fmtBytes(u.size_bytes)),
+    udRow("Last active", fmtDate(u.modified)),
+  ].join("");
+  const profileCard = udCard("Profile", profileRows,
+    `<button class="secondary btn-sm" id="d-edit-profile">Edit</button>`);
+
+  // Groups card, above Roles: a user's groups only make sense in the light of
+  // the role that decides which side of a group they can be on.
+  let groupsCard = "";
+  if (ADMIN_GROUPS) {
+    const slot = groupSlotOf(u);
+    const mine = groupsOf(u);
+    let body;
+    if (!slot) {
+      body = `<p class="muted um-note">Admins are not part of groups — they can already see every user.</p>`;
+    } else if (!ADMIN_GROUPS.length) {
+      body = `<p class="muted um-note">No groups exist yet. Create one on the Groups page.</p>`;
+    } else if (!mine.length) {
+      body = `<p class="muted um-note">${slot === "controllers"
+        ? "Controls no groups, so cannot act as anyone yet."
+        : "Not a member of any group."}</p>`;
+    } else {
+      body = `<div class="gm-chips">${mine
+        .map((g) => `<span class="gm-chip">${escapeHtml(g.name)}</span>`).join("")}</div>
+        <p class="muted um-note">${slot === "controllers"
+          ? "Can act as the members of these groups."
+          : "Controlled by the controllers of these groups."}</p>`;
+    }
+    const canManage = slot && ADMIN_GROUPS.length && (window.TT_CAPS || []).includes("groups.manage");
+    groupsCard = udCard(slot === "controllers" ? "Groups controlled" : "Groups", body,
+      canManage ? `<button class="secondary btn-sm" id="d-manage-groups">Manage</button>` : "");
+  }
+
+  // Roles card.
+  const roleNote = u.config_admin
+    ? "Configured root admin — the role is fixed in the server config."
+    : ROLE_BLURB[role.key];
+  const rolesCard = udCard("Roles", `
+    <div class="ud-roles"><span class="badge ${role.cls}">${escapeHtml(role.label)}</span></div>
+    <p class="muted um-note">${escapeHtml(roleNote)}</p>`,
+    u.config_admin || isSelf ? "" : `<button class="secondary btn-sm" id="d-manage-roles">Manage</button>`);
+
+  // Security card: password and second factors, each with its own reset.
+  const factors = mfaSummary(u);
+  const mfaValue = factors.length
+    ? `<span class="ud-ok">Enabled</span> · ${escapeHtml(factors.join(", "))}`
+    : `<span class="ud-unset">Not enabled</span>`;
+  const securityCard = udCard("Security", `
+    <div class="ud-line">
+      <div class="ud-line-text">
+        <div class="ud-line-label">Password</div>
+        <div class="ud-line-sub">${u.registered ? "Set" : "No password — token access only"}</div>
+      </div>
+      <button class="secondary btn-sm" id="d-reset-pw">Reset</button>
     </div>
-
-    <div class="ud-section">
-      <div class="ud-section-head">Profile</div>
-      <div class="ud-actions" style="margin-bottom:14px">
-        <button class="secondary btn-sm" id="du-pick">${USER_DRAFT.avatar ? "Change picture" : "Upload picture"}</button>
-        ${USER_DRAFT.avatar ? '<button class="secondary btn-sm danger-btn" id="du-clear">Remove picture</button>' : ""}
+    <div class="ud-line">
+      <div class="ud-line-text">
+        <div class="ud-line-label">Two-factor authentication</div>
+        <div class="ud-line-sub">${mfaValue}</div>
       </div>
-      ${profileFormHtml(USER_DRAFT)}
-      <div class="ud-actions" style="margin-top:14px">
-        <button class="btn-sm" id="du-save" ${userDirty() ? "" : "disabled"}>Save profile</button>
-        <button class="secondary btn-sm" id="du-reset" ${userDirty() ? "" : "disabled"}>Reset</button>
-      </div>
-      <input type="file" id="du-file" accept="image/jpeg,image/png" hidden>
-    </div>
+      <button class="secondary btn-sm" id="d-reset-mfa" ${factors.length ? "" : "disabled"}>Reset</button>
+    </div>`);
 
-    <div class="ud-section">
-      <div class="ud-section-head">Roles &amp; permissions</div>
-      <div class="ud-roles">
-        ${u.is_admin ? '<span class="badge admin">Admin</span>' : ""}
-        ${u.is_controller ? '<span class="badge controller">Controller</span>' : ""}
-        ${!u.is_admin && !u.is_controller ? '<span class="badge muted">User</span>' : ""}
-      </div>
-      <div class="ud-actions">${roleBtns}</div>
-    </div>
+  // Bottom actions. Neither is available on your own account, so an admin can
+  // never lock themselves out from this panel.
+  const selfTitle = ' title="You cannot do this to your own account"';
+  const actions = `<div class="ud-danger">
+    <button class="secondary" id="d-toggle-active" ${isSelf ? "disabled" + selfTitle : ""}>
+      ${u.disabled ? "Reactivate user" : "Deactivate user"}
+    </button>
+    <button class="danger-btn" id="d-delete" ${isSelf ? "disabled" + selfTitle : ""}>Delete user</button>
+  </div>`;
 
-    <div class="ud-section">
-      <div class="ud-section-head">Account actions</div>
-      <div class="ud-actions">
-        <button class="secondary btn-sm" id="d-reset">Reset password</button>
-        <button class="secondary btn-sm danger-btn" id="d-delete" ${isSelf ? "disabled title=\"You cannot delete your own account\"" : ""}>Delete user</button>
-      </div>
-    </div>`;
+  host.classList.add("filled");
+  host.innerHTML = head + profileCard + groupsCard + rolesCard + securityCard + actions;
 
-  // Typing updates the draft in place: re-rendering on every keystroke would
-  // drop focus, so only the Save/Reset state is refreshed.
-  host.querySelectorAll("input[data-pf]").forEach((inp) => inp.addEventListener("input", () => {
-    USER_DRAFT[inp.dataset.pf] = inp.value;
-    const dirty = userDirty();
-    host.querySelector("#du-save").disabled = !dirty;
-    host.querySelector("#du-reset").disabled = !dirty;
-  }));
-  host.querySelector("#du-pick").addEventListener("click", async () => {
-    try {
-      const data = await pickAvatar(host.querySelector("#du-file"));
-      if (!data) return;
-      USER_DRAFT.avatar = data;
-      renderUserDetails();
-    } catch (e) { showMsg(adminMsg(), e.message, "error"); }
-  });
-  const dClear = host.querySelector("#du-clear");
-  if (dClear) dClear.addEventListener("click", () => { USER_DRAFT.avatar = ""; renderUserDetails(); });
-  host.querySelector("#du-save").addEventListener("click", () => saveUserProfile(u.username));
-  host.querySelector("#du-reset").addEventListener("click", () => selectUser(u.username));
-
-  const dAdmin = host.querySelector("#d-admin");
-  if (dAdmin) dAdmin.addEventListener("click", () => actMakeAdmin(u.username, dAdmin.dataset.make === "1"));
-  const dCtrl = host.querySelector("#d-ctrl");
-  if (dCtrl) dCtrl.addEventListener("click", () => actMakeController(u.username, dCtrl.dataset.make === "1"));
-  host.querySelector("#d-reset").addEventListener("click", () => actResetPassword(u.username));
-  const dDel = host.querySelector("#d-delete");
-  if (dDel && !isSelf) dDel.addEventListener("click", () => actDeleteUser(u.username));
+  const on = (id, fn) => { const el = host.querySelector(id); if (el) el.addEventListener("click", fn); };
+  on("#d-edit-profile", () => openEditProfile(u.username));
+  on("#d-manage-groups", () => openEditGroups(u.username));
+  on("#d-manage-roles", () => openEditRoles(u.username));
+  on("#d-reset-pw", () => actResetPassword(u.username));
+  on("#d-reset-mfa", () => actResetMFA(u.username));
+  if (!isSelf) {
+    on("#d-toggle-active", () => actSetDisabled(u.username, !u.disabled));
+    on("#d-delete", () => actDeleteUser(u.username));
+  }
 }
 
-// saveUserProfile writes the details-panel draft for username. The picture rides
+// ROLE_BLURB explains, in the details panel, what the selected role can do.
+const ROLE_BLURB = {
+  admin: "Full access to all features and settings, including user management.",
+  controller: "Can view and manage the time of the users in their groups.",
+  user: "Can track and manage their own time only.",
+};
+
+// ---- Edit profile modal -----------------------------------------------------
+
+function editProfileModal() { return document.getElementById("edit-profile-modal"); }
+
+// openEditProfile fills the modal from the saved profile and shows it. The form
+// edits USER_DRAFT, so Cancel simply throws the draft away.
+function openEditProfile(username) {
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  if (!u) return;
+  USER_DRAFT = { ...(u.profile || {}), avatar: u.avatar || "" };
+  renderEditProfile();
+  const m = editProfileModal();
+  m.hidden = false;
+  const first = m.querySelector("#du-first");
+  if (first) first.focus();
+}
+
+function closeEditProfile() { editProfileModal().hidden = true; }
+
+// renderEditProfile (re)draws the modal body. It runs again after a picture
+// change, which is why the field values come from the draft rather than the DOM.
+function renderEditProfile() {
+  const m = editProfileModal();
+  const u = ADMIN_USERS.find((x) => x.username === ADMIN_SELECTED);
+  m.querySelector("#ep-avatar").innerHTML =
+    avatarHtml(u ? u.username : "", USER_DRAFT, USER_DRAFT.avatar, "lg");
+  m.querySelector("#ep-fields").innerHTML = profileFormHtml(USER_DRAFT);
+  m.querySelector("#ep-pick").textContent = USER_DRAFT.avatar ? "Change picture" : "Upload picture";
+  m.querySelector("#ep-clear").hidden = !USER_DRAFT.avatar;
+  m.querySelector("#ep-msg").innerHTML = "";
+  m.querySelectorAll("input[data-pf]").forEach((inp) => inp.addEventListener("input", () => {
+    USER_DRAFT[inp.dataset.pf] = inp.value;
+  }));
+}
+
+// ---- Manage groups modal ----------------------------------------------------
+
+function editGroupsModal() { return document.getElementById("edit-groups-modal"); }
+
+let GROUP_PICK = null; // Set of group ids ticked in the modal
+
+// openEditGroups lists every group with a checkbox, since a user can be in more
+// than one. What ticking a box means depends on the account's role, so the modal
+// says so up front.
+function openEditGroups(username) {
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  if (!u || !ADMIN_GROUPS) return;
+  const slot = groupSlotOf(u);
+  if (!slot) return;
+  GROUP_PICK = new Set(groupsOf(u).map((g) => g.id));
+
+  const m = editGroupsModal();
+  m.querySelector("#eg-msg").innerHTML = "";
+  m.querySelector("#eg-intro").textContent = slot === "controllers"
+    ? `${displayName(u.username, u.profile)} controls the groups you tick, and can act as their members.`
+    : `${displayName(u.username, u.profile)} belongs to the groups you tick.`;
+  m.querySelector("#eg-options").innerHTML = ADMIN_GROUPS.map((g) => {
+    const on = GROUP_PICK.has(g.id);
+    const count = (g[slot] || []).length;
+    return `<label class="group-choice${on ? " on" : ""}" data-group="${escapeHtml(g.id)}">
+      <input type="checkbox" ${on ? "checked" : ""}>
+      <span class="group-choice-text">
+        <span class="group-choice-label">${escapeHtml(g.name)}</span>
+        <span class="group-choice-desc">${g.description
+          ? escapeHtml(g.description)
+          : `${count} ${slot === "controllers" ? "controller" : "member"}${count === 1 ? "" : "s"}`}</span>
+      </span>
+    </label>`;
+  }).join("");
+  m.querySelectorAll(".group-choice").forEach((el) => el.addEventListener("change", () => {
+    const id = el.dataset.group;
+    if (el.querySelector("input").checked) GROUP_PICK.add(id);
+    else GROUP_PICK.delete(id);
+    el.classList.toggle("on", GROUP_PICK.has(id));
+  }));
+  m.hidden = false;
+}
+
+function closeEditGroups() { editGroupsModal().hidden = true; }
+
+// applyGroupPick writes the whole membership in one call, so a user moving
+// between groups never lands in both or neither along the way.
+async function applyGroupPick(username) {
+  if (!GROUP_PICK) return;
+  const msg = editGroupsModal().querySelector("#eg-msg");
+  showMsg(msg, "Saving…", "");
+  const r = await apiFetch("admin/user-groups", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, groups: [...GROUP_PICK] }),
+  });
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  closeEditGroups();
+  showMsg(adminMsg(), `Updated the groups for ${username}`, "ok");
+  await loadUserGroups();
+  loadUsers();
+}
+
+// loadUserGroups caches the server-wide group list for the users page. (The
+// Groups page has its own loadGroups; these must not share a name, since every
+// page loads this one file.) A 403 means the visitor may manage users but not
+// groups, so the card stays hidden.
+async function loadUserGroups() {
+  const r = await apiFetch("admin/groups");
+  if (!r.ok) { ADMIN_GROUPS = null; return; }
+  ADMIN_GROUPS = (await r.json()).groups || [];
+}
+
+// ---- Manage roles modal -----------------------------------------------------
+
+function editRolesModal() { return document.getElementById("edit-roles-modal"); }
+
+let ROLE_PICK = null; // role key selected in the modal
+
+function openEditRoles(username) {
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  if (!u || u.config_admin) return;
+  ROLE_PICK = roleOf(u).key;
+  const m = editRolesModal();
+  m.querySelector("#er-msg").innerHTML = "";
+  m.querySelector("#er-options").innerHTML = ["admin", "controller", "user"].map((key) => {
+    const label = key === "admin" ? "Admin" : key === "controller" ? "Controller" : "User";
+    return `<label class="role-choice${ROLE_PICK === key ? " on" : ""}" data-role="${key}">
+      <input type="radio" name="er-role" value="${key}" ${ROLE_PICK === key ? "checked" : ""}>
+      <span class="role-choice-text">
+        <span class="role-choice-label">${label}</span>
+        <span class="role-choice-desc">${escapeHtml(ROLE_BLURB[key])}</span>
+      </span>
+    </label>`;
+  }).join("");
+  m.querySelectorAll(".role-choice").forEach((el) => el.addEventListener("change", () => {
+    ROLE_PICK = el.dataset.role;
+    m.querySelectorAll(".role-choice").forEach((o) => o.classList.toggle("on", o.dataset.role === ROLE_PICK));
+  }));
+  m.hidden = false;
+}
+
+function closeEditRoles() { editRolesModal().hidden = true; }
+
+// applyRolePick writes the chosen role. The two flags behind it are separate
+// endpoints, so a change may take two calls; admin is cleared first so the user
+// is never briefly both.
+async function applyRolePick(username) {
+  const u = ADMIN_USERS.find((x) => x.username === username);
+  if (!u || !ROLE_PICK) return;
+  const msg = editRolesModal().querySelector("#er-msg");
+  const want = ROLE_PICK;
+  if (roleOf(u).key === want) { closeEditRoles(); return; }
+
+  const steps = [];
+  if (u.is_admin && want !== "admin") steps.push(["admin/admin", { username, is_admin: false }]);
+  if (u.is_controller !== (want === "controller")) {
+    steps.push(["admin/controller", { username, is_controller: want === "controller" }]);
+  }
+  if (want === "admin" && !u.is_admin) steps.push(["admin/admin", { username, is_admin: true }]);
+
+  showMsg(msg, "Saving…", "");
+  for (const [path, body] of steps) {
+    const r = await apiFetch(path, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { showMsg(msg, await r.text(), "error"); loadUsers(); return; }
+  }
+  closeEditRoles();
+  showMsg(adminMsg(), `Updated the role for ${username}`, "ok");
+  // A role change can invalidate the user's group membership, which the server
+  // prunes for us — reload the groups so the card reflects that.
+  await loadUserGroups();
+  loadUsers();
+}
+
+// saveUserProfile writes the edit-modal draft for username. The picture rides
 // along only when it changed, so an unchanged one is not re-uploaded on a rename.
 async function saveUserProfile(username) {
   if (!USER_DRAFT) return;
@@ -2958,11 +3223,15 @@ async function saveUserProfile(username) {
   for (const [key] of PROFILE_FIELDS) body[key] = USER_DRAFT[key] || "";
   if ((u.avatar || "") !== USER_DRAFT.avatar) body.avatar = USER_DRAFT.avatar;
 
+  const msg = editProfileModal().querySelector("#ep-msg");
+  showMsg(msg, "Saving…", "");
   const r = await apiFetch("admin/profile", {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) { showMsg(adminMsg(), await r.text(), "error"); return; }
+  // Errors stay in the modal, so the visitor keeps the values they typed.
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  closeEditProfile();
   showMsg(adminMsg(), `Saved profile for ${username}`, "ok");
   loadUsers();
 }
@@ -3044,13 +3313,56 @@ async function initAdmin() {
     }
   });
 
+  // Edit profile modal.
+  document.getElementById("ep-cancel").addEventListener("click", closeEditProfile);
+  editProfileModal().addEventListener("click", (e) => {
+    if (e.target.id === "edit-profile-modal") closeEditProfile();
+  });
+  document.getElementById("ep-pick").addEventListener("click", async () => {
+    try {
+      const data = await pickAvatar(document.getElementById("ep-file"));
+      if (!data) return;
+      USER_DRAFT.avatar = data;
+      renderEditProfile();
+    } catch (e) { showMsg(document.getElementById("ep-msg"), e.message, "error"); }
+  });
+  document.getElementById("ep-clear").addEventListener("click", () => {
+    USER_DRAFT.avatar = "";
+    renderEditProfile();
+  });
+  document.getElementById("ep-save").addEventListener("click", () => saveUserProfile(ADMIN_SELECTED));
+
+  // Manage groups modal.
+  document.getElementById("eg-cancel").addEventListener("click", closeEditGroups);
+  editGroupsModal().addEventListener("click", (e) => {
+    if (e.target.id === "edit-groups-modal") closeEditGroups();
+  });
+  document.getElementById("eg-save").addEventListener("click", () => applyGroupPick(ADMIN_SELECTED));
+
+  // Manage roles modal.
+  document.getElementById("er-cancel").addEventListener("click", closeEditRoles);
+  editRolesModal().addEventListener("click", (e) => {
+    if (e.target.id === "edit-roles-modal") closeEditRoles();
+  });
+  document.getElementById("er-save").addEventListener("click", () => applyRolePick(ADMIN_SELECTED));
+
   // Close the row menu on outside click / scroll / escape.
   document.addEventListener("click", (e) => {
     if (!e.target.closest("#um-row-menu") && !e.target.closest(".um-dots")) closeRowMenu();
   });
   window.addEventListener("scroll", closeRowMenu, true);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeRowMenu(); closeAddUser(); } });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    closeRowMenu();
+    closeAddUser();
+    closeEditProfile();
+    closeEditGroups();
+    closeEditRoles();
+  });
 
+  // Groups first: the details panel reads membership out of them, and a visitor
+  // without groups.manage simply gets no Groups card.
+  await loadUserGroups();
   loadUsers();
 }
 
@@ -3222,7 +3534,9 @@ let GROUPS = [];
 let CAND_USERS = [];       // usernames eligible to be members
 let CAND_CONTROLLERS = []; // usernames eligible to control a group
 let GROUP_SELECTED = null;
-let GROUP_DRAFT = null;    // {name, description, members: Set, controllers: Set}
+// username -> {profile, avatar}, so member and controller lists can show a face
+// and a real name instead of a bare login.
+let GROUP_DIR = {};
 
 function groupsMsg() { return document.getElementById("groups-msg"); }
 
@@ -3256,61 +3570,86 @@ function renderGroupsTable() {
         </td>
         <td><div class="ud-roles" style="margin:0">${ctrls}</div></td>
         <td class="muted">${g.members.length} user${g.members.length === 1 ? "" : "s"}</td>
-        <td><span class="tm-edit">Edit</span></td>
+        <td><button class="um-dots" data-g="${escapeHtml(g.id)}" title="Actions">⋯</button></td>
       </tr>`;
     }).join("");
   }
   count.textContent = `Showing ${rows.length} of ${GROUPS.length} group${GROUPS.length === 1 ? "" : "s"}`;
-  body.querySelectorAll(".um-row").forEach((tr) =>
-    tr.addEventListener("click", () => selectGroup(tr.dataset.g)));
+  body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", (e) => {
+    if (e.target.closest(".um-dots")) return; // dots handled separately
+    selectGroup(tr.dataset.g);
+  }));
+  body.querySelectorAll(".um-dots").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openGroupRowMenu(b, b.dataset.g);
+  }));
 }
 
 function selectGroup(id) {
   GROUP_SELECTED = id;
-  const g = GROUPS.find((x) => x.id === id);
-  GROUP_DRAFT = g ? {
-    name: g.name,
-    description: g.description || "",
-    members: new Set(g.members),
-    controllers: new Set(g.controllers),
-  } : null;
   renderGroupsTable();
   renderGroupDetails();
 }
 
-// pickerRows renders a removable chip per selected name, plus a picker holding
-// the candidates that are not selected yet.
-function pickerRows(kind, selected, candidates) {
-  const chips = [...selected].sort().map((u) =>
-    `<span class="gm-chip">${escapeHtml(u)}<button class="gm-x" data-kind="${kind}" data-u="${escapeHtml(u)}" title="Remove">×</button></span>`
-  ).join("");
-  const free = candidates.filter((u) => !selected.has(u));
-  const picker = free.length
-    ? `<div class="gm-add">
-         <select class="um-select" data-picker="${kind}">
-           ${free.map((u) => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("")}
-         </select>
-         <button class="secondary btn-sm" data-add="${kind}">Add</button>
-       </div>`
-    : `<p class="um-note muted">${selected.size ? "Everyone eligible is already added." : "No eligible users."}</p>`;
-  return (chips ? `<div class="gm-chips">${chips}</div>` : `<p class="um-note muted">None yet.</p>`) + picker;
+// openGroupRowMenu mirrors the users table's "⋯". The edit and duplicate modals
+// commit against the selected group, so the row is selected first — that also
+// leaves the details panel showing whatever the menu is about to act on.
+function openGroupRowMenu(anchor, id) {
+  const g = GROUPS.find((x) => x.id === id);
+  if (!g) return;
+  // Measured before selectGroup, which redraws the table and drops this button.
+  const rect = anchor.getBoundingClientRect();
+  selectGroup(id);
+  openDotsMenu(rect, [
+    `<button data-act="edit">Edit group</button>`,
+    `<button data-act="duplicate">Duplicate group</button>`,
+    `<button class="danger" data-act="delete">Delete group</button>`,
+  ], (act) => {
+    if (act === "edit") openGroupEdit(id);
+    else if (act === "duplicate") openGroupDuplicate(id);
+    else if (act === "delete") deleteGroup(g);
+  });
 }
 
-// groupDirty reports whether the draft differs from the saved group.
-function groupDirty() {
-  const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
-  if (!g || !GROUP_DRAFT) return false;
-  const sameSet = (set, arr) => set.size === arr.length && arr.every((x) => set.has(x));
-  return g.name !== GROUP_DRAFT.name
-    || (g.description || "") !== GROUP_DRAFT.description
-    || !sameSet(GROUP_DRAFT.members, g.members)
-    || !sameSet(GROUP_DRAFT.controllers, g.controllers);
+// groupInitials takes up to two letters from a group name, the way initials()
+// does for people.
+function groupInitials(name) {
+  const words = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  const letters = words.length === 1
+    ? words[0].slice(0, 2)
+    : words[0][0] + words[1][0];
+  return letters.toUpperCase();
+}
+
+// dirEntry looks a username up in the directory, tolerating one that is not
+// there (a group can outlive the account it names until the prune runs).
+function dirEntry(username) { return GROUP_DIR[username] || {}; }
+
+// personRow renders one member/controller: avatar, display name, and the login
+// underneath when the two differ.
+function personRow(username) {
+  const d = dirEntry(username);
+  const name = displayName(username, d.profile);
+  return `<div class="gr-person">
+    ${avatarHtml(username, d.profile, d.avatar)}
+    <span class="gr-person-text">
+      <span class="gr-person-name">${escapeHtml(name)}</span>
+      ${name !== username ? `<span class="gr-person-sub">${escapeHtml(username)}</span>` : ""}
+    </span>
+  </div>`;
+}
+
+// peopleCard is the shared body of the controllers and members cards.
+function peopleCard(list, emptyNote) {
+  if (!list.length) return `<p class="muted um-note">${escapeHtml(emptyNote)}</p>`;
+  return `<div class="gr-people">${[...list].sort().map(personRow).join("")}</div>`;
 }
 
 function renderGroupDetails() {
   const host = document.getElementById("group-details");
   const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
-  if (!g || !GROUP_DRAFT) {
+  if (!g) {
     host.classList.remove("filled");
     host.innerHTML = `<div class="um-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/><circle cx="5" cy="9" r="2"/><path d="M2 20v-1a4 4 0 0 1 3-3.8"/><circle cx="19" cy="9" r="2"/><path d="M22 20v-1a4 4 0 0 0-3-3.8"/></svg>
@@ -3319,79 +3658,261 @@ function renderGroupDetails() {
     return;
   }
   host.classList.add("filled");
-  host.innerHTML = `
-    <div class="ud-head">
-      <div class="ud-id">
-        <div class="ud-name">${escapeHtml(GROUP_DRAFT.name)}</div>
-        <span class="badge muted">${GROUP_DRAFT.members.size} member${GROUP_DRAFT.members.size === 1 ? "" : "s"}</span>
-      </div>
+
+  const head = `<div class="ud-head">
+    <span class="gr-avatar">${escapeHtml(groupInitials(g.name))}</span>
+    <div class="ud-id">
+      <div class="ud-name">${escapeHtml(g.name)}</div>
+      ${g.description
+        ? `<p class="gr-desc">${escapeHtml(g.description)}</p>`
+        : `<p class="gr-desc ud-unset">No description</p>`}
     </div>
+  </div>`;
 
-    <div class="ud-section">
-      <div class="ud-section-head">Group</div>
-      <input id="g-name" class="em-input" type="text" placeholder="Group name" value="${escapeHtml(GROUP_DRAFT.name)}">
-      <input id="g-desc" class="em-input" style="margin-top:8px" type="text" placeholder="Description (optional)" value="${escapeHtml(GROUP_DRAFT.description)}">
-    </div>
+  const controllersCard = udCard("Controllers",
+    peopleCard(g.controllers, "Nobody controls this group yet.") +
+    `<p class="muted um-note" style="margin-top:10px">A controller can view and edit the time data of this group's members.</p>`,
+    `<button class="secondary btn-sm" id="g-manage-controllers">Manage</button>`);
 
-    <div class="ud-section">
-      <div class="ud-section-head">Controllers</div>
-      ${pickerRows("controllers", GROUP_DRAFT.controllers, CAND_CONTROLLERS)}
-      <p class="um-note muted">A controller can view and edit the time data of this group's members.</p>
-    </div>
+  const membersCard = udCard(`Members${g.members.length ? ` · ${g.members.length}` : ""}`,
+    peopleCard(g.members, "No members yet."),
+    `<button class="secondary btn-sm" id="g-manage-members">Manage</button>`);
 
-    <div class="ud-section">
-      <div class="ud-section-head">Members</div>
-      ${pickerRows("members", GROUP_DRAFT.members, CAND_USERS)}
-    </div>
+  const actions = `<div class="ud-danger">
+    <button class="secondary" id="g-edit">Edit group</button>
+    <button class="secondary" id="g-duplicate">Duplicate group</button>
+    <button class="danger-btn" id="g-delete">Delete group</button>
+  </div>`;
 
-    <div class="ud-section">
-      <div class="ud-actions">
-        <button class="btn-sm" id="g-save" ${groupDirty() ? "" : "disabled"}>Save changes</button>
-        <button class="secondary btn-sm" id="g-reset" ${groupDirty() ? "" : "disabled"}>Reset</button>
-        <button class="secondary btn-sm danger-btn" id="g-delete">Delete group</button>
-      </div>
-    </div>`;
+  host.innerHTML = head + controllersCard + membersCard + actions;
 
-  host.querySelector("#g-name").addEventListener("input", (e) => {
-    GROUP_DRAFT.name = e.target.value;
-    const save = host.querySelector("#g-save"), reset = host.querySelector("#g-reset");
-    save.disabled = reset.disabled = !groupDirty();
-  });
-  host.querySelector("#g-desc").addEventListener("input", (e) => {
-    GROUP_DRAFT.description = e.target.value;
-    const save = host.querySelector("#g-save"), reset = host.querySelector("#g-reset");
-    save.disabled = reset.disabled = !groupDirty();
-  });
-  host.querySelectorAll(".gm-x").forEach((b) => b.addEventListener("click", () => {
-    GROUP_DRAFT[b.dataset.kind].delete(b.dataset.u);
-    renderGroupDetails();
-  }));
-  host.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => {
-    const kind = b.dataset.add;
-    const sel = host.querySelector(`select[data-picker="${kind}"]`);
-    if (sel && sel.value) GROUP_DRAFT[kind].add(sel.value);
-    renderGroupDetails();
-  }));
-  host.querySelector("#g-save").addEventListener("click", saveGroup);
-  host.querySelector("#g-reset").addEventListener("click", () => selectGroup(g.id));
+  host.querySelector("#g-manage-controllers").addEventListener("click", () => openGroupPeople(g.id, "controllers"));
+  host.querySelector("#g-manage-members").addEventListener("click", () => openGroupPeople(g.id, "members"));
+  host.querySelector("#g-edit").addEventListener("click", () => openGroupEdit(g.id));
+  host.querySelector("#g-duplicate").addEventListener("click", () => openGroupDuplicate(g.id));
   host.querySelector("#g-delete").addEventListener("click", () => deleteGroup(g));
 }
 
-async function saveGroup() {
+// saveGroupFields writes a group back. Every group edit goes through the one
+// save endpoint, which wants the whole record, so unchanged parts ride along.
+async function saveGroupFields(g, changes, msgEl, okText) {
+  const body = {
+    id: g.id,
+    name: g.name,
+    description: g.description || "",
+    members: g.members,
+    controllers: g.controllers,
+    ...changes,
+  };
+  const r = await apiFetch("admin/groups", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { showMsg(msgEl, await r.text(), "error"); return false; }
+  showMsg(groupsMsg(), okText, "ok");
+  loadGroups();
+  return true;
+}
+
+// ---- Manage members / controllers modal -------------------------------------
+// One modal serves both lists; `kind` says which, since they differ only in
+// which candidates are eligible.
+
+let PEOPLE_KIND = null;  // "members" | "controllers"
+let PEOPLE_PICK = null;  // Set of usernames currently on the group
+let PEOPLE_POOL = [];    // every username that may be picked, sorted
+
+// PEOPLE_RESULT_LIMIT caps how many matches are drawn at once. On a server with
+// thousands of accounts, rendering them all would cost more than it tells the
+// reader — the search box is the way through a list that long.
+const PEOPLE_RESULT_LIMIT = 30;
+
+function groupPeopleModal() { return document.getElementById("group-people-modal"); }
+
+// personSearchText is what a query is matched against: the login plus every
+// profile field a person might be looked up by.
+function personSearchText(username) {
+  const p = dirEntry(username).profile || {};
+  return [username, p.first_name, p.last_name, p.job, p.department, p.email]
+    .filter(Boolean).join(" ").toLowerCase();
+}
+
+// personLine renders the avatar + name block shared by both lists.
+function personLine(username) {
+  const d = dirEntry(username);
+  const name = displayName(username, d.profile);
+  return `${avatarHtml(username, d.profile, d.avatar)}
+    <span class="gr-person-text">
+      <span class="gr-person-name">${escapeHtml(name)}</span>
+      ${name !== username ? `<span class="gr-person-sub">${escapeHtml(username)}</span>` : ""}
+    </span>`;
+}
+
+// renderGroupPeople redraws both halves: who is on the group now, and the
+// search results offering everyone who is not.
+function renderGroupPeople() {
+  const m = groupPeopleModal();
+  const kindLabel = PEOPLE_KIND === "controllers" ? "controller" : "member";
+
+  const chosen = [...PEOPLE_PICK].sort();
+  m.querySelector("#gp-chosen").innerHTML = chosen.length
+    ? chosen.map((u) => `<div class="gr-person" data-u="${escapeHtml(u)}">
+        ${personLine(u)}
+        <button class="gr-person-btn danger-link" data-remove="${escapeHtml(u)}">Remove</button>
+      </div>`).join("")
+    : `<p class="muted um-note">No ${kindLabel}s yet — search below to add someone.</p>`;
+  m.querySelector("#gp-chosen-count").textContent = chosen.length
+    ? `${chosen.length} ${kindLabel}${chosen.length === 1 ? "" : "s"}`
+    : "";
+
+  const q = m.querySelector("#gp-search").value.trim().toLowerCase();
+  const free = PEOPLE_POOL.filter((u) => !PEOPLE_PICK.has(u));
+  const matches = q ? free.filter((u) => personSearchText(u).includes(q)) : free;
+  const shown = matches.slice(0, PEOPLE_RESULT_LIMIT);
+
+  const results = m.querySelector("#gp-results");
+  if (!free.length) {
+    results.innerHTML = `<p class="muted um-note gr-result-note">${PEOPLE_POOL.length
+      ? `Everyone eligible is already a ${kindLabel}.`
+      : `No eligible users. Give someone the ${PEOPLE_KIND === "controllers" ? "Controller" : "User"} role first.`}</p>`;
+  } else if (!shown.length) {
+    results.innerHTML = `<p class="muted um-note gr-result-note">Nobody matches “${escapeHtml(q)}”.</p>`;
+  } else {
+    results.innerHTML = shown.map((u) => `<div class="gr-result" data-u="${escapeHtml(u)}">
+        ${personLine(u)}
+        <button class="secondary btn-sm gr-person-btn" data-add="${escapeHtml(u)}">Add</button>
+      </div>`).join("")
+      + (matches.length > shown.length
+        ? `<p class="muted um-note gr-result-note">${matches.length - shown.length} more — keep typing to narrow it down.</p>`
+        : "");
+  }
+}
+
+function openGroupPeople(id, kind) {
+  const g = GROUPS.find((x) => x.id === id);
+  if (!g) return;
+  PEOPLE_KIND = kind;
+  PEOPLE_PICK = new Set(g[kind]);
+  const candidates = kind === "controllers" ? CAND_CONTROLLERS : CAND_USERS;
+  // A name already on the group stays in the pool even if it is no longer
+  // eligible, so nobody is silently dropped by simply opening the modal.
+  PEOPLE_POOL = [...new Set([...candidates, ...g[kind]])].sort();
+
+  const m = groupPeopleModal();
+  m.querySelector("#gp-title").textContent = kind === "controllers" ? "Manage controllers" : "Manage members";
+  m.querySelector("#gp-intro").textContent = kind === "controllers"
+    ? `Who oversees ${g.name}. Only users with the Controller role can be picked.`
+    : `Who belongs to ${g.name}. Only users with the User role can be picked.`;
+  m.querySelector("#gp-msg").innerHTML = "";
+  m.querySelector("#gp-search").value = "";
+  renderGroupPeople();
+  m.hidden = false;
+  m.querySelector("#gp-search").focus();
+}
+
+// wireGroupPeople binds the modal once, at init. The two lists are redrawn on
+// every change, so their buttons are handled by delegation rather than rebound.
+function wireGroupPeople() {
+  const m = groupPeopleModal();
+  m.querySelector("#gp-search").addEventListener("input", renderGroupPeople);
+  m.addEventListener("click", (e) => {
+    const add = e.target.closest("[data-add]");
+    const remove = e.target.closest("[data-remove]");
+    if (!add && !remove) return;
+    if (add) PEOPLE_PICK.add(add.dataset.add);
+    else PEOPLE_PICK.delete(remove.dataset.remove);
+    renderGroupPeople();
+    // Adding several people in a row should not cost a click back into the box.
+    if (add) m.querySelector("#gp-search").focus();
+  });
+}
+
+function closeGroupPeople() { groupPeopleModal().hidden = true; }
+
+async function applyGroupPeople() {
   const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
-  if (!g || !GROUP_DRAFT) return;
+  if (!g || !PEOPLE_KIND || !PEOPLE_PICK) return;
+  const msg = groupPeopleModal().querySelector("#gp-msg");
+  showMsg(msg, "Saving…", "");
+  const ok = await saveGroupFields(g, { [PEOPLE_KIND]: [...PEOPLE_PICK] }, msg,
+    `Updated the ${PEOPLE_KIND} of ${g.name}`);
+  if (ok) closeGroupPeople();
+}
+
+// ---- Edit group modal -------------------------------------------------------
+
+function groupEditModal() { return document.getElementById("edit-group-modal"); }
+
+function openGroupEdit(id) {
+  const g = GROUPS.find((x) => x.id === id);
+  if (!g) return;
+  const m = groupEditModal();
+  m.querySelector("#eg-name").value = g.name;
+  m.querySelector("#eg-desc").value = g.description || "";
+  m.querySelector("#eg-group-msg").innerHTML = "";
+  m.hidden = false;
+  m.querySelector("#eg-name").focus();
+}
+
+function closeGroupEdit() { groupEditModal().hidden = true; }
+
+async function applyGroupEdit() {
+  const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
+  if (!g) return;
+  const m = groupEditModal();
+  const msg = m.querySelector("#eg-group-msg");
+  const name = m.querySelector("#eg-name").value.trim();
+  if (!name) { showMsg(msg, "A group name is required", "error"); return; }
+  showMsg(msg, "Saving…", "");
+  const ok = await saveGroupFields(g,
+    { name, description: m.querySelector("#eg-desc").value.trim() }, msg, `Saved ${name}`);
+  if (ok) closeGroupEdit();
+}
+
+// ---- Duplicate group modal --------------------------------------------------
+
+function groupDuplicateModal() { return document.getElementById("duplicate-group-modal"); }
+
+function openGroupDuplicate(id) {
+  const g = GROUPS.find((x) => x.id === id);
+  if (!g) return;
+  const m = groupDuplicateModal();
+  m.querySelector("#dg-name").value = `${g.name} copy`;
+  m.querySelector("#dg-intro").textContent =
+    `Creates a new group with the same description, ${g.controllers.length} controller${g.controllers.length === 1 ? "" : "s"} and ${g.members.length} member${g.members.length === 1 ? "" : "s"}.`;
+  m.querySelector("#dg-msg").innerHTML = "";
+  m.hidden = false;
+  const input = m.querySelector("#dg-name");
+  input.focus();
+  input.select();
+}
+
+function closeGroupDuplicate() { groupDuplicateModal().hidden = true; }
+
+// applyGroupDuplicate posts a group with no id, which the save endpoint treats
+// as a create — so the copy gets its own generated id.
+async function applyGroupDuplicate() {
+  const g = GROUPS.find((x) => x.id === GROUP_SELECTED);
+  if (!g) return;
+  const m = groupDuplicateModal();
+  const msg = m.querySelector("#dg-msg");
+  const name = m.querySelector("#dg-name").value.trim();
+  if (!name) { showMsg(msg, "A name for the copy is required", "error"); return; }
+  showMsg(msg, "Duplicating…", "");
   const r = await apiFetch("admin/groups", {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      id: g.id,
-      name: GROUP_DRAFT.name.trim(),
-      description: GROUP_DRAFT.description.trim(),
-      members: [...GROUP_DRAFT.members],
-      controllers: [...GROUP_DRAFT.controllers],
+      name,
+      description: g.description || "",
+      members: g.members,
+      controllers: g.controllers,
     }),
   });
-  if (!r.ok) { showMsg(groupsMsg(), await r.text(), "error"); return; }
-  showMsg(groupsMsg(), `Saved ${GROUP_DRAFT.name.trim()}`, "ok");
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  const created = await r.json();
+  closeGroupDuplicate();
+  showMsg(groupsMsg(), `Created ${name} from ${g.name}`, "ok");
+  GROUP_SELECTED = created.id || null; // land on the copy
   loadGroups();
 }
 
@@ -3403,7 +3924,7 @@ async function deleteGroup(g) {
   });
   if (!r.ok) { showMsg(groupsMsg(), await r.text(), "error"); return; }
   showMsg(groupsMsg(), `Deleted ${g.name}`, "ok");
-  if (GROUP_SELECTED === g.id) { GROUP_SELECTED = null; GROUP_DRAFT = null; }
+  if (GROUP_SELECTED === g.id) GROUP_SELECTED = null;
   loadGroups();
 }
 
@@ -3418,8 +3939,9 @@ async function loadGroups() {
   GROUPS = d.groups || [];
   CAND_USERS = d.candidate_users || [];
   CAND_CONTROLLERS = d.candidate_controllers || [];
+  GROUP_DIR = d.directory || {};
   if (GROUP_SELECTED && GROUPS.some((g) => g.id === GROUP_SELECTED)) selectGroup(GROUP_SELECTED);
-  else { GROUP_SELECTED = null; GROUP_DRAFT = null; renderGroupsTable(); renderGroupDetails(); }
+  else { GROUP_SELECTED = null; renderGroupsTable(); renderGroupDetails(); }
 }
 
 function openAddGroup() {
@@ -3440,7 +3962,41 @@ async function initGroups() {
   document.getElementById("add-group-modal").addEventListener("click", (e) => {
     if (e.target.id === "add-group-modal") closeAddGroup();
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAddGroup(); });
+  // Manage members / controllers.
+  document.getElementById("gp-cancel").addEventListener("click", closeGroupPeople);
+  groupPeopleModal().addEventListener("click", (e) => {
+    if (e.target.id === "group-people-modal") closeGroupPeople();
+  });
+  document.getElementById("gp-save").addEventListener("click", applyGroupPeople);
+  wireGroupPeople();
+
+  // Edit group.
+  document.getElementById("eg-group-cancel").addEventListener("click", closeGroupEdit);
+  groupEditModal().addEventListener("click", (e) => {
+    if (e.target.id === "edit-group-modal") closeGroupEdit();
+  });
+  document.getElementById("eg-group-save").addEventListener("click", applyGroupEdit);
+
+  // Duplicate group.
+  document.getElementById("dg-cancel").addEventListener("click", closeGroupDuplicate);
+  groupDuplicateModal().addEventListener("click", (e) => {
+    if (e.target.id === "duplicate-group-modal") closeGroupDuplicate();
+  });
+  document.getElementById("dg-save").addEventListener("click", applyGroupDuplicate);
+
+  // Close the row menu on outside click / scroll / escape.
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#um-row-menu") && !e.target.closest(".um-dots")) closeRowMenu();
+  });
+  window.addEventListener("scroll", closeRowMenu, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    closeRowMenu();
+    closeAddGroup();
+    closeGroupPeople();
+    closeGroupEdit();
+    closeGroupDuplicate();
+  });
 
   const createMsg = document.getElementById("create-group-msg");
   document.getElementById("create-group").addEventListener("click", async () => {
@@ -4310,7 +4866,7 @@ async function initOAuth() {
     cb.type = "checkbox"; cb.dataset.key = "enabled"; cb.checked = !!p.enabled;
     en.appendChild(cb); en.appendChild(document.createTextNode(" Enabled"));
     const rm = document.createElement("button");
-    rm.type = "button"; rm.className = "link danger"; rm.textContent = "Remove";
+    rm.type = "button"; rm.className = "link danger-btn"; rm.textContent = "Remove";
     rm.addEventListener("click", () => { card.remove(); refreshEmpty(); });
     head.appendChild(en); head.appendChild(rm);
     card.appendChild(head);
@@ -4652,8 +5208,8 @@ function renderPlDetails() {
       <span class="badge" style="background:color-mix(in srgb, ${k.color} 16%, transparent);color:${k.color}">${escapeHtml(k.label)}</span>
     </div>
     <div class="sd-actions">
-      <button class="secondary btn-sm" id="sd-edit">Edit shift</button>
-      <button class="secondary btn-sm danger-btn" id="sd-del">Delete shift</button>
+      <button class="secondary btn-sm" id="sd-edit">Edit</button>
+      <button class="danger-btn" id="sd-del">Delete</button>
     </div>`;
   host.querySelector("#sd-edit").addEventListener("click", () => openShiftModal(s.id));
   host.querySelector("#sd-del").addEventListener("click", () => deleteShift(s));
@@ -5058,7 +5614,7 @@ function renderSkTable() {
             <div class="menu-pop">
               <button class="sk-m-details">Details</button>
               <button class="sk-m-archive">${s.archived ? "Restore" : "Archive"}</button>
-              <button class="danger sk-m-delete">Delete</button>
+              <button class="danger-btn">Delete</button>
             </div>
           </div>
         </td>
@@ -5198,8 +5754,8 @@ function renderSkDetails() {
 
     <div class="ud-section">
       <div class="ud-actions">
-        <button class="secondary btn-sm" id="sk-archive">${s.archived ? "Restore skill" : "Archive skill"}</button>
-        <button class="secondary btn-sm danger-btn" id="sk-delete">Delete skill</button>
+        <button class="secondary btn-sm" id="sk-archive">${s.archived ? "Restore" : "Archive"}</button>
+        <button class="danger-btn" id="sk-delete">Delete</button>
       </div>
     </div>`;
 

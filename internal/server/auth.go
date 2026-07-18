@@ -57,7 +57,7 @@ func (s *Server) getWebtokenProxy(req *request, authInfo map[string]any) respons
 	}
 	token, err := s.getWebtokenUnsafe(user, false)
 	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
+		return tokenErrResp(err)
 	}
 	return jsonResp(200, map[string]any{"token": token})
 }
@@ -91,7 +91,7 @@ func (s *Server) getWebtokenUsernamePassword(req *request, authInfo map[string]a
 		}
 		token, err := s.getWebtokenUnsafe(user, false)
 		if err != nil {
-			return textResp(500, "internal error: "+err.Error())
+			return tokenErrResp(err)
 		}
 		return jsonResp(200, map[string]any{"token": token})
 	}
@@ -158,7 +158,7 @@ func (s *Server) getWebtokenLocalhost(req *request, authInfo map[string]any) res
 	}
 	token, err := s.getWebtokenUnsafe("defaultuser", false)
 	if err != nil {
-		return textResp(500, "internal error: "+err.Error())
+		return tokenErrResp(err)
 	}
 	return jsonResp(200, map[string]any{"token": token})
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -214,6 +215,9 @@ func (s *Server) oauthCallbackHandler(req *request, providerID string) response 
 
 	webtoken, err := s.getWebtokenUnsafe(username, false)
 	if err != nil {
+		if errors.Is(err, errAccountDisabled) {
+			return s.oauthFail(req, errAccountDisabled.Error())
+		}
 		return s.oauthFail(req, "could not issue token")
 	}
 	frag := "#token=" + url.QueryEscape(webtoken) + "&user=" + url.QueryEscape(username)

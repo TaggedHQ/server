@@ -214,16 +214,23 @@ func (s *Server) adminGetGroups() response {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	var users, controllers []string
+	// directory carries the profile bits the page needs to show a face and a real
+	// name next to each username, so it does not need the users.manage list too.
+	directory := map[string]any{}
 	for _, m := range metas {
+		snap := s.userSnapshot(m.Username)
+		directory[m.Username] = map[string]any{
+			"profile": snap.Profile,
+			"avatar":  snap.Avatar,
+		}
 		if s.isConfigAdmin(m.Username) {
 			controllers = append(controllers, m.Username)
 			continue
 		}
-		_, storedAdmin, storedController := s.userFlags(m.Username)
 		switch {
-		case storedAdmin:
+		case snap.Admin:
 			// admins are neither members nor controllers
-		case storedController:
+		case snap.Controller:
 			controllers = append(controllers, m.Username)
 		default:
 			users = append(users, m.Username)
@@ -245,6 +252,7 @@ func (s *Server) adminGetGroups() response {
 		"groups":                groups,
 		"candidate_users":       users,
 		"candidate_controllers": controllers,
+		"directory":             directory,
 	})
 }
 
@@ -312,6 +320,95 @@ func (s *Server) adminSaveGroup(req *request) response {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	return jsonResp(200, map[string]any{"status": "ok", "id": id})
+}
+
+// adminSetUserGroups rewrites one user's group membership in a single save.
+// Body is JSON {"username": ..., "groups": [id, ...]}. The groups page edits one
+// group at a time; this is the same state seen from the other side, for the user
+// details panel. Which list the name lands in follows the account's role, the
+// same way validateGroupUsers enforces it: controllers oversee groups, regular
+// users belong to them, and stored admins can do neither.
+func (s *Server) adminSetUserGroups(req *request) response {
+	raw, err := req.getBody(64 * 1024)
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	var body struct {
+		Username string   `json:"username"`
+		Groups   []string `json:"groups"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return textResp(400, "bad request: body must be JSON with username and groups")
+	}
+	username := strings.TrimSpace(body.Username)
+	if username == "" {
+		return textResp(400, "username is required")
+	}
+	metas, err := s.getStore().ListUsers()
+	if err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	found := false
+	for _, m := range metas {
+		if m.Username == username {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return textResp(404, "user not found")
+	}
+
+	// Config admins oversee any group; otherwise the stored role decides.
+	asController := s.isConfigAdmin(username)
+	if !asController {
+		_, storedAdmin, storedController := s.userFlags(username)
+		if storedAdmin {
+			return textResp(400, "admins are not part of groups — change the role first")
+		}
+		asController = storedController
+	}
+
+	want := map[string]bool{}
+	for _, id := range body.Groups {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			want[id] = true
+		}
+	}
+	groups := s.listGroups()
+	known := map[string]bool{}
+	for _, g := range groups {
+		known[g.ID] = true
+	}
+	for id := range want {
+		if !known[id] {
+			return textResp(404, "group not found: "+id)
+		}
+	}
+
+	// Rebuild the one list this user belongs in, leaving the other untouched.
+	for i := range groups {
+		list := &groups[i].Members
+		if asController {
+			list = &groups[i].Controllers
+		}
+		out := make([]string, 0, len(*list)+1)
+		for _, u := range *list {
+			if u != username {
+				out = append(out, u)
+			}
+		}
+		if want[groups[i].ID] {
+			out = append(out, username)
+		}
+		sort.Strings(out)
+		*list = out
+	}
+	if err := s.saveGroups(groups); err != nil {
+		return textResp(500, "internal error: "+err.Error())
+	}
+	return jsonResp(200, map[string]any{"status": "ok"})
 }
 
 // adminDeleteGroup removes a group. Body is JSON {"id": "..."}.

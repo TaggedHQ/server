@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,6 +25,18 @@ func (e *AuthError) Error() string { return e.msg }
 
 func authErr(format string, args ...any) *AuthError {
 	return &AuthError{fmt.Sprintf(format, args...)}
+}
+
+// errAccountDisabled is returned by getWebtokenUnsafe for a deactivated account.
+var errAccountDisabled = errors.New("this account has been deactivated")
+
+// tokenErrResp maps a token-issuing failure to a response: a deactivated account
+// is the visitor's problem (403), anything else is ours (500).
+func tokenErrResp(err error) response {
+	if errors.Is(err, errAccountDisabled) {
+		return textResp(403, errAccountDisabled.Error())
+	}
+	return textResp(500, "internal error: "+err.Error())
 }
 
 func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
@@ -62,6 +75,10 @@ func (s *Server) authenticate(req *request) (map[string]any, store.UserDB, error
 	db, err := s.openUserDB(username)
 	if err != nil {
 		return nil, nil, err
+	}
+	if dbDisabledFlag(db) {
+		db.Close()
+		return nil, nil, authErr("%s", errAccountDisabled.Error())
 	}
 
 	expires := toFloat(authInfo["expires"])
@@ -148,6 +165,11 @@ func (s *Server) getWebtokenUnsafe(username string, reset bool) (string, error) 
 		return "", err
 	}
 	defer db.Close()
+	// Every interactive login funnels through here, so one check covers the
+	// password, proxy, OAuth and passkey flows alike.
+	if dbDisabledFlag(db) {
+		return "", errAccountDisabled
+	}
 	seed, err := s.getTokenSeedFromDB(db, "webtoken", reset)
 	if err != nil {
 		return "", err
