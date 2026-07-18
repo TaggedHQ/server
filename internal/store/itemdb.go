@@ -58,6 +58,16 @@ func Open(filename string) (*ItemDB, error) {
 		db.Close()
 		return nil, err
 	}
+	// A user database holds password hashes, backup-code hashes and the
+	// encrypted TOTP secret. By default SQLite leaves the old bytes of an
+	// overwritten or deleted row lying in free pages, where they stay readable
+	// in the file long afterwards -- so replacing a secret would not actually
+	// remove the previous one. secure_delete zeroes that space as part of the
+	// write. It costs a little write throughput, which is a good trade here.
+	if _, err := db.Exec("PRAGMA secure_delete=ON"); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &ItemDB{
 		db:       db,
 		mtime:    mtime,

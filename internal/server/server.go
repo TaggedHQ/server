@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.2.3"
+var Version = "0.2.4"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -42,6 +42,9 @@ type Server struct {
 
 	// loginLimit throttles password and two-factor guessing (see ratelimit.go).
 	loginLimit *rateLimiter
+	// secretKey encrypts the secrets that must be stored recoverably, notably
+	// the TOTP secret. Derived from jwtKey (see secrets.go).
+	secretKey []byte
 
 	// storeMu guards store/backendKind/backendURL, which the setup wizard can swap
 	// at runtime when the backend is not operator-pinned.
@@ -83,6 +86,10 @@ func New(cfg *config.Config) (*Server, error) {
 	jwtKey, err := loadJWTKey(rootTTDir)
 	if err != nil {
 		return nil, err
+	}
+	secretKey, err := deriveSecretKey(jwtKey)
+	if err != nil {
+		return nil, fmt.Errorf("could not derive the secret encryption key: %w", err)
 	}
 	trusted, err := parseIPRangeList(cfg.ProxyAuthTrusted)
 	if err != nil {
@@ -144,6 +151,7 @@ func New(cfg *config.Config) (*Server, error) {
 		trusted:          trusted,
 		admins:           loadAdmins(cfg.Admins),
 		loginLimit:       newRateLimiter(),
+		secretKey:        secretKey,
 		registrationOpen: registrationOpen,
 		oauthProviders:   oauthProviders,
 		roles:            roles,

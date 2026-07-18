@@ -100,7 +100,7 @@ func TestAdminResetMFAClearsEveryFactor(t *testing.T) {
 	if totpEnabled(db) {
 		t.Error("TOTP is still enabled")
 	}
-	if got := totpSecretOf(db); got != "" {
+	if got := s.totpSecretOf(db); got != "" {
 		t.Errorf("TOTP secret = %q, want it cleared", got)
 	}
 	if got := len(backupHashes(db)); got != 0 {

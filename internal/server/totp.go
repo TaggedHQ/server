@@ -146,9 +146,10 @@ func totpEnabled(db store.UserDB) bool {
 	return b
 }
 
-func totpSecretOf(db store.UserDB) string {
-	s, _ := userinfoGet(db, totpSecretKey).(string)
-	return s
+// totpSecretOf returns the confirmed TOTP secret in the clear. It is stored
+// encrypted (see secrets.go), so this is the only way to get at it.
+func (s *Server) totpSecretOf(db store.UserDB) string {
+	return s.readSecret(db, totpSecretKey)
 }
 
 func setBackupCodes(db store.UserDB, plain []string) error {
@@ -216,7 +217,7 @@ func (s *Server) verifyMFACode(username, code string) bool {
 	if !totpEnabled(db) {
 		return true
 	}
-	if secret := totpSecretOf(db); secret != "" && verifyTOTP(secret, code) {
+	if secret := s.totpSecretOf(db); secret != "" && verifyTOTP(secret, code) {
 		return true
 	}
 	return consumeBackupCode(db, code)
@@ -231,7 +232,7 @@ func (s *Server) totpSetup(authInfo map[string]any, db store.UserDB) response {
 		return textResp(409, "two-factor authentication is already enabled")
 	}
 	secret := generateTOTPSecret()
-	if err := userinfoPut(db, totpPendingKey, secret); err != nil {
+	if err := s.writeSecret(db, totpPendingKey, secret); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
 	username, _ := authInfo["username"].(string)
@@ -255,7 +256,7 @@ func (s *Server) totpEnable(req *request, db store.UserDB) response {
 	if err := readJSON(req, &body); err != nil {
 		return textResp(400, "bad request: body must be JSON with a code")
 	}
-	secret, _ := userinfoGet(db, totpPendingKey).(string)
+	secret := s.readSecret(db, totpPendingKey)
 	if secret == "" {
 		return textResp(400, "no setup in progress; call totp/setup first")
 	}
@@ -264,7 +265,7 @@ func (s *Server) totpEnable(req *request, db store.UserDB) response {
 	}
 	codes := generateBackupCodes(backupCount)
 	if err := firstErr(
-		userinfoPut(db, totpSecretKey, secret),
+		s.writeSecret(db, totpSecretKey, secret),
 		userinfoPut(db, totpEnabledKey, true),
 		userinfoPut(db, totpPendingKey, ""),
 		setBackupCodes(db, codes),
@@ -286,7 +287,7 @@ func (s *Server) totpDisable(req *request, db store.UserDB) response {
 	if err := readJSON(req, &body); err != nil {
 		return textResp(400, "bad request: body must be JSON with a code")
 	}
-	secret := totpSecretOf(db)
+	secret := s.totpSecretOf(db)
 	if !(secret != "" && verifyTOTP(secret, body.Code)) && !consumeBackupCode(db, body.Code) {
 		return textResp(400, "invalid code")
 	}

@@ -169,6 +169,28 @@ multi-arch container to `ghcr.io/taggedhq/server` and creates a GitHub Release:
 docker pull ghcr.io/taggedhq/server:vX.Y.Z   # or :latest
 ```
 
+## Secrets at rest
+
+Passwords and two‑factor backup codes are bcrypt hashes — they are never
+recoverable. A TOTP secret has to be, since the server reproduces the code from
+it, so from 0.2.4 it is encrypted with AES‑256‑GCM under a key derived from
+`jwt.key`. Existing plaintext secrets are re‑stored encrypted the first time
+their owner signs in; nothing needs to be done by hand.
+
+This protects a database seen on its own — a backup, a Postgres replica, a
+copied volume. It does **not** protect a stolen `datadir`, because the key is
+derived from `jwt.key`, which lives there. Keep `jwt.key` backed up: losing it
+makes the stored secrets undecryptable, and enrolled users then need their
+backup codes or an admin reset.
+
+User databases are opened with `PRAGMA secure_delete`, so replacing a secret
+zeroes the old bytes rather than leaving them readable in free pages. Data freed
+*before* upgrading is not covered by that; to clear it once:
+
+```bash
+for db in <datadir>/users/*.db; do sqlite3 "$db" "VACUUM;"; done   # server stopped
+```
+
 ## The API
 
 Tagged is API‑first — the web UI is just a client. Authenticate to get a token,
