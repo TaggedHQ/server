@@ -67,6 +67,177 @@ function logout() { clearSession(); location.href = PREFIX + "login"; }
 function showMsg(el, text, kind) {
   el.textContent = text;
   el.className = "msg" + (kind ? " " + kind : "");
+  // Successful writes also surface as a toast at the top of the page, so the
+  // confirmation is visible even when the inline slot is scrolled away or the
+  // panel it belongs to is behind a modal.
+  if (kind === "ok" && text) toast(text, "ok");
+}
+
+// ---- Toasts -----------------------------------------------------------------
+// One fixed host per page, created on first use so no template has to carry the
+// markup. Toasts stack downwards and fade themselves out.
+
+function toastHost() {
+  let host = document.getElementById("toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "toast-host";
+    host.className = "toast-host";
+    host.setAttribute("role", "status");
+    host.setAttribute("aria-live", "polite");
+    document.body.appendChild(host);
+  }
+  return host;
+}
+
+// toast shows a transient message. kind is "ok" | "error" | "" (neutral).
+function toast(text, kind = "", ms = 3200) {
+  if (!text) return;
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.innerHTML = '<span class="dot"></span>';
+  const span = document.createElement("span");
+  span.textContent = text;
+  el.appendChild(span);
+  toastHost().appendChild(el);
+  requestAnimationFrame(() => el.classList.add("in"));
+  const drop = () => {
+    el.classList.remove("in");
+    setTimeout(() => el.remove(), 200);
+  };
+  const timer = setTimeout(drop, ms);
+  el.addEventListener("click", () => { clearTimeout(timer); drop(); });
+}
+
+// ---- Confirm / prompt sheets ------------------------------------------------
+// Replacements for window.confirm and window.prompt that match the app's own
+// modals. They build their DOM on demand and append it to <body>, so every page
+// gets them without repeating markup in each template.
+
+// modalSheet returns an empty .sheet inside a fresh overlay. Escape and clicks
+// on the backdrop both run `cancel`. Call overlay.close() to tear it down.
+function modalSheet(extraClass, cancel) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const sheet = document.createElement("div");
+  sheet.className = "sheet" + (extraClass ? " " + extraClass : "");
+  overlay.appendChild(sheet);
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) cancel(); });
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); cancel(); } };
+  document.addEventListener("keydown", onKey);
+  overlay.close = () => { document.removeEventListener("keydown", onKey); overlay.remove(); };
+  document.body.appendChild(overlay);
+  return { overlay, sheet };
+}
+
+// confirmModal asks a yes/no question. Resolves true only when the confirm
+// button is pressed. Pass danger:false for a non-destructive action (the
+// confirm button then uses the normal accent style).
+//   await confirmModal({title, body, confirmLabel, danger})
+function confirmModal(opts) {
+  const o = typeof opts === "string" ? { body: opts } : (opts || {});
+  return new Promise((resolve) => {
+    let ui = null, done = false;
+    const finish = (v) => { if (done) return; done = true; ui.overlay.close(); resolve(v); };
+    ui = modalSheet("confirm", () => finish(false));
+    const danger = o.danger !== false;
+    ui.sheet.innerHTML = `
+      <div class="sheet-title">${escapeHtml(o.title || "Are you sure?")}</div>
+      <div class="sheet-section"><div class="confirm-body"></div></div>
+      <div class="sheet-actions">
+        <div class="spacer"></div>
+        <button class="secondary" type="button" data-a="no">${escapeHtml(o.cancelLabel || "Cancel")}</button>
+        <button type="button" data-a="yes"${danger ? ' class="danger-btn"' : ""}>${escapeHtml(o.confirmLabel || "Delete")}</button>
+      </div>`;
+    ui.sheet.querySelector(".confirm-body").textContent = o.body || "";
+    ui.sheet.querySelector('[data-a="no"]').addEventListener("click", () => finish(false));
+    const yes = ui.sheet.querySelector('[data-a="yes"]');
+    yes.addEventListener("click", () => finish(true));
+    yes.focus();
+  });
+}
+
+// promptModal asks for a single line of text. Resolves the trimmed value, or
+// null when cancelled or left empty.
+function promptModal(opts) {
+  const o = opts || {};
+  return new Promise((resolve) => {
+    let ui = null, done = false;
+    const finish = (v) => { if (done) return; done = true; ui.overlay.close(); resolve(v); };
+    ui = modalSheet("confirm", () => finish(null));
+    ui.sheet.innerHTML = `
+      <div class="sheet-title">${escapeHtml(o.title || "")}</div>
+      <div class="sheet-section">
+        <div class="pw-field">
+          <label for="pm-value">${escapeHtml(o.label || "Name")}</label>
+          <input id="pm-value" type="text" autocomplete="off">
+        </div>
+      </div>
+      <div class="em-msg" data-a="msg"></div>
+      <div class="sheet-actions">
+        <div class="spacer"></div>
+        <button class="secondary" type="button" data-a="cancel">Cancel</button>
+        <button type="button" data-a="ok">${escapeHtml(o.confirmLabel || "Save")}</button>
+      </div>`;
+    const input = ui.sheet.querySelector("#pm-value");
+    const msg = ui.sheet.querySelector('[data-a="msg"]');
+    input.value = o.value || "";
+    const submit = () => {
+      const v = input.value.trim();
+      if (!v) { msg.textContent = "Enter a value."; input.focus(); return; }
+      finish(v);
+    };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+    ui.sheet.querySelector('[data-a="cancel"]').addEventListener("click", () => finish(null));
+    ui.sheet.querySelector('[data-a="ok"]').addEventListener("click", submit);
+    input.focus();
+    input.select();
+  });
+}
+
+// passwordModal asks for a new password twice and only resolves once the two
+// entries match and clear the minimum length. Resolves null when cancelled.
+function passwordModal(opts) {
+  const o = opts || {};
+  const min = o.minLength || 4;
+  return new Promise((resolve) => {
+    let ui = null, done = false;
+    const finish = (v) => { if (done) return; done = true; ui.overlay.close(); resolve(v); };
+    ui = modalSheet("confirm", () => finish(null));
+    ui.sheet.innerHTML = `
+      <div class="sheet-title">${escapeHtml(o.title || "Reset password")}</div>
+      <div class="sheet-section">
+        <div class="confirm-body" data-a="body"></div>
+        <div class="pw-field">
+          <label for="pwm-1">New password</label>
+          <input id="pwm-1" type="password" autocomplete="new-password">
+        </div>
+        <div class="pw-field">
+          <label for="pwm-2">Confirm password</label>
+          <input id="pwm-2" type="password" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="em-msg" data-a="msg"></div>
+      <div class="sheet-actions">
+        <div class="spacer"></div>
+        <button class="secondary" type="button" data-a="cancel">Cancel</button>
+        <button type="button" data-a="ok">${escapeHtml(o.confirmLabel || "Set password")}</button>
+      </div>`;
+    const body = ui.sheet.querySelector('[data-a="body"]');
+    if (o.body) body.textContent = o.body; else body.remove();
+    const p1 = ui.sheet.querySelector("#pwm-1");
+    const p2 = ui.sheet.querySelector("#pwm-2");
+    const msg = ui.sheet.querySelector('[data-a="msg"]');
+    const submit = () => {
+      if (p1.value.length < min) { msg.textContent = `Password must be at least ${min} characters.`; p1.focus(); return; }
+      if (p1.value !== p2.value) { msg.textContent = "Passwords do not match."; p2.focus(); p2.select(); return; }
+      finish(p1.value);
+    };
+    [p1, p2].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); }));
+    ui.sheet.querySelector('[data-a="cancel"]').addEventListener("click", () => finish(null));
+    ui.sheet.querySelector('[data-a="ok"]').addEventListener("click", submit);
+    p1.focus();
+  });
 }
 
 async function apiFetch(path, opts = {}) {
@@ -1481,8 +1652,13 @@ function initPasskeys() {
   }
 
   async function add() {
-    const label = (prompt("Name this passkey (e.g. “MacBook Touch ID”):", "Passkey") || "").trim();
-    if (label === "") return; // cancelled
+    const label = await promptModal({
+      title: "Name this passkey",
+      label: "Passkey name",
+      value: "Passkey",
+      confirmLabel: "Continue",
+    });
+    if (label === null) return; // cancelled
     showMsg(msg, "Follow your device's prompt…", "");
     let options;
     try {
@@ -1505,7 +1681,11 @@ function initPasskeys() {
   }
 
   async function remove(id) {
-    if (!confirm("Remove this passkey? It can no longer be used to sign in.")) return;
+    if (!(await confirmModal({
+      title: "Remove passkey",
+      body: "Remove this passkey? It can no longer be used to sign in.",
+      confirmLabel: "Remove",
+    }))) return;
     try {
       const r = await apiFetch("webauthn/credentials", {
         method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
@@ -1716,7 +1896,11 @@ function initTokenSection(hasPassword) {
   });
 
   document.getElementById("regen-token").addEventListener("click", async () => {
-    if (!confirm("Regenerate the API token? The previous token will stop working immediately.")) return;
+    if (!(await confirmModal({
+      title: "Regenerate API token",
+      body: "Regenerate the API token? The previous token will stop working immediately.",
+      confirmLabel: "Regenerate",
+    }))) return;
     showMsg(msg, "Regenerating…", "");
     const t = await fetchApiToken(true);
     if (!t) { showMsg(msg, "Failed to regenerate", "error"); return; }
@@ -1758,8 +1942,136 @@ function entryCard(r) {
     <div class="te-time"><div class="t1">${clock(r.t1)}</div><div class="t2">${clock(r.t2)}</div></div>
     <div class="te-body"><div class="te-desc ${descText ? "" : "none"}">${descText ? escapeHtml(descText) : "No description"}</div>${tagBadges ? `<div class="te-tags">${tagBadges}</div>` : ""}</div>
     <div class="te-dur">${fmtHM(recDur(r))}</div>
-    <div class="te-menu"><button class="te-menu-btn" aria-label="Menu">⋯</button><div class="menu-pop"><button class="edit">Edit</button><button class="danger-btn">Delete</button></div></div>
+    <div class="te-menu"><button class="te-menu-btn" aria-label="Menu">⋯</button><div class="menu-pop"><button class="resume">Resume</button><button class="edit">Edit</button><button class="delete danger-btn">Delete</button></div></div>
   </div>`;
+}
+
+// ---- Entry details panel ----------------------------------------------------
+// Mirrors the users/roles/groups pages: clicking a row selects it, and the side
+// panel shows the read-only detail cards plus the actions for that record.
+
+let ENTRY_SELECTED = null; // key of the entry shown in the panel, or null
+
+function selectEntry(key) {
+  ENTRY_SELECTED = key;
+  markEntrySelection();
+  renderEntryDetails();
+}
+
+// markEntrySelection repaints just the selected state. Selection is the one
+// change that does not need renderEntriesPage — rebuilding the timeline under
+// the cursor on every click would be both wasteful and jarring.
+function markEntrySelection() {
+  document.querySelectorAll(".te-card, .tl-block").forEach((el) => {
+    el.classList.toggle("selected", el.dataset.key === ENTRY_SELECTED);
+  });
+}
+
+function renderEntryDetails() {
+  const host = document.getElementById("entry-details");
+  if (!host) return; // other pages reuse renderEntriesPage's helpers
+  const r = ENTRY_SELECTED ? ALL.find((x) => x.key === ENTRY_SELECTED) : null;
+  if (!r) {
+    host.classList.remove("filled");
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <p>Select an entry to view its details and actions.</p>
+    </div>`;
+    return;
+  }
+
+  const descText = (r.ds || "").replace(RE_TAG_G, "").trim();
+  const tags = allTagsOf(r.ds);
+  const dotColor = tags.length ? colorFor(tags[0].slice(1).toLowerCase()) : "var(--accent)";
+  const day = new Date(r.t1 * 1000);
+
+  const head = `<div class="ud-head">
+    <span class="ed-dot" style="background:${dotColor}"></span>
+    <div class="ud-id">
+      <div class="ud-name-row">
+        <span class="ud-name">${descText ? escapeHtml(descText) : "No description"}</span>
+      </div>
+      <div class="ud-username">${escapeHtml(fmtLongDate(day))}</div>
+    </div>
+  </div>`;
+
+  const detailsCard = udCard("Details", [
+    udRow("Date", escapeHtml(fmtLongDate(day))),
+    udRow("Start", clock(r.t1)),
+    udRow("End", clock(r.t2)),
+    udRow("Duration", fmtHM(recDur(r))),
+  ].join(""), `<button class="secondary btn-sm" id="d-edit-entry">Edit</button>`);
+
+  const tagsCard = udCard("Tags", tags.length
+    ? `<div class="ud-roles">${tags.map((t) => badge(t.slice(1).toLowerCase())).join("")}</div>`
+    : `<p class="muted um-note">No tags on this entry.</p>`);
+
+  const actions = `<div class="ud-stack">
+    <button id="d-entry-resume">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path d="M8 5v14l11-7z"/></svg>
+      Resume entry
+    </button>
+    <button class="secondary" id="d-entry-edit">Edit entry</button>
+    <button class="danger-btn" id="d-entry-delete">Delete entry</button>
+  </div>`;
+
+  host.classList.add("filled");
+  host.innerHTML = head + detailsCard + tagsCard + actions;
+
+  const on = (id, fn) => { const el = host.querySelector(id); if (el) el.addEventListener("click", fn); };
+  on("#d-edit-entry", () => openEntryModal(r));
+  on("#d-entry-resume", () => resumeEntry(r));
+  on("#d-entry-edit", () => openEntryModal(r));
+  on("#d-entry-delete", () => deleteEntry(r));
+}
+
+// resumeEntry starts the sidebar timer again on an entry's description and
+// tags, the way the original TimeTagger's "Resume" does. That app models a
+// running record as one with t1 == t2; here the running clock lives in
+// timerState and only becomes a record on stop, so resuming means seeding the
+// timer rather than writing anything.
+async function resumeEntry(r) {
+  // Capture the text before any await: stopTimer reloads ALL, which replaces
+  // the record objects this one came from.
+  const desc = (r.ds || "").replace(RE_TAG_G, "").trim();
+  const tags = [...new Set(allTagsOf(r.ds).map((t) => t.slice(1).toLowerCase()))];
+
+  // Only one clock can run at a time, so bank the current one first — the same
+  // thing the original does when it stops other running records.
+  const wasRunning = timerState.running;
+  if (wasRunning) await stopTimer();
+
+  timerState.desc = desc;
+  timerState.tags = tags;
+  timerState.running = true;
+  timerState.startEpoch = Math.floor(Date.now() / 1000);
+  saveTimerState();
+  timerTickStart();
+  updateTimerUI();
+  toast(wasRunning
+    ? `Resumed ${desc || "entry"} — previous timer stopped`
+    : `Resumed ${desc || "entry"}`, "ok");
+}
+
+// fmtLongDate renders "Saturday, Jul 18 2026" for the panel header.
+function fmtLongDate(d) {
+  return `${WEEKDAY_FULL[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()} ${d.getFullYear()}`;
+}
+
+// deleteEntry soft-deletes a record after confirmation. Shared by the details
+// panel, the row menu and the editor, so all three ask the same question.
+// Returns true when the entry was actually deleted.
+async function deleteEntry(r) {
+  if (!(await confirmModal({
+    title: "Delete entry",
+    body: "Delete this entry? This cannot be undone.",
+  }))) return false;
+  await putRecord({ key: r.key, mt: Math.floor(Date.now() / 1000), t1: r.t1, t2: r.t2, ds: "HIDDEN " + (r.ds || "") });
+  if (ENTRY_SELECTED === r.key) ENTRY_SELECTED = null;
+  toast("Entry deleted", "ok");
+  await loadAll();
+  renderEntriesPage();
+  return true;
 }
 
 // ---- Timeline state ---------------------------------------------------------
@@ -1898,11 +2210,20 @@ function renderTimeline() {
   canvas.innerHTML = grid + empty + `<div class="tl-lanes">${blocks}</div>`;
   document.getElementById("tl-visible-total").textContent = fmtHM(visibleTotal);
 
-  canvas.querySelectorAll(".tl-block").forEach((el) => el.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const r = ALL.find((x) => x.key === el.dataset.key);
-    if (r) openEntryModal(r);
-  }));
+  canvas.querySelectorAll(".tl-block").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectEntry(el.dataset.key);
+    });
+    // Double-click still jumps straight to the editor, for anyone who does not
+    // want the detour through the panel.
+    el.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      const r = ALL.find((x) => x.key === el.dataset.key);
+      if (r) openEntryModal(r);
+    });
+  });
+  markEntrySelection();
 }
 
 // renderEntriesPage redraws the whole page: the week strip, the day list for
@@ -1950,12 +2271,8 @@ function renderEntriesPage() {
   list.querySelectorAll(".menu-pop .delete").forEach((b) => b.addEventListener("click", async (e) => {
     e.stopPropagation();
     closeAllMenus();
-    const key = b.closest(".te-card").dataset.key;
-    const r = ALL.find((x) => x.key === key);
-    if (!r) return;
-    await putRecord({ key: r.key, mt: Math.floor(Date.now() / 1000), t1: r.t1, t2: r.t2, ds: "HIDDEN " + (r.ds || "") });
-    await loadAll();
-    renderEntriesPage();
+    const r = ALL.find((x) => x.key === b.closest(".te-card").dataset.key);
+    if (r) await deleteEntry(r);
   }));
   list.querySelectorAll(".menu-pop .edit").forEach((b) => b.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -1963,14 +2280,33 @@ function renderEntriesPage() {
     const r = ALL.find((x) => x.key === b.closest(".te-card").dataset.key);
     if (r) openEntryModal(r);
   }));
-  // Clicking a card (outside its menu) opens the editor too.
-  list.querySelectorAll(".te-card").forEach((card) => card.addEventListener("click", (e) => {
-    if (e.target.closest(".te-menu")) return;
-    const r = ALL.find((x) => x.key === card.dataset.key);
-    if (r) openEntryModal(r);
+  list.querySelectorAll(".menu-pop .resume").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeAllMenus();
+    const r = ALL.find((x) => x.key === b.closest(".te-card").dataset.key);
+    if (r) resumeEntry(r);
   }));
+  // Clicking a card (outside its menu) selects it; the details panel then
+  // carries the actions. Double-click keeps the old shortcut to the editor.
+  list.querySelectorAll(".te-card").forEach((card) => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".te-menu")) return;
+      selectEntry(card.dataset.key);
+    });
+    card.addEventListener("dblclick", (e) => {
+      if (e.target.closest(".te-menu")) return;
+      const r = ALL.find((x) => x.key === card.dataset.key);
+      if (r) openEntryModal(r);
+    });
+  });
 
   renderTimeline();
+
+  // Drop a selection whose record is gone (deleted, or edited out of view), so
+  // the panel never describes a record that no longer exists.
+  if (ENTRY_SELECTED && !ALL.some((x) => x.key === ENTRY_SELECTED)) ENTRY_SELECTED = null;
+  markEntrySelection();
+  renderEntryDetails();
 }
 
 // ---- Entry editor modal -----------------------------------------------------
@@ -2106,22 +2442,20 @@ async function saveEntryModal() {
   if (t2 < t1) { emError("End must be after start."); return; }
   let ds = descText;
   if (emTags.length) ds = (descText + " " + emTags.map((t) => "#" + t).join(" ")).trim();
+  const editing = !!emKey;
   const key = emKey || randomKey();
   const ok = await putRecord({ key, mt: Math.floor(Date.now() / 1000), t1, t2, ds });
   if (!ok) { emError("Failed to save."); return; }
+  toast(editing ? "Entry updated" : "Entry saved", "ok");
   closeEntryModal();
   await loadAll();
   renderEntriesPage();
 }
 
 async function deleteEntryModal() {
-  if (!emKey) return;
-  if (!confirm("Delete this entry? This cannot be undone.")) return;
-  const r = ALL.find((x) => x.key === emKey);
-  if (r) await putRecord({ key: r.key, mt: Math.floor(Date.now() / 1000), t1: r.t1, t2: r.t2, ds: "HIDDEN " + (r.ds || "") });
-  closeEntryModal();
-  await loadAll();
-  renderEntriesPage();
+  const r = emKey ? ALL.find((x) => x.key === emKey) : null;
+  if (!r) return;
+  if (await deleteEntry(r)) closeEntryModal();
 }
 
 function wireEntryModal() {
@@ -2735,9 +3069,12 @@ function renderUsersTable() {
 function adminMsg() { return document.getElementById("users-msg"); }
 
 async function actResetPassword(username) {
-  const pw = prompt(`New password for ${username}:`);
+  const pw = await passwordModal({
+    title: `Reset password for ${username}`,
+    body: "The user can sign in with this password immediately. Existing sessions are unaffected.",
+    confirmLabel: "Reset password",
+  });
   if (pw === null) return;
-  if (pw.length < 4) { showMsg(adminMsg(), "Password must be at least 4 characters", "error"); return; }
   const r = await apiFetch("admin/password", {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password: pw }),
@@ -2765,7 +3102,11 @@ const MFA_SCOPES = {
 // actResetMFA clears second factors, for a user who lost their device.
 async function actResetMFA(username, scope = "all") {
   const s = MFA_SCOPES[scope] || MFA_SCOPES.all;
-  if (!confirm(`Reset two-factor for ${username}?\n\n${s.confirm}\n\nThey can sign in with their password alone until they set it up again.`)) return;
+  if (!(await confirmModal({
+    title: `Reset two-factor for ${username}`,
+    body: `${s.confirm}\n\nThey can sign in with their password alone until they set it up again.`,
+    confirmLabel: "Reset",
+  }))) return;
   const r = await apiFetch("admin/mfa", {
     method: "DELETE", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, scope }),
@@ -2778,9 +3119,18 @@ async function actResetMFA(username, scope = "all") {
 // data but signs the user out everywhere and blocks further logins.
 async function actSetDisabled(username, disabled) {
   const q = disabled
-    ? `Deactivate ${username}?\n\nTheir data is kept, but they are signed out everywhere and cannot log in until you reactivate them.`
-    : `Reactivate ${username}? They will be able to log in again.`;
-  if (!confirm(q)) return;
+    ? {
+        title: `Deactivate ${username}`,
+        body: "Their data is kept, but they are signed out everywhere and cannot log in until you reactivate them.",
+        confirmLabel: "Deactivate",
+      }
+    : {
+        title: `Reactivate ${username}`,
+        body: "They will be able to log in again.",
+        confirmLabel: "Reactivate",
+        danger: false,
+      };
+  if (!(await confirmModal(q))) return;
   const r = await apiFetch("admin/disable", {
     method: "PUT", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, disabled }),
@@ -2790,7 +3140,10 @@ async function actSetDisabled(username, disabled) {
 }
 
 async function actDeleteUser(username) {
-  if (!confirm(`Delete user "${username}" and all their data? This cannot be undone.`)) return;
+  if (!(await confirmModal({
+    title: `Delete ${username}`,
+    body: `Delete user "${username}" and all their data? This cannot be undone.`,
+  }))) return;
   const r = await apiFetch("admin/user", {
     method: "DELETE", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username }),
@@ -3596,7 +3949,10 @@ async function applyRoleModal() {
 }
 
 async function deleteRole(r) {
-  if (!confirm(`Delete the role "${r.label}"?\n\nUsers keep their accounts; the role simply stops being available.`)) return;
+  if (!(await confirmModal({
+    title: `Delete role "${r.label}"`,
+    body: "Users keep their accounts; the role simply stops being available.",
+  }))) return;
   const resp = await apiFetch("admin/role", {
     method: "DELETE", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role: r.key }),
@@ -4054,7 +4410,10 @@ async function applyGroupDuplicate() {
 }
 
 async function deleteGroup(g) {
-  if (!confirm(`Delete the group "${g.name}"? Its controllers lose access to these users. The user accounts themselves are not touched.`)) return;
+  if (!(await confirmModal({
+    title: `Delete group "${g.name}"`,
+    body: "Its controllers lose access to these users. The user accounts themselves are not touched.",
+  }))) return;
   const r = await apiFetch("admin/group", {
     method: "DELETE", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: g.id }),
@@ -4383,9 +4742,9 @@ async function deleteTagModal() {
   if (!tmEditKey) return;
   const st = tagUsage()[tmEditKey];
   const warn = st
-    ? `Delete the tag "${labelFor(tmEditKey)}"? It will be removed from ${st.count} ${st.count === 1 ? "entry" : "entries"} (the entries themselves are kept).`
-    : `Delete the tag "${labelFor(tmEditKey)}"?`;
-  if (!confirm(warn)) return;
+    ? `It will be removed from ${st.count} ${st.count === 1 ? "entry" : "entries"} (the entries themselves are kept).`
+    : "It is not used by any entry.";
+  if (!(await confirmModal({ title: `Delete tag "${labelFor(tmEditKey)}"`, body: warn }))) return;
 
   // Strip the #tag token from every record that uses it.
   const re = new RegExp("#" + tmEditKey.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&") + "\\b", "gi");
@@ -5504,8 +5863,11 @@ function saveShift() {
   showMsg(shiftsMsg(), existing ? "Shift updated" : "Shift added", "ok");
 }
 
-function deleteShift(s) {
-  if (!confirm(`Delete this shift${s.user ? " for " + plName(s.user) : ""} on ${s.date}?`)) return;
+async function deleteShift(s) {
+  if (!(await confirmModal({
+    title: "Delete shift",
+    body: `Delete this shift${s.user ? " for " + plName(s.user) : ""} on ${s.date}?`,
+  }))) return;
   PL_SHIFTS = PL_SHIFTS.filter((x) => x.id !== s.id);
   if (PL_SEL === s.id) PL_SEL = null;
   renderShifts();
@@ -5908,8 +6270,11 @@ function toggleArchiveSkill(s) {
   renderSkills();
 }
 
-function deleteSkill(s) {
-  if (!confirm(`Delete the skill "${s.name}"? Team ratings for it are removed too.`)) return;
+async function deleteSkill(s) {
+  if (!(await confirmModal({
+    title: `Delete skill "${s.name}"`,
+    body: "Team ratings for it are removed too.",
+  }))) return;
   SKILLS = SKILLS.filter((x) => x.id !== s.id);
   if (SK_SELECTED === s.id) SK_SELECTED = null;
   showMsg(skillsMsg(), `Deleted ${s.name}`, "ok");

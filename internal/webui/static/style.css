@@ -491,7 +491,7 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
    their own cards, so they get more room than the plainer panels on the other
    admin pages. The track grows with the window rather than taking a fixed
    412px, which would squeeze the table on a 1280-wide screen. */
-#users-layout, #groups-layout, #roles-layout { grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 412px); }
+#users-layout, #groups-layout, #roles-layout, #entries-layout { grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 412px); }
 .main-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .side-col { display: flex; flex-direction: column; gap: 16px; }
 
@@ -627,6 +627,10 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 /* ---- Time-entry cards ------------------------------------------------------ */
 .te-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 .te-card { display: flex; align-items: center; gap: 14px; background: var(--surface-raised); border: 1px solid var(--stroke); border-radius: 12px; padding: 14px 16px; position: relative; }
+.te-card { cursor: pointer; }
+/* Selection mirrors the admin tables: the picked row is tinted and the side
+   panel shows its details. */
+.te-card.selected { border-color: var(--accent); background: var(--accent-dim); }
 .te-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
 .te-time { width: 52px; flex: 0 0 auto; }
 .te-time .t1 { font-size: 0.9rem; font-weight: 600; color: var(--text-1); }
@@ -691,6 +695,7 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
   background: color-mix(in srgb, var(--tl-c) 18%, var(--surface));
 }
 .tl-block:hover { background: color-mix(in srgb, var(--tl-c) 32%, var(--surface)); z-index: 6; }
+.tl-block.selected { background: color-mix(in srgb, var(--tl-c) 40%, var(--surface)); box-shadow: 0 0 0 1px var(--tl-c); z-index: 7; }
 .tl-block-body { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 0.74rem; line-height: 1.25; }
 .tl-block-dur { color: var(--tl-c); font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
 .tl-block-desc { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1010,6 +1015,11 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 /* The panel is a stack of cards: an identity header, then one card per topic,
    each with its own action button, and the account-level actions last. */
 .ud-head { display: flex; align-items: center; gap: 14px; padding: 2px 2px 18px; }
+/* The entry panel has no avatar, so a tag-coloured dot stands in for it. */
+.ed-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
+/* Entry descriptions are free text and often longer than a name, so they wrap
+   here rather than being clipped to one line as on the admin pages. */
+#entry-details .ud-name { white-space: normal; }
 .ud-id { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .ud-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ud-name { font-weight: 600; color: var(--text-1); font-size: 0.98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1046,6 +1056,9 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 /* Account-level actions, kept clear of the cards above them. */
 .ud-danger { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 .ud-danger button { width: 100%; }
+/* Same stack, but for panels whose actions are not all destructive. */
+.ud-stack { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.ud-stack button { width: 100%; }
 
 /* A deactivated account reads as inactive in the list. */
 .um-row.off .um-name, .um-row.off .um-sub { opacity: 0.55; }
@@ -1193,7 +1206,7 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
      specificity, so without them those pages keep their two columns here and
      the table is squeezed into half a narrow screen. Any new id added to the
      wide rule above has to be added here too. */
-  .content, #users-layout, #groups-layout, #roles-layout { grid-template-columns: minmax(0, 1fr); }
+  .content, #users-layout, #groups-layout, #roles-layout, #entries-layout { grid-template-columns: minmax(0, 1fr); }
   .side-col { display: grid; grid-template-columns: repeat(2, 1fr); }
   .um-details { position: static; grid-column: 1 / -1; }
 }
@@ -1494,3 +1507,50 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 @media (max-width: 1080px) {
   .sk-cov { min-width: 110px; }
 }
+
+/* ---- Toasts ---------------------------------------------------------------
+   A single fixed host at the top of the page, above every modal overlay, so a
+   save confirmation reads the same on any page and is still visible while a
+   sheet is open. */
+.toast-host {
+  position: fixed; top: 18px; left: 0; right: 0; z-index: 200;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  max-width: min(90vw, 460px);
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--stroke-strong);
+  border-radius: 999px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  color: var(--text-1); font-size: 0.84rem; line-height: 1.35;
+  padding: 11px 18px;
+  opacity: 0; transform: translateY(-10px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.toast.in { opacity: 1; transform: none; }
+.toast .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 5px; background: var(--text-3); }
+.toast.ok .dot { background: var(--accent); }
+.toast.error .dot { background: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .toast { transition: none; }
+}
+
+/* ---- Confirm / password sheets --------------------------------------------
+   Built by app.js and appended to <body>, so every page gets them without
+   repeating the markup in each template. */
+.sheet.confirm { max-width: 440px; }
+.confirm-body { color: var(--text-2); font-size: 0.88rem; line-height: 1.5; white-space: pre-line; }
+.confirm-body p { margin: 0 0 10px; }
+.confirm-body p:last-child { margin-bottom: 0; }
+.pw-field { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+.pw-field:first-child { margin-top: 0; }
+.pw-field label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-3); }
+.pw-field input {
+  width: 100%;
+  background: var(--surface); border: 1px solid var(--stroke); border-radius: 9px;
+  color: var(--text-1); font-family: var(--font); font-size: 0.9rem; padding: 10px 12px;
+}
+.pw-field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
