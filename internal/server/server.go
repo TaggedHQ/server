@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.2.2"
+var Version = "0.2.3"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -39,6 +39,9 @@ type Server struct {
 	credentials map[string]string // username -> bcrypt hash
 	trusted     *ipRangeList
 	admins      map[string]bool // usernames with admin rights
+
+	// loginLimit throttles password and two-factor guessing (see ratelimit.go).
+	loginLimit *rateLimiter
 
 	// storeMu guards store/backendKind/backendURL, which the setup wizard can swap
 	// at runtime when the backend is not operator-pinned.
@@ -140,6 +143,7 @@ func New(cfg *config.Config) (*Server, error) {
 		credentials:      loadCredentials(cfg.Credentials),
 		trusted:          trusted,
 		admins:           loadAdmins(cfg.Admins),
+		loginLimit:       newRateLimiter(),
 		registrationOpen: registrationOpen,
 		oauthProviders:   oauthProviders,
 		roles:            roles,
@@ -414,7 +418,47 @@ func (s *Server) webUI(r *http.Request, assetPath string) response {
 	// The version is a build id, not a secret; exposing it makes "which build is
 	// this container actually running?" answerable from curl -I.
 	headers["X-Tagged-Build"] = webui.Version
+	if asset.IsHTML {
+		for k, v := range securityHeaders() {
+			headers[k] = v
+		}
+	}
 	return response{status: 200, headers: headers, body: asset.Body}
+}
+
+// contentSecurityPolicy is the UI's script and resource allow-list.
+//
+// script-src carries no 'unsafe-inline': the pages hold no inline script (the
+// path prefix and build id arrive on <meta> tags) and no inline handlers, so a
+// tag or attribute injected into the DOM cannot execute.
+//
+// style-src does allow 'unsafe-inline', because the UI sets colours and layout
+// through style attributes throughout. That is a deliberate, narrower risk than
+// script: see safeColor() in app.js, which gates the one style value that comes
+// from user data.
+//
+// img-src includes data: for the profile pictures, which are stored and served
+// as data URIs (validated as real JPEG/PNG on upload).
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; " +
+	"font-src 'self'; " +
+	"connect-src 'self'; " +
+	"frame-ancestors 'none'; " +
+	"base-uri 'none'; " +
+	"form-action 'self'; " +
+	"object-src 'none'"
+
+// securityHeaders are sent with every HTML page.
+func securityHeaders() map[string]string {
+	return map[string]string{
+		"Content-Security-Policy": contentSecurityPolicy,
+		"X-Content-Type-Options":  "nosniff",
+		"Referrer-Policy":         "same-origin",
+		// frame-ancestors covers this for modern browsers; kept for older ones.
+		"X-Frame-Options": "DENY",
+	}
 }
 
 // cacheControl decides how long a UI asset may be reused.

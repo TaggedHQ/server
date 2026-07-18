@@ -1,10 +1,16 @@
 "use strict";
 // Tagged web UI client. Talks to the JSON API under <prefix>api/v2/.
 
-const PREFIX = window.TT_PREFIX || "/";
+// The prefix and build id ride in on <meta> tags rather than an inline script,
+// so the Content-Security-Policy can forbid inline script outright.
+function metaValue(name, fallback) {
+  const el = document.querySelector(`meta[name="${name}"]`);
+  return (el && el.content) || fallback;
+}
+const PREFIX = metaValue("tt-prefix", "/");
 // Build id, injected into every page. Assets are requested as ?v=<VERSION> so a
 // new build never reuses the previous one's cached JS/CSS.
-const VERSION = window.TT_V || "";
+const VERSION = metaValue("tt-version", "");
 const API = PREFIX + "api/v2/";
 const TOKEN_KEY = "tt_webtoken";
 const USER_KEY = "tt_username";
@@ -156,9 +162,24 @@ function buildTagMeta(records) {
   COLORS = {};
   sorted.forEach((k, i) => { COLORS[k] = PALETTE[i % PALETTE.length]; });
 }
+// SAFE_COLOR_RE matches the only colour forms this UI ever produces: a hex
+// literal or a CSS variable reference.
+const SAFE_COLOR_RE = /^(#[0-9a-fA-F]{3,8}|var\(--[a-zA-Z0-9-]+\))$/;
+
+// safeColor gates a colour before it reaches markup. Colours arrive from a
+// user's own settings, which the settings API stores verbatim and which a
+// controller or admin renders when viewing that user's data — so a colour is
+// untrusted input, not a constant. Every sink interpolates it into a style
+// attribute, where an unfiltered value escapes the attribute and becomes an
+// event handler. Anything that is not a plain colour is dropped.
+function safeColor(c, fallback = OTHER_COLOR) {
+  const s = String(c == null ? "" : c).trim();
+  return SAFE_COLOR_RE.test(s) ? s : fallback;
+}
+
 function colorFor(key) {
   if (key === OTHER_KEY) return OTHER_COLOR;
-  return TAGCOLORS[key] || COLORS[key] || OTHER_COLOR;
+  return safeColor(TAGCOLORS[key] || COLORS[key] || OTHER_COLOR);
 }
 function labelFor(key) {
   if (LABELS[key]) return LABELS[key];
@@ -4162,9 +4183,11 @@ function renderTagSwatches() {
 }
 
 function selectTagColor(hex) {
-  tmColor = hex;
+  // Gated here as well as at render, so a bad value is never written back to
+  // settings in the first place.
+  tmColor = safeColor(hex, TAG_PRESETS[0]);
   const custom = document.getElementById("tm-custom");
-  if (custom) custom.value = hex;
+  if (custom) custom.value = tmColor;
   renderTagSwatches();
 }
 

@@ -73,6 +73,11 @@ func (s *Server) getWebtokenUsernamePassword(req *request, authInfo map[string]a
 	pw, _ := authInfo["password"].(string)
 	pw = strings.TrimSpace(pw)
 
+	ip := s.limiterIP(req.r)
+	if !s.allowLogin(user, ip) {
+		return textResp(429, "Too many attempts. Wait a moment and try again.")
+	}
+
 	// Accept either config-defined credentials (upstream behavior) or a
 	// self-service account stored in the user's database (signup flow).
 	hash := s.credentials[user]
@@ -85,7 +90,10 @@ func (s *Server) getWebtokenUsernamePassword(req *request, authInfo map[string]a
 			if strings.TrimSpace(code) == "" {
 				return jsonResp(200, map[string]any{"mfa_required": "totp"})
 			}
+			// A wrong code is charged the same as a wrong password: the second
+			// factor is six digits, so it is the easier of the two to guess.
 			if !s.verifyMFACode(user, code) {
+				s.noteLoginFailure(user, ip)
 				return textResp(403, "Invalid two-factor code")
 			}
 		}
@@ -93,8 +101,10 @@ func (s *Server) getWebtokenUsernamePassword(req *request, authInfo map[string]a
 		if err != nil {
 			return tokenErrResp(err)
 		}
+		s.noteLoginSuccess(user, ip)
 		return jsonResp(200, map[string]any{"token": token})
 	}
+	s.noteLoginFailure(user, ip)
 	return textResp(403, "Invalid credentials")
 }
 
