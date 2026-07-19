@@ -71,25 +71,26 @@ func (s *Server) whoamiHandler(username string, db store.UserDB) response {
 
 // adminRouteCap maps each admin sub-route to the capability it requires.
 var adminRouteCap = map[string]string{
-	"":             capUsersManage,
-	"/":            capUsersManage,
-	"/users":       capUsersManage,
-	"/users/":      capUsersManage,
-	"/password":    capUsersManage,
-	"/user":        capUsersManage,
-	"/profile":     capUsersManage,
-	"/disable":     capUsersManage,
-	"/mfa":         capUsersManage,
-	"/admin":       capRolesManage,
-	"/controller":  capRolesManage,
-	"/roles":       capRolesManage,
-	"/role":        capRolesManage,
-	"/userrole":    capRolesManage,
-	"/groups":      capGroupsManage,
-	"/group":       capGroupsManage,
-	"/user-groups": capGroupsManage,
-	"/server":      capServerManage,
-	"/oauth":       capOAuthManage,
+	"":              capUsersManage,
+	"/":             capUsersManage,
+	"/users":        capUsersManage,
+	"/users/":       capUsersManage,
+	"/password":     capUsersManage,
+	"/user":         capUsersManage,
+	"/profile":      capUsersManage,
+	"/disable":      capUsersManage,
+	"/mfa":          capUsersManage,
+	"/admin":        capRolesManage,
+	"/controller":   capRolesManage,
+	"/roles":        capRolesManage,
+	"/role":         capRolesManage,
+	"/userrole":     capRolesManage,
+	"/groups":       capGroupsManage,
+	"/group":        capGroupsManage,
+	"/user-groups":  capGroupsManage,
+	"/server":       capServerManage,
+	"/oauth":        capOAuthManage,
+	"/translations": capI18nManage,
 }
 
 // adminHandler dispatches admin-only sub-routes. `sub` is the path after
@@ -188,6 +189,15 @@ func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[stri
 			return s.adminGetOAuth(req)
 		case "PUT", "POST":
 			return s.adminSetOAuth(req)
+		}
+	case "/translations":
+		switch req.method() {
+		case "GET":
+			return s.adminGetTranslations(req)
+		case "PUT", "POST":
+			return s.adminPutTranslation(req)
+		case "DELETE":
+			return s.adminDeleteTranslation(req)
 		}
 	}
 	return textResp(405, "method not allowed")

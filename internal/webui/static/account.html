@@ -19,57 +19,61 @@
       <nav class="nav">
         <a href="{{PREFIX}}">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          <span>Dashboard</span>
+          <span data-i18n="Dashboard">Dashboard</span>
         </a>
         <a href="{{PREFIX}}entries">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-          <span>Time entries</span>
+          <span data-i18n="Time entries">Time entries</span>
         </a>
         <a href="{{PREFIX}}tags">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
-          <span>Tags</span>
+          <span data-i18n="Tags">Tags</span>
         </a>
         <a id="nav-shifts" href="{{PREFIX}}shifts" style="display:none">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="M8 14h3"/></svg>
-          <span>Shifts</span>
+          <span data-i18n="Shifts">Shifts</span>
         </a>
         <a id="nav-skills" href="{{PREFIX}}skills" style="display:none">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
-          <span>Skills</span>
+          <span data-i18n="Skills">Skills</span>
         </a>
         <a href="{{PREFIX}}impexp">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
-          <span>Import / Export</span>
+          <span data-i18n="Import / Export">Import / Export</span>
         </a>
         <a class="active" href="{{PREFIX}}account">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="9" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>          
-          <span>Account</span>
+          <span data-i18n="Account">Account</span>
         </a>
         <a id="nav-about" href="{{PREFIX}}about">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
-          <span>About</span>
+          <span data-i18n="About">About</span>
         </a>
         <div id="nav-admin" class="nav-section" style="display:none">
-          <div class="nav-head">Admin</div>
+          <div class="nav-head" data-i18n="Admin">Admin</div>
           <a href="{{PREFIX}}users">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <span>Users</span>
+            <span data-i18n="Users">Users</span>
           </a>
           <a href="{{PREFIX}}roles">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"/><path d="M9.5 12l2 2 3.5-4"/></svg>            
-            <span>Roles</span>
+            <span data-i18n="Roles">Roles</span>
           </a>
           <a href="{{PREFIX}}groups">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/><circle cx="5" cy="9" r="2"/><path d="M2 20v-1a4 4 0 0 1 3-3.8"/><circle cx="19" cy="9" r="2"/><path d="M22 20v-1a4 4 0 0 0-3-3.8"/></svg>            
-            <span>Groups</span>
+            <span data-i18n="Groups">Groups</span>
           </a>
           <a href="{{PREFIX}}settings">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
-            <span>Settings</span>
+            <span data-i18n="Settings">Settings</span>
           </a>
           <a href="{{PREFIX}}oauth">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>
-            <span>OAuth</span>
+            <span data-i18n="OAuth">OAuth</span>
+          </a>
+          <a href="{{PREFIX}}translations">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M9 3v2M6 5c0 6-2 8-4 10M5 9c0 3 3 5 6 6"/><path d="M13 20l4-9 4 9M14.5 17h5"/></svg>
+            <span data-i18n="Translations">Translations</span>
           </a>
         </div>
       </nav>
@@ -78,7 +82,7 @@
           <span class="avatar" id="avatar">?</span>
           <span class="name" id="side-user">…</span>
         </a>
-        <button class="icon-btn" id="logout" title="Log out">
+        <button class="icon-btn" id="logout" title="Log out" data-i18n-title="Log out">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/></svg>
         </button>
       </div>
@@ -86,67 +90,67 @@
 
     <div class="content single">
       <div class="main-col" style="width:100%">
-        <div class="page-head"><h1>Account</h1></div>
+        <div class="page-head"><h1 data-i18n="Account">Account</h1></div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Profile</h3></div>
-          <div class="kv"><span class="kk">Username</span><span class="vv" id="acc-username">…</span></div>
-          <div class="kv"><span class="kk">Signed in</span><span class="vv">Web session</span></div>
+          <div class="panel-head"><h3 data-i18n="Profile">Profile</h3></div>
+          <div class="kv"><span class="kk" data-i18n="Username">Username</span><span class="vv" id="acc-username">…</span></div>
+          <div class="kv"><span class="kk" data-i18n="Signed in">Signed in</span><span class="vv" data-i18n="Web session">Web session</span></div>
 
           <div class="pf-photo">
             <span class="um-avatar lg" id="pf-avatar">?</span>
             <div class="pf-photo-actions">
-              <div class="pf-photo-label">Profile picture</div>
+              <div class="pf-photo-label" data-i18n="Profile picture">Profile picture</div>
               <div class="ud-actions">
-                <button class="secondary btn-sm" id="pf-pick">Upload picture</button>
-                <button class="secondary btn-sm danger-btn" id="pf-clear" hidden>Remove</button>
+                <button class="secondary btn-sm" id="pf-pick" data-i18n="Upload picture">Upload picture</button>
+                <button class="secondary btn-sm danger-btn" id="pf-clear" hidden data-i18n="Remove">Remove</button>
               </div>
-              <p class="um-note muted">JPEG or PNG. Cropped to a square.</p>
+              <p class="um-note muted" data-i18n="JPEG or PNG. Cropped to a square.">JPEG or PNG. Cropped to a square.</p>
             </div>
             <input type="file" id="pf-file" accept="image/jpeg,image/png" hidden>
           </div>
 
           <div class="pf-grid">
-            <div><label for="pf-first">First name</label><input id="pf-first" type="text" autocomplete="given-name"></div>
-            <div><label for="pf-last">Last name</label><input id="pf-last" type="text" autocomplete="family-name"></div>
-            <div><label for="pf-job">Job</label><input id="pf-job" type="text" autocomplete="organization-title"></div>
-            <div><label for="pf-dept">Department</label><input id="pf-dept" type="text"></div>
-            <div><label for="pf-email">E-mail</label><input id="pf-email" type="email" autocomplete="email"></div>
-            <div><label for="pf-phone">Phone</label><input id="pf-phone" type="tel" autocomplete="tel"></div>
-            <div><label for="pf-mobile">Mobile</label><input id="pf-mobile" type="tel" autocomplete="tel"></div>
+            <div><label for="pf-first" data-i18n="First name">First name</label><input id="pf-first" type="text" autocomplete="given-name"></div>
+            <div><label for="pf-last" data-i18n="Last name">Last name</label><input id="pf-last" type="text" autocomplete="family-name"></div>
+            <div><label for="pf-job" data-i18n="Job">Job</label><input id="pf-job" type="text" autocomplete="organization-title"></div>
+            <div><label for="pf-dept" data-i18n="Department">Department</label><input id="pf-dept" type="text"></div>
+            <div><label for="pf-email" data-i18n="E-mail">E-mail</label><input id="pf-email" type="email" autocomplete="email"></div>
+            <div><label for="pf-phone" data-i18n="Phone">Phone</label><input id="pf-phone" type="tel" autocomplete="tel"></div>
+            <div><label for="pf-mobile" data-i18n="Mobile">Mobile</label><input id="pf-mobile" type="tel" autocomplete="tel"></div>
           </div>
           <div class="ud-actions" style="margin-top:14px">
-            <button id="pf-save">Save profile</button>
+            <button id="pf-save" data-i18n="Save profile">Save profile</button>
           </div>
           <div id="pf-msg" class="msg"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Goals</h3></div>
+          <div class="panel-head"><h3 data-i18n="Goals">Goals</h3></div>
           <div class="row">
             <div>
-              <label for="daily-goal">Daily goal (hours)</label>
+              <label for="daily-goal" data-i18n="Daily goal (hours)">Daily goal (hours)</label>
               <input id="daily-goal" type="text" inputmode="decimal" placeholder="8">
             </div>
             <div>
-              <label for="weekly-goal">Weekly goal (hours)</label>
+              <label for="weekly-goal" data-i18n="Weekly goal (hours)">Weekly goal (hours)</label>
               <input id="weekly-goal" type="text" inputmode="decimal" placeholder="40">
             </div>
             <div style="flex:0 0 auto">
-              <label>&nbsp;</label>
-              <button id="save-goals">Save</button>
+              <label data-i18n="&nbsp;">&nbsp;</label>
+              <button id="save-goals" data-i18n="Save">Save</button>
             </div>
           </div>
           <div id="goals-msg" class="msg"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Entries</h3></div>
+          <div class="panel-head"><h3 data-i18n="Entries">Entries</h3></div>
           <div class="set-row">
             <span class="set-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
             </span>
-            <span class="set-label">Week Starts On</span>
+            <span class="set-label" data-i18n="Week Starts On">Week Starts On</span>
             <select id="set-week-start" class="set-select">
               <option value="1">Monday</option>
               <option value="0">Sunday</option>
@@ -157,7 +161,7 @@
             <span class="set-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18"/></svg>
             </span>
-            <span class="set-label">Workdays</span>
+            <span class="set-label" data-i18n="Workdays">Workdays</span>
             <select id="set-workdays" class="set-select">
               <option value="mon-fri">Monday – Friday</option>
               <option value="mon-sat">Monday – Saturday</option>
@@ -165,23 +169,23 @@
               <option value="everyday">Every day</option>
             </select>
           </div>
-          <p class="hint" style="margin:12px 0 0">Controls how the entries overview lays out each week.</p>
+          <p class="hint" style="margin:12px 0 0" data-i18n="Controls how the entries overview lays out each week.">Controls how the entries overview lays out each week.</p>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Region &amp; language</h3></div>
+          <div class="panel-head"><h3 data-i18n="Region &amp; language">Region &amp; language</h3></div>
           <div class="set-row">
             <span class="set-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
             </span>
-            <span class="set-label">Time zone</span>
+            <span class="set-label" data-i18n="Time zone">Time zone</span>
             <select id="set-timezone" class="set-select"></select>
           </div>
           <div class="set-row">
             <span class="set-ic">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h9M9 3v2M6 5c0 6-2 8-4 10M5 9c0 3 3 5 6 6"/><path d="M13 20l4-9 4 9M14.5 17h5"/></svg>
             </span>
-            <span class="set-label">Language</span>
+            <span class="set-label" data-i18n="Language">Language</span>
             <select id="set-language" class="set-select">
               <option value="en">English</option>
             </select>
@@ -190,26 +194,26 @@
         </div>
 
         <div class="panel" id="panel-password">
-          <div class="panel-head"><h3 id="pw-title">Change password</h3></div>
-          <p class="hint" id="pw-hint" hidden>You sign in with an external provider. Setting a password here lets you also sign in with a username and password, and enables two-factor authentication and passkeys.</p>
+          <div class="panel-head"><h3 id="pw-title" data-i18n="Change password">Change password</h3></div>
+          <p class="hint" id="pw-hint" hidden data-i18n="You sign in with an external provider. Setting a password here lets you also sign in with a username and password, and enables two-factor authentication and passkeys.">You sign in with an external provider. Setting a password here lets you also sign in with a username and password, and enables two-factor authentication and passkeys.</p>
           <form id="pw-form">
-            <label for="pw1">New password</label>
+            <label for="pw1" data-i18n="New password">New password</label>
             <input id="pw1" type="password" autocomplete="new-password" required>
-            <label for="pw2">Confirm new password</label>
+            <label for="pw2" data-i18n="Confirm new password">Confirm new password</label>
             <input id="pw2" type="password" autocomplete="new-password" required>
-            <button class="block" type="submit" id="pw-submit">Update password</button>
+            <button class="block" type="submit" id="pw-submit" data-i18n="Update password">Update password</button>
           </form>
           <div id="pw-msg" class="msg"></div>
         </div>
 
         <div class="panel" id="security-oauth-note" hidden>
-          <div class="panel-head"><h3>Two-factor authentication &amp; passkeys</h3></div>
-          <p class="hint">This account signs in with an external identity provider, which manages its own security. Set a password above to enable two-factor authentication and passkeys here.</p>
+          <div class="panel-head"><h3 data-i18n="Two-factor authentication &amp; passkeys">Two-factor authentication &amp; passkeys</h3></div>
+          <p class="hint" data-i18n="This account signs in with an external identity provider, which manages its own security. Set a password above to enable two-factor authentication and passkeys here.">This account signs in with an external identity provider, which manages its own security. Set a password above to enable two-factor authentication and passkeys here.</p>
         </div>
 
         <div class="panel" id="panel-mfa" hidden>
-          <div class="panel-head"><h3>Two-factor authentication</h3></div>
-          <p class="hint">Add a second step at login using a time-based code from an authenticator app (1Password, Google Authenticator, Authy…).</p>
+          <div class="panel-head"><h3 data-i18n="Two-factor authentication">Two-factor authentication</h3></div>
+          <p class="hint" data-i18n="Add a second step at login using a time-based code from an authenticator app (1Password, Google Authenticator, Authy…).">Add a second step at login using a time-based code from an authenticator app (1Password, Google Authenticator, Authy…).</p>
 
           <div id="mfa-status" class="mfa-status"></div>
 
@@ -217,24 +221,24 @@
             <div class="mfa-setup-grid">
               <img id="mfa-qr" class="mfa-qr" alt="TOTP QR code">
               <div class="mfa-setup-side">
-                <p class="hint" style="margin:0 0 6px">Scan the QR code, or enter this key manually:</p>
+                <p class="hint" style="margin:0 0 6px" data-i18n="Scan the QR code, or enter this key manually:">Scan the QR code, or enter this key manually:</p>
                 <code id="mfa-secret" class="mfa-secret"></code>
-                <label for="mfa-code-in" style="margin:14px 0 0">Enter the 6-digit code to confirm</label>
+                <label for="mfa-code-in" style="margin:14px 0 0" data-i18n="Enter the 6-digit code to confirm">Enter the 6-digit code to confirm</label>
                 <div class="token-pw-row" style="margin-top:8px">
                   <input id="mfa-code-in" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
-                  <button class="btn-sm" id="mfa-confirm" type="button">Verify &amp; enable</button>
-                  <button class="secondary btn-sm" id="mfa-cancel" type="button">Cancel</button>
+                  <button class="btn-sm" id="mfa-confirm" type="button" data-i18n="Verify &amp; enable">Verify &amp; enable</button>
+                  <button class="secondary btn-sm" id="mfa-cancel" type="button" data-i18n="Cancel">Cancel</button>
                 </div>
               </div>
             </div>
           </div>
 
           <div id="mfa-backup" hidden>
-            <p class="hint" style="margin-bottom:10px"><strong>Save these backup codes.</strong> Each works once if you lose access to your authenticator app.</p>
+            <p class="hint" style="margin-bottom:10px"><strong data-i18n="Save these backup codes.">Save these backup codes.</strong> Each works once if you lose access to your authenticator app.</p>
             <div id="mfa-backup-codes" class="mfa-codes"></div>
             <div class="token-actions" style="margin-top:12px">
-              <button class="secondary btn-sm" id="mfa-backup-copy" type="button">Copy codes</button>
-              <button class="btn-sm" id="mfa-backup-done" type="button">Done</button>
+              <button class="secondary btn-sm" id="mfa-backup-copy" type="button" data-i18n="Copy codes">Copy codes</button>
+              <button class="btn-sm" id="mfa-backup-done" type="button" data-i18n="Done">Done</button>
             </div>
           </div>
 
@@ -242,40 +246,40 @@
         </div>
 
         <div class="panel" id="panel-passkeys" hidden>
-          <div class="panel-head"><h3>Passkeys</h3></div>
-          <p class="hint">Sign in without a password using Face&nbsp;ID, Touch&nbsp;ID, Windows&nbsp;Hello, or a hardware security key. You can register more than one.</p>
+          <div class="panel-head"><h3 data-i18n="Passkeys">Passkeys</h3></div>
+          <p class="hint" data-i18n="Sign in without a password using Face&nbsp;ID, Touch&nbsp;ID, Windows&nbsp;Hello, or a hardware security key. You can register more than one.">Sign in without a password using Face&nbsp;ID, Touch&nbsp;ID, Windows&nbsp;Hello, or a hardware security key. You can register more than one.</p>
           <div id="passkey-list" class="passkey-list"></div>
           <div class="token-actions" style="margin-top:12px">
-            <button class="btn-sm" id="passkey-add" type="button">Add a passkey</button>
+            <button class="btn-sm" id="passkey-add" type="button" data-i18n="Add a passkey">Add a passkey</button>
           </div>
           <div id="passkey-msg" class="msg"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>API token</h3></div>
+          <div class="panel-head"><h3 data-i18n="API token">API token</h3></div>
           <p class="hint">Use this token as the <code>authtoken</code> header for API access. Regenerating invalidates the previous one.</p>
           <div class="token-field">
             <input id="token-input" class="token-secret" type="password" value="" placeholder="••••••••••••••••••••" readonly>
-            <button class="secondary btn-sm" id="token-show" type="button">Show</button>
-            <button class="secondary btn-sm" id="token-copy" type="button" hidden>Copy</button>
+            <button class="secondary btn-sm" id="token-show" type="button" data-i18n="Show">Show</button>
+            <button class="secondary btn-sm" id="token-copy" type="button" hidden data-i18n="Copy">Copy</button>
           </div>
           <div id="token-pw" class="token-pw" hidden>
-            <span class="token-pw-label">Enter your password to reveal the token:</span>
+            <span class="token-pw-label" data-i18n="Enter your password to reveal the token:">Enter your password to reveal the token:</span>
             <div class="token-pw-row">
-              <input id="token-pw-input" type="password" placeholder="Your password" autocomplete="current-password">
-              <button class="btn-sm" id="token-pw-verify" type="button">Reveal</button>
-              <button class="secondary btn-sm" id="token-pw-cancel" type="button">Cancel</button>
+              <input id="token-pw-input" type="password" placeholder="Your password" data-i18n-placeholder="Your password" autocomplete="current-password">
+              <button class="btn-sm" id="token-pw-verify" type="button" data-i18n="Reveal">Reveal</button>
+              <button class="secondary btn-sm" id="token-pw-cancel" type="button" data-i18n="Cancel">Cancel</button>
             </div>
           </div>
           <div class="token-actions" style="margin-top:14px">
-            <button class="secondary" id="regen-token">Regenerate</button>
+            <button class="secondary" id="regen-token" data-i18n="Regenerate">Regenerate</button>
           </div>
           <div id="token-msg" class="msg"></div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Session</h3></div>
-          <button class="secondary" id="logout2">Log out</button>
+          <div class="panel-head"><h3 data-i18n="Session">Session</h3></div>
+          <button class="secondary" id="logout2" data-i18n="Log out">Log out</button>
         </div>
       </div>
     </div>

@@ -74,6 +74,15 @@ func (s *Server) apiHandler(r *http.Request, path string) response {
 	if path == "setup" {
 		return s.setupHandler(req)
 	}
+	// The UI language list and the translation catalogs are unauthenticated:
+	// the login, register and setup pages need to render translated too, and
+	// neither carries user data -- only the admin-authored interface text.
+	if path == "languages" {
+		return s.languagesResponse()
+	}
+	if strings.HasPrefix(path, "i18n/") {
+		return s.catalogResponse(req, strings.TrimSuffix(strings.TrimPrefix(path, "i18n/"), ".json"))
+	}
 	// OAuth sign-in endpoints are unauthenticated: they establish identity via an
 	// external provider. (Admin configuration lives under /admin/oauth, below.)
 	if path == "oauth/providers" {

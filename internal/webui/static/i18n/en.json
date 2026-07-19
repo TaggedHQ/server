@@ -1,0 +1,1882 @@
+[
+  {
+    "key": "GitHub Repository",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "API token",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Add a passkey",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Add a second step at login using a time-based code from an authenticator app (1Password, Google Authenticator, Authy…).",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Change password",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Confirm new password",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Controls how the entries overview lays out each week.",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Copy",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Copy codes",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Daily goal (hours)",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Department",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Done",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "E-mail",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Enter the 6-digit code to confirm",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Enter your password to reveal the token:",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "First name",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "JPEG or PNG. Cropped to a square.",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Job",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Language",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Last name",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Mobile",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "New password",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Passkeys",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Phone",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Profile",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Regenerate",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Region \u0026 language",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Reveal",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Save these backup codes.",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Scan the QR code, or enter this key manually:",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Session",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Show",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Sign in without a password using Face ID, Touch ID, Windows Hello, or a hardware security key. You can register more than one.",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Signed in",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "This account signs in with an external identity provider, which manages its own security. Set a password above to enable two-factor authentication and passkeys here.",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Time zone",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Two-factor authentication",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Two-factor authentication \u0026 passkeys",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Update password",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Verify \u0026 enable",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Web session",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Week Starts On",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Weekly goal (hours)",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Workdays",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "You sign in with an external provider. Setting a password here lets you also sign in with a username and password, and enables two-factor authentication and passkeys.",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Your password",
+    "ctx": "account",
+    "plural": false
+  },
+  {
+    "key": "Add someone",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Create",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Design team",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Duplicate",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Duplicate group",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Edit group",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Group",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Group your users and give each group a controller to oversee them.",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Manage members",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Name for the copy",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "New group",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "On this group",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Save group",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Search by name, e-mail or username…",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Search groups…",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "What this group is for",
+    "ctx": "admin·groups",
+    "plural": false
+  },
+  {
+    "key": "Custom",
+    "ctx": "admin·oauth",
+    "plural": false
+  },
+  {
+    "key": "Every provider needs the same two things: an app registered on their side, and the redirect URL below pasted into it. Open a section for the step-by-step.",
+    "ctx": "admin·oauth",
+    "plural": false
+  },
+  {
+    "key": "No providers configured yet. Add one above.",
+    "ctx": "admin·oauth",
+    "plural": false
+  },
+  {
+    "key": "Provider setup",
+    "ctx": "admin·oauth",
+    "plural": false
+  },
+  {
+    "key": "Servers",
+    "ctx": "admin·oauth",
+    "plural": false
+  },
+  {
+    "key": "Choose what each role is allowed to do on your Tagged server.",
+    "ctx": "admin·roles",
+    "plural": false
+  },
+  {
+    "key": "Create role",
+    "ctx": "admin·roles",
+    "plural": false
+  },
+  {
+    "key": "New role",
+    "ctx": "admin·roles",
+    "plural": false
+  },
+  {
+    "key": "Permissions are set on the role after it exists.",
+    "ctx": "admin·roles",
+    "plural": false
+  },
+  {
+    "key": "Roles \u0026 Permissions",
+    "ctx": "admin·roles",
+    "plural": false
+  },
+  {
+    "key": "Team lead",
+    "ctx": "admin·roles",
+    "plural": false
+  },
+  {
+    "key": "What this role is for",
+    "ctx": "admin·roles",
+    "plural": false
+  },
+  {
+    "key": "Allow new users to register",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Modules",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Optional pages, off by default",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Registration",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "When off, nobody can create their own account: the sign-up page is closed, and an OAuth sign-in by someone without an account is refused rather than creating one. Existing users keep signing in as before, and admins can still add users on the Users page.",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Add a language to start translating.",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Add language",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Display name",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "English",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "English is the source language. It is always available and cannot be edited.",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Interface strings",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Language code",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Languages",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Search strings…",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Show more",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Translation",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Untranslated only",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Write the display name in that language, as users will see it in their own account settings.",
+    "ctx": "admin·translations",
+    "plural": false
+  },
+  {
+    "key": "Add user",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Create user",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Edit profile",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "JPEG or PNG. It is cropped to a square.",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Last active",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Manage users, roles and permissions for your Tagged server.",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Password",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Save groups",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Save roles",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Select a user to view details, roles and actions.",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Status",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Storage",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "User Management",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "(no description)",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "...",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "A display name is required.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "A group name is required",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "A name for the copy is required",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "A role name is required",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "A tag with that name already exists.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Add languages and translate the interface.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Administers the server: users, roles, groups and settings.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "All sections",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Apr",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "April",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Assign roles to users and edit role permissions.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Aug",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "August",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Change server-wide settings such as self-registration.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Configure external identity providers.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Controller",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not add the language.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not delete",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not export",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not import",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not load OAuth settings",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not load server settings",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not load translations",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not save",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Create and delete accounts, reset passwords.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Create groups and assign members and controllers.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Creates a new group with the same description, {controllers} and {members}.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Date",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Dec",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "December",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Delete entry",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Delete language",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Delete role",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Delete this entry? This cannot be undone.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Discard",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Discard unsaved changes?",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Edit entry",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Edit tag",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Enabled",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "End must be after start.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "English is the source language.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Enter a group name",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Enter a tag name (letters, numbers, - or _; at least 2 characters).",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Enter a valid start and end time.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Entry deleted",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Entry saved",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Entry updated",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Every translation for this language is removed. Users set to it fall back to English.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "FRI",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Failed to rename tag.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Failed to save",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Failed to save.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Feb",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "February",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Friday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Goal {duration}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Import",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Import translations",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "It will be removed from {entries} (the entries themselves are kept).",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Its controllers lose access to these users. The user accounts themselves are not touched.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Jan",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "January",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Jul",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "July",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Jun",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "June",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Language added",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Language deleted",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Language disabled",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Language enabled",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "MON",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Manage users",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Mar",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "March",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "May",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Monday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Network error",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "New tag…",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No description",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No entries for this day.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No languages yet.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No optional modules on this server.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No saved tags",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No strings match.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No tags",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No tags on this entry.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No tags yet — create one or add #tags to your entries.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No tags yet.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "No valid tags found.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Nov",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "November",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Oct",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "October",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Offer this language to users",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Oversees the users in the groups they control.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Plan the working week for the groups you control, with open shifts and absences.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Plural form",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Preferences saved",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Registration disabled",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Registration enabled",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Resume",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Resume entry",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "SAT",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "SUN",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Saturday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Saved. Enabled providers now appear on the login page.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Saving…",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Sep",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "September",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Server settings",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Showing {shown} of {total}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Standard account. Full access to their own time data only.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Sunday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Switch to users",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "THU",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "TUE",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Tag created",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Tag updated",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "That file has no strings object.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "That file is not valid JSON.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Thursday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Track skills, proficiency levels and how well the team covers them.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Translations imported",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Translations saved",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Tuesday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Unused keys are kept, not discarded:",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Use a code like de, fr or pt-BR.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Users keep their accounts; the role simply stops being available.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "View and edit the data of users in the groups they control.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "WED",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Wednesday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "You have edits that have not been saved yet.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "day",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "today",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{delta} vs. previous day",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{d} {month}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{d} {month} {year}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{fromMonth} {from} – {toMonth} {to}, {year}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{h}h {m}m",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{module} module disabled. Reload to update the menu.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{module} module enabled. Reload to update the menu.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{month} {d}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{month} {from} – {to}, {year}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{month} {year}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{n} backup code remaining",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} changed translation",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} controller",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} entry",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} group",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} key in the file is not used by this version of the interface",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} member",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} new translation",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} passkey",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} stored string is no longer used by the interface",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} unsaved change",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{n} user",
+    "ctx": "app",
+    "plural": true
+  },
+  {
+    "key": "{weekday}, {d} {month} {year}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{weekday}, {month} {d}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "{weekday}, {month} {d} {year}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "(optional)",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "About",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Account",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Add",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Admin",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Cancel",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Controllers",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Dashboard",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Delete",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Details",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Duration",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Edit",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "End",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Entries",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Export",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Goals",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Groups",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Import / Export",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Loading…",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Log out",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Manage groups",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Manage roles",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Members",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Name",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "New entry",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "New tag",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "OAuth",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "OAuth providers",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Permissions",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Profile picture",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Remove",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Role",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Roles",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Save",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Save changes",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Save profile",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Select a group to manage its members and controllers.",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Select a role to view and edit its permissions.",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Select an entry to view its details and actions.",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Settings",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Shifts",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Skills",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Start",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Tags",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Time entries",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Today",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Total",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Translations",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Upload picture",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "User",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Username",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Users",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "By tags",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Daily goal",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Longest block",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Most active tag",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Next day",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Next month",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Previous day",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Previous month",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Time allocation",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "View all",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Weekly goal",
+    "ctx": "dashboard",
+    "plural": false
+  },
+  {
+    "key": "Close",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Copy table",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Day",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Description",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Duration format",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Earlier — ↑ / PageUp",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Export as file",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "From",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Group by period",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Grouping",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Jump to now",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Later — ↓ / PageDown",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "List",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Month",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "New tag name",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Next week",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "None",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Previous week",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Quarter",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Report",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Scroll or ↑ ↓ to pan · ← → to zoom · double-click to add",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Show records",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Time",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Timeline",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "To",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "View",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Week",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "What did you work on?",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Year",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Zoom in — ←",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Zoom out — →",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "in view",
+    "ctx": "entries",
+    "plural": false
+  },
+  {
+    "key": "Sign in with a passkey",
+    "ctx": "login",
+    "plural": false
+  },
+  {
+    "key": "Schedule",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Team",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Add skill",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "Bulk add tags",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "Click a tag to rename it or change its color, or create a new one.",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "Color",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "Colors sync with your other Tagged apps",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "Custom color",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "Drop a .csv file here, or",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "Manage tags",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "One tag per line, with an optional hex color",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "Tag name",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "choose a file",
+    "ctx": "tags",
+    "plural": false
+  },
+  {
+    "key": "work #DEAA22 client #3BA55D personal #6f7bf7 admin",
+    "ctx": "tags",
+    "plural": false
+  }
+]

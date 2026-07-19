@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.2.6"
+var Version = "0.2.7"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -73,6 +73,15 @@ type Server struct {
 	// modulesMu guards modules, the optional feature modules that are switched on.
 	modulesMu sync.RWMutex
 	modules   map[string]bool
+
+	// i18nMu guards the UI translations: the per-language catalogs, the revision
+	// id derived from them, and the cache of pages already rendered in a given
+	// language. Translations live in their own files under <datadir>/i18n, not
+	// in setup.json, so none of this appears in setupSnapshot.
+	i18nMu    sync.RWMutex
+	langs     map[string]*langCatalog
+	i18nRev   string
+	htmlCache map[string][]byte // "<page>\x00<lang>\x00<rev>" -> rendered HTML
 }
 
 // New constructs a Server, creating the data directory and loading (or creating)
@@ -141,6 +150,10 @@ func New(cfg *config.Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Translations come from their own directory, and a malformed one is skipped
+	// rather than returned as an error: a bad catalog must not stop the server
+	// from booting.
+	langs := loadTranslations(rootTTDir)
 	return &Server{
 		cfg:              cfg,
 		rootTTDir:        rootTTDir,
@@ -160,6 +173,9 @@ func New(cfg *config.Config) (*Server, error) {
 		roles:            roles,
 		groups:           groups,
 		modules:          modules,
+		langs:            langs,
+		i18nRev:          i18nRevOf(langs),
+		htmlCache:        map[string][]byte{},
 	}, nil
 }
 
@@ -428,6 +444,17 @@ func (s *Server) webUI(r *http.Request, assetPath string) response {
 		for k, v := range securityHeaders() {
 			headers[k] = v
 		}
+		// Translate the marked strings before the bytes leave, so a page never
+		// paints in English and then flips. Done here rather than inside
+		// webui.Get so that package stays a dependency-free asset embedder --
+		// the request, and the catalogs, are only in scope on this side.
+		if lang := requestLang(newRequest(r)); lang != "" {
+			asset.Body = s.renderPage(assetPath, lang, asset.Body)
+		}
+		// The response now depends on a cookie. HTML is already no-store for
+		// browsers, but a proxy in front would otherwise be free to hand one
+		// user's language to the next.
+		headers["Vary"] = "Cookie"
 	}
 	return response{status: 200, headers: headers, body: asset.Body}
 }

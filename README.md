@@ -50,6 +50,11 @@ Track your time with tags, see where it goes, and own your data.
   mobile, plus a profile picture. Everyone edits their own from **Account**;
   admins edit anyone from **Admin → Users**, where the list is searchable across
   every field.
+- 🌍 **Translate the whole UI.** Add a language from **Admin → Translations**,
+  translate the interface in the browser (or export/import JSON and hand it to a
+  translator), and it shows up in every user's **Account** language picker.
+  Pages are rendered translated *server‑side*, so there is no flash of English —
+  and it works with JavaScript switched off.
 - 🔒 **HTTPS built in.** Point it at a cert/key for native TLS, or run it behind
   a reverse proxy.
 - 🗄️ **Your data, in plain SQLite.** One database file per user. Back it up with
@@ -169,6 +174,45 @@ multi-arch container to `ghcr.io/taggedhq/server` and creates a GitHub Release:
 docker pull ghcr.io/taggedhq/server:vX.Y.Z   # or :latest
 ```
 
+## Translations
+
+The UI ships in English. From **Admin → Translations** an admin adds a language
+(a BCP‑47‑ish code and a display name), translates the interface, and enables
+it — after which it appears in every user's language picker under **Account**.
+
+The key for every string is its English source text, so anything untranslated
+falls back to correct English rather than a blank or a placeholder. The list of
+translatable strings is extracted from the source at build time, which means the
+page always offers exactly the strings the running build actually has.
+
+A few things worth knowing:
+
+- **Rendered server‑side.** The chosen language rides in a `tt_lang` cookie and
+  the HTML leaves the server already translated, so pages never paint in English
+  and then flip. The UI stays translated with JavaScript disabled. Strings the
+  browser renders at runtime are translated client‑side from the same catalog.
+- **Translating outside the browser.** Every language can be exported as JSON and
+  re‑imported. Import shows a preview — new, changed, and keys the file has that
+  this build no longer uses — and never discards a translation silently.
+- **Dates, durations and plurals** are catalog entries too, not hardcoded
+  formats: month and weekday names, `{h}h {m}m`, and singular/plural forms.
+  Composed dates use named placeholders (`{weekday}, {month} {d}`), so a
+  translation can reorder them — German renders `Sonntag, 19. Jul`.
+- **Storage.** One file per language in `<datadir>/i18n/<code>.json`, kept out of
+  `setup.json` so a catalog is never anywhere near the DB password or the OAuth
+  client secrets. Back them up with `cp`; a malformed one is skipped at startup
+  rather than stopping the server.
+- **Upgrading an existing install.** Translations are gated on a new
+  `translations.manage` capability. Roles are persisted, so the Admin role does
+  **not** pick it up automatically — tick it once under **Admin → Roles**, or the
+  page 403s and its nav entry stays hidden.
+
+Adding a string as a developer: mark it `data-i18n="…"` in HTML (leaving the
+English as the element's text) or wrap it in `t("…")` / `tn("…", n)` in JS, then
+run `go generate ./internal/webui/`. Tests fail if the catalog is stale, if the
+markup and its key disagree, if `t()` is called with a computed key, or if a
+local variable shadows `t`.
+
 ## Secrets at rest
 
 Passwords and two‑factor backup codes are bcrypt hashes — they are never
@@ -240,6 +284,8 @@ server/
 │   ├── store/              # storage layer: interfaces + SQLite & Postgres backends
 │   ├── util/               # JWT + helpers
 │   └── webui/              # embedded UI (HTML/CSS/JS, fonts, logo)
+│       ├── gen/            # build-time extractor for the translatable strings
+│       └── static/i18n/    # generated catalog of those strings (en.json)
 └── README.md
 ```
 

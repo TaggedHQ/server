@@ -29,6 +29,168 @@ const TIMEZONE_KEY = "tagged_web_timezone";
 const LANGUAGE_KEY = "tagged_web_language";
 const ENTRIES_VIEW_KEY = "tagged_web_entries_view";  // "list" | "timeline"
 
+// ---- Translations -----------------------------------------------------------
+// The static HTML arrives already translated: the server rewrites every
+// data-i18n element before sending it, keyed off the tt_lang cookie, so a page
+// never paints in English and then flips. What is left for the client is
+// everything app.js renders at runtime -- and repairing the static markup when
+// the cookie is absent or stale (a first visit, or a shared browser where the
+// previous user's language is still set).
+//
+// Division of labour: the cookie decides what gets *rendered*; the per-user
+// synced setting decides what the cookie should *be*. It has to be that way
+// round, because page loads carry no auth token -- it lives in localStorage and
+// only rides API calls -- so at render time the cookie is all the server knows.
+const LANG_COOKIE = "tt_lang";
+const I18N_CACHE_KEY = "tagged_web_i18n";     // {code, rev, strings}
+const LANG_OWNER_KEY = "tagged_web_lang_user"; // whose language the cookie holds
+let I18N = { code: "en", strings: {} };
+
+function getCookie(name) {
+  const hit = document.cookie.split("; ").find((c) => c.startsWith(name + "="));
+  return hit ? decodeURIComponent(hit.slice(name.length + 1)) : "";
+}
+
+function setLangCookie(code) {
+  // A year, path-scoped to the app so a prefixed install does not leak it, and
+  // deliberately not HttpOnly: the client is what writes it. It holds no
+  // secret, and keeping it across logout means the login page arrives already
+  // translated.
+  const secure = location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${LANG_COOKIE}=${encodeURIComponent(code)}; Path=${PREFIX}; Max-Age=31536000; SameSite=Lax${secure}`;
+}
+
+// normKey mirrors the Go extractor's NormalizeKey exactly. If these two ever
+// disagree, a routine HTML reformat silently orphans a page's translations.
+function normKey(s) {
+  return String(s == null ? "" : s)
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .split(/\s+/).filter(Boolean).join(" ");
+}
+
+// t translates one string. The key is the English source text, so an
+// untranslated key returns correct English rather than a placeholder.
+//
+// The first argument must be a string literal: the build-time extractor scans
+// for t("...") call sites, and a computed argument would never make it into the
+// catalog. TestNoDynamicT enforces this.
+function t(key, vars) {
+  const m = I18N.strings[normKey(key)];
+  let out = key;
+  if (typeof m === "string" && m) out = m;
+  else if (m && typeof m === "object" && m.one) out = m.one;
+  return vars ? interpolate(out, vars) : out;
+}
+
+// tn picks the singular or plural form. Two forms cover English and most of
+// western Europe; languages with richer plural systems (Polish, Russian,
+// Arabic) would need real ICU categories, which this deliberately is not.
+function tn(key, n, vars) {
+  const m = I18N.strings[normKey(key)];
+  let out = key;
+  if (m && typeof m === "object") out = (n === 1 ? m.one : m.other) || m.one || key;
+  else if (typeof m === "string" && m) out = m;
+  return interpolate(out, Object.assign({ n }, vars || {}));
+}
+
+// interpolate fills {name} placeholders. Translations use named placeholders so
+// a translator can reorder them, which positional ones would not survive.
+function interpolate(s, vars) {
+  return s.replace(/\{(\w+)\}/g, (whole, k) => (k in vars ? String(vars[k]) : whole));
+}
+
+// applyI18n translates the marked-up static markup in root. It is a no-op in
+// the common case where the server already did it, and the repair path when the
+// cookie was missing or wrong.
+function applyI18n(root = document) {
+  if (I18N.code === "en") return;
+  root.querySelectorAll("[data-i18n]").forEach((el) => {
+    const v = t(el.getAttribute("data-i18n")); // i18n-dynamic: key came from the markup, already extracted
+    if (v && el.textContent.trim() !== v) el.textContent = v;
+  });
+  const attrs = [["placeholder", "placeholder"], ["title", "title"], ["aria-label", "aria-label"], ["alt", "alt"]];
+  for (const [attr, suffix] of attrs) {
+    root.querySelectorAll(`[data-i18n-${suffix}]`).forEach((el) => {
+      const v = t(el.getAttribute(`data-i18n-${suffix}`)); // i18n-dynamic: as above
+      if (v) el.setAttribute(attr, v);
+    });
+  }
+  document.documentElement.lang = I18N.code;
+}
+
+// loadCatalog fetches the active language's strings, serving from localStorage
+// first so there is no blocking round-trip on every page load.
+//
+// The cache is keyed by the catalog revision, not by the asset version: the
+// build id hashes only the embedded files, so it cannot see an admin's edit. If
+// this keyed off ?v= instead, a changed translation would not appear until a
+// hard refresh.
+async function loadCatalog(code) {
+  if (!code || code === "en") { I18N = { code: "en", strings: {} }; return; }
+  try {
+    const cached = JSON.parse(localStorage.getItem(I18N_CACHE_KEY) || "null");
+    if (cached && cached.code === code) I18N = cached; // may be stale; revalidated below
+  } catch (e) { /* ignore a corrupt cache */ }
+  try {
+    const r = await fetch(API + "i18n/" + encodeURIComponent(code) + ".json");
+    if (!r.ok) { if (I18N.code !== code) I18N = { code: "en", strings: {} }; return; }
+    const d = await r.json();
+    I18N = { code: d.code, rev: d.rev, strings: d.strings || {} };
+    localStorage.setItem(I18N_CACHE_KEY, JSON.stringify(I18N));
+  } catch (e) { /* offline: whatever was cached still applies */ }
+}
+
+// initI18n runs before anything renders. It trusts the cookie, because that is
+// what the server already rendered against; reconciling it with the user's
+// actual setting happens later, in revealChrome.
+async function initI18n() {
+  const code = getCookie(LANG_COOKIE) || "en";
+  await loadCatalog(code);
+  applyI18n();
+}
+
+// reconcileLang makes the cookie agree with the signed-in user's stored
+// preference, and is why the cookie can be trusted at render time.
+//
+// It runs from revealChrome rather than loadSettings: loadSettings is called
+// from inside seven page initialisers and never runs at all on the roles,
+// oauth, settings or groups pages, so it cannot be the reconciliation point.
+// revealChrome runs on every authenticated page.
+//
+// The cookie is per-browser but the setting is per-user, so a shared browser
+// would otherwise show the previous user their predecessor's language. Pairing
+// the cookie with the username it was set for detects that; the cost is one
+// reload on the first page after a user switch.
+async function reconcileLang() {
+  const me = localStorage.getItem(USER_KEY) || "";
+  if (!me) return;
+  if (localStorage.getItem(LANG_OWNER_KEY) === me) return; // already settled
+
+  let want = "en";
+  try {
+    const r = await apiFetch("settings");
+    if (!r.ok) return;
+    const hit = ((await r.json()).settings || []).find((s) => s.key === LANGUAGE_KEY);
+    if (hit && hit.value) want = String(hit.value);
+  } catch (e) { return; } // leave the cookie alone rather than guess
+
+  localStorage.setItem(LANG_OWNER_KEY, me);
+  if (want === (getCookie(LANG_COOKIE) || "en")) return;
+  setLangCookie(want);
+  reloadForLang();
+}
+
+// reloadForLang re-fetches the page so the server can render it in the new
+// language. The sessionStorage guard is what stops a reload loop if the cookie
+// and the setting somehow never converge.
+function reloadForLang() {
+  const guard = "tagged_web_lang_reloaded";
+  if (sessionStorage.getItem(guard)) return;
+  sessionStorage.setItem(guard, "1");
+  location.reload();
+}
+
 // User preferences (synced via the settings API). weekStart is a JS weekday
 // index (0=Sun..6=Sat); workdays is a set of those indices.
 function detectTimezone() {
@@ -71,6 +233,25 @@ function showMsg(el, text, kind) {
   // confirmation is visible even when the inline slot is scrolled away or the
   // panel it belongs to is behind a modal.
   if (kind === "ok" && text) toast(text, "ok");
+}
+
+// Strings that originate on the server -- module metadata (modules.go) and the
+// capability catalog (roles.go). They travel as English and are translated here
+// on render. This function is never called: it exists so the build-time
+// extractor catalogs the literals, since the render sites pass computed keys.
+function i18nServerStrings() {
+  t("Shifts"); t("Plan the working week for the groups you control, with open shifts and absences.");
+  t("Skills"); t("Track skills, proficiency levels and how well the team covers them.");
+  t("Manage users"); t("Create and delete accounts, reset passwords.");
+  t("Manage roles"); t("Assign roles to users and edit role permissions.");
+  t("Manage groups"); t("Create groups and assign members and controllers.");
+  t("Server settings"); t("Change server-wide settings such as self-registration.");
+  t("OAuth providers"); t("Configure external identity providers.");
+  t("Switch to users"); t("View and edit the data of users in the groups they control.");
+  t("Translations"); t("Add languages and translate the interface.");
+  t("User"); t("Standard account. Full access to their own time data only.");
+  t("Admin"); t("Administers the server: users, roles, groups and settings.");
+  t("Controller"); t("Oversees the users in the groups they control.");
 }
 
 // ---- Toasts -----------------------------------------------------------------
@@ -258,14 +439,44 @@ function fmtHM(sec) {
   sec = Math.max(0, Math.round(sec));
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
-  return h + "h " + pad(m) + "m";
+  return t("{h}h {m}m", { h, m: pad(m) });
 }
 function clock(epoch) { const d = new Date(epoch * 1000); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const DOW = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
-const DOW_BY_DAY = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]; // indexed by getDay()
+// Month and weekday names go through the catalog rather than being fixed
+// arrays. They are looked up per call, not once at load: these constants are
+// evaluated before the catalog arrives, so a baked-in translation would always
+// be the English one.
+//
+// Short forms are separate keys, never a substring of the long name.
+// "January".slice(0, 3) happens to read correctly in English and produces
+// nonsense in most other languages -- German "Mär", Finnish "tammi" and so on
+// are not prefixes of anything useful.
+const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTHS_SHORT_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAY_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]; // indexed by getDay()
+const DOW_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];                                   // indexed by getDay()
+
+function monthName(i) { return t(MONTHS_EN[i]); }        // i18n-dynamic: declared in i18nDateStrings
+function monthShort(i) { return t(MONTHS_SHORT_EN[i]); } // i18n-dynamic: declared in i18nDateStrings
+function weekdayName(i) { return t(WEEKDAY_EN[i]); }     // i18n-dynamic: declared in i18nDateStrings
+function dowShort(i) { return t(DOW_EN[i]); }            // i18n-dynamic: declared in i18nDateStrings
+
+// Never called. It exists so the extractor catalogs the date names, since the
+// lookups above pass computed keys.
+function i18nDateStrings() {
+  t("January"); t("February"); t("March"); t("April"); t("May"); t("June");
+  t("July"); t("August"); t("September"); t("October"); t("November"); t("December");
+  t("Jan"); t("Feb"); t("Mar"); t("Apr"); t("May"); t("Jun");
+  t("Jul"); t("Aug"); t("Sep"); t("Oct"); t("Nov"); t("Dec");
+  t("Sunday"); t("Monday"); t("Tuesday"); t("Wednesday"); t("Thursday"); t("Friday"); t("Saturday");
+  t("SUN"); t("MON"); t("TUE"); t("WED"); t("THU"); t("FRI"); t("SAT");
+  t("{h}h {m}m"); t("{d} {month}"); t("{weekday}, {month} {d}"); t("{weekday}, {month} {d} {year}");
+  t("{month} {year}"); t("{d} {month} {year}");
+  t("{month} {from} – {to}, {year}"); t("{fromMonth} {from} – {toMonth} {to}, {year}");
+  t("{month} {d}"); t("{weekday}, {d} {month} {year}");
+}
 // Short weekday labels ordered starting from the configured week start.
-function orderedDOW() { return Array.from({ length: 7 }, (_, i) => DOW_BY_DAY[(PREFS.weekStart + i) % 7]); }
+function orderedDOW() { return Array.from({ length: 7 }, (_, i) => dowShort((PREFS.weekStart + i) % 7)); }
 
 function midnight(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function dayKey(d) { return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
@@ -282,7 +493,7 @@ function relDay(epoch) {
   const diff = Math.round((d - today) / 86400000);
   if (diff === 0) return "Today";
   if (diff === -1) return "Yesterday";
-  return d.getDate() + " " + MONTHS[d.getMonth()].slice(0, 3);
+  return t("{d} {month}", { d: d.getDate(), month: monthShort(d.getMonth()) });
 }
 
 // ---- Records ----------------------------------------------------------------
@@ -431,7 +642,7 @@ async function initSetup() {
       const data = await resp.json();
       setSession(data.token, data.username || username);
       location.href = PREFIX;
-    } catch (err) { showMsg(msg, "Network error", "error"); }
+    } catch (err) { showMsg(msg, t("Network error"), "error"); }
   });
 }
 
@@ -568,7 +779,7 @@ async function passkeyLogin(username, msg, finish) {
     });
     if (!r.ok) { showMsg(msg, (await r.text()) || "No passkey for this account", "error"); return; }
     options = prepRequestOptions((await r.json()).publicKey);
-  } catch (e) { showMsg(msg, "Network error", "error"); return; }
+  } catch (e) { showMsg(msg, t("Network error"), "error"); return; }
   let assertion;
   try { assertion = await navigator.credentials.get({ publicKey: options }); }
   catch (e) { showMsg(msg, "Passkey sign-in was cancelled", "error"); return; }
@@ -579,7 +790,7 @@ async function passkeyLogin(username, msg, finish) {
     if (!r.ok) { showMsg(msg, (await r.text()) || "Passkey verification failed", "error"); return; }
     const d = await r.json();
     finish(d.token, d.username);
-  } catch (e) { showMsg(msg, "Network error", "error"); }
+  } catch (e) { showMsg(msg, t("Network error"), "error"); }
 }
 
 function initLogin() {
@@ -642,7 +853,7 @@ function initLogin() {
         return;
       }
       finish(data.token, username);
-    } catch (err) { showMsg(msg, "Network error", "error"); }
+    } catch (err) { showMsg(msg, t("Network error"), "error"); }
   });
 
   mfaForm.addEventListener("submit", async (e) => {
@@ -656,7 +867,7 @@ function initLogin() {
       const data = await resp.json();
       if (!data.token) { showMsg(msg, "Invalid code", "error"); return; }
       finish(data.token, creds.username);
-    } catch (err) { showMsg(msg, "Network error", "error"); }
+    } catch (err) { showMsg(msg, t("Network error"), "error"); }
   });
 
   document.getElementById("mfa-back").addEventListener("click", (e) => {
@@ -699,7 +910,7 @@ function initRegister() {
       if (!resp.ok) { showMsg(msg, (await resp.text()) || "Registration failed", "error"); return; }
       showMsg(msg, "Account created! Redirecting to login…", "ok");
       setTimeout(() => { location.href = PREFIX + "login"; }, 900);
-    } catch (err) { showMsg(msg, "Network error", "error"); }
+    } catch (err) { showMsg(msg, t("Network error"), "error"); }
   });
 }
 
@@ -728,6 +939,7 @@ const NAV_CAP = {
   groups: "groups.manage",
   settings: "server.manage",
   oauth: "oauth.manage",
+  translations: "translations.manage",
 };
 
 // NAV_MODULE maps a nav entry to the optional module that must be switched on for
@@ -750,6 +962,7 @@ async function revealChrome() {
     window.TT_CAPS = d.caps || [];
     window.TT_MODULES = d.modules || [];
     const can = (c) => window.TT_CAPS.includes(c);
+    reconcileLang(); // not awaited: nav reveal must not wait on a settings fetch
 
     // Module pages start hidden in the markup and are revealed only where the
     // server says the module is on; its page 404s otherwise.
@@ -846,7 +1059,7 @@ function renderTimerTags() {
         const c = colorFor(t);
         return `<span class="em-tag-chip" style="background:${c}26;color:${c}">${escapeHtml(labelFor(t) || ("#" + t))}<button class="x" data-t="${escapeHtml(t)}" type="button" aria-label="Remove">×</button></span>`;
       }).join("")
-    : '<span class="em-none">No tags yet.</span>';
+    : `<span class="em-none">${escapeHtml(t("No tags yet."))}</span>`;
   host.querySelectorAll(".x").forEach((b) => b.addEventListener("click", () => {
     timerState.tags = timerState.tags.filter((x) => x !== b.dataset.t);
     saveTimerState();
@@ -864,9 +1077,9 @@ function renderTimerTagMenu() {
     return `<button type="button" class="em-tag-opt" data-t="${escapeHtml(t)}"><span class="dot" style="background:${c}"></span>${escapeHtml(labelFor(t) || ("#" + t))}</button>`;
   }).join("");
   menu.innerHTML =
-    (items || '<div class="em-tag-empty">No saved tags</div>') +
+    (items || `<div class="em-tag-empty">${escapeHtml(t("No saved tags"))}</div>`) +
     '<div class="em-tag-sep"></div>' +
-    '<button type="button" class="em-tag-new">＋ New Tag…</button>';
+    `<button type="button" class="em-tag-new">＋ ${escapeHtml(t("New tag…"))}</button>`;
 
   menu.querySelectorAll(".em-tag-opt").forEach((b) => b.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -885,8 +1098,8 @@ function renderTimerTagMenu() {
 }
 
 function addTimerTag(raw) {
-  const t = normalizeTag(raw);
-  if (t && !timerState.tags.includes(t)) { timerState.tags.push(t); saveTimerState(); }
+  const tag = normalizeTag(raw);
+  if (tag && !timerState.tags.includes(tag)) { timerState.tags.push(tag); saveTimerState(); }
   const wrap = document.getElementById("tkm-add-wrap");
   const inp = document.getElementById("tkm-tag-input");
   if (inp) inp.value = "";
@@ -1271,13 +1484,15 @@ function renderDashboard() {
   const isToday = dayKey(selDate) === dayKey(new Date());
 
   // Header date control
-  document.getElementById("today-btn").textContent = isToday ? "Today" : (selDate.getDate() + " " + MONTHS[selDate.getMonth()].slice(0, 3));
-  document.getElementById("tile-scope").textContent = isToday ? "today" : "day";
+  document.getElementById("today-btn").textContent = isToday ? t("Today") : t("{d} {month}", { d: selDate.getDate(), month: monthShort(selDate.getMonth()) });
+  // Lower case on purpose: this reads inside "Total (today)", so it is its own
+  // key rather than a reuse of the button's "Today".
+  document.getElementById("tile-scope").textContent = isToday ? t("today") : t("day");
 
   // Tile: total + daily goal
   const dailyGoalSec = GOALS.daily * 3600;
   document.getElementById("tile-total").textContent = fmtHM(dayTotal);
-  document.getElementById("tile-total-goal").textContent = "Goal " + fmtHM(dailyGoalSec);
+  document.getElementById("tile-total-goal").textContent = t("Goal {duration}", { duration: fmtHM(dailyGoalSec) });
   document.getElementById("tile-total-bar").style.width = Math.min(100, dailyGoalSec ? (dayTotal / dailyGoalSec) * 100 : 0) + "%";
 
   // Tile: entries + delta vs previous day
@@ -1286,13 +1501,15 @@ function renderDashboard() {
   const delta = dayRecs.length - prevCount;
   document.getElementById("tile-entries").textContent = dayRecs.length;
   const deltaEl = document.getElementById("tile-entries-delta");
-  deltaEl.textContent = (delta >= 0 ? "+" : "") + delta + " vs. previous day";
+  // The sign travels inside the placeholder so a translation can put the count
+  // wherever its grammar needs it.
+  deltaEl.textContent = t("{delta} vs. previous day", { delta: (delta >= 0 ? "+" : "") + delta });
   deltaEl.className = "sub" + (delta > 0 ? " pos" : "");
 
   // Tile: longest block
   let longest = null;
   for (const r of dayRecs) if (!longest || recDur(r) > recDur(longest)) longest = r;
-  document.getElementById("tile-longest").textContent = longest ? fmtHM(recDur(longest)) : "0h 00m";
+  document.getElementById("tile-longest").textContent = longest ? fmtHM(recDur(longest)) : fmtHM(0);
   document.getElementById("tile-longest-range").textContent = longest && recDur(longest) > 0 ? clock(longest.t1) + " – " + clock(longest.t2) : "—";
 
   // Time allocation (donut + legend) + tags card
@@ -1306,8 +1523,8 @@ function renderDashboard() {
   const legend = document.getElementById("alloc-legend");
   const tagsList = document.getElementById("tags-list");
   if (segs.length === 0) {
-    legend.innerHTML = '<div class="legend-row" style="color:var(--text-3)">No entries for this day</div>';
-    tagsList.innerHTML = '<div class="tag-row" style="color:var(--text-3)">No tags</div>';
+    legend.innerHTML = `<div class="legend-row" style="color:var(--text-3)">${escapeHtml(t("No entries for this day."))}</div>`;
+    tagsList.innerHTML = `<div class="tag-row" style="color:var(--text-3)">${escapeHtml(t("No tags"))}</div>`;
   } else {
     legend.innerHTML = segs.map((s) => {
       const pct = dayTotal ? Math.round((s.sec / dayTotal) * 100) : 0;
@@ -1331,15 +1548,15 @@ function renderDashboard() {
     ttEl.style.background = "var(--accent-dim)";
     ttEl.style.color = "var(--accent)";
   }
-  document.getElementById("tile-toptag-dur").textContent = top ? fmtHM(top.sec) : "0h 00m";
+  document.getElementById("tile-toptag-dur").textContent = top ? fmtHM(top.sec) : fmtHM(0);
   document.getElementById("tile-toptag-pct").textContent = top && dayTotal ? Math.round((top.sec / dayTotal) * 100) + "%" : "0%";
 
   // Entries of the selected day (most recent first, up to 5)
   const dayEntries = dayRecs.slice().sort((a, b) => b.t1 - a.t1).slice(0, 5);
   document.getElementById("entries-list").innerHTML = dayEntries.length ? dayEntries.map((r) => {
     const k = tagKeyOf(r.ds);
-    return `<div class="entry"><div class="e-time"><div class="t1">${clock(r.t1)}</div><div class="t2">${clock(r.t2)}</div></div><div class="e-desc">${escapeHtml(r.ds || "(no description)")}</div>${badge(k)}<div class="e-dur">${fmtHM(recDur(r))}</div></div>`;
-  }).join("") : '<div class="empty">No entries for this day.</div>';
+    return `<div class="entry"><div class="e-time"><div class="t1">${clock(r.t1)}</div><div class="t2">${clock(r.t2)}</div></div><div class="e-desc">${escapeHtml(r.ds || t("(no description)"))}</div>${badge(k)}<div class="e-dur">${fmtHM(recDur(r))}</div></div>`;
+  }).join("") : `<div class="empty">${escapeHtml(t("No entries for this day."))}</div>`;
 
   // Goals
   const weeklyGoalSec = GOALS.weekly * 3600;
@@ -1356,7 +1573,7 @@ function renderDashboard() {
 }
 
 function renderCalendar() {
-  document.getElementById("cal-title").textContent = MONTHS[calMonth.getMonth()] + " " + calMonth.getFullYear();
+  document.getElementById("cal-title").textContent = t("{month} {year}", { month: monthName(calMonth.getMonth()), year: calMonth.getFullYear() });
   const first = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1);
   const startOff = weekStartOffset(first);
   const gridStart = addDays(first, -startOff);
@@ -1514,12 +1731,45 @@ function initPrefsSettings() {
   document.getElementById("set-week-start").value = String(PREFS.weekStart);
   document.getElementById("set-workdays").value = PREFS.workdays;
   tzSel.value = PREFS.timezone;
-  document.getElementById("set-language").value = PREFS.language;
 
   bind("set-week-start", WEEK_START_KEY, "weekStart", (v) => Number(v));
   bind("set-workdays", WORKDAYS_KEY, "workdays");
   bind("set-timezone", TIMEZONE_KEY, "timezone");
-  bind("set-language", LANGUAGE_KEY, "language");
+  initLanguagePref(msg);
+}
+
+// initLanguagePref fills the language dropdown from the languages the admin has
+// actually enabled, and on change writes both halves of the pair: the synced
+// setting (so the choice follows the user to another browser) and the cookie
+// (so the server can render the next page in it).
+async function initLanguagePref(msg) {
+  const sel = document.getElementById("set-language");
+  if (!sel) return;
+  let langs = [{ code: "en", label: "English" }];
+  try {
+    const r = await fetch(API + "languages");
+    if (r.ok) langs = (await r.json()).languages || langs;
+  } catch (e) { /* offline: English only, which is always valid */ }
+
+  sel.innerHTML = langs
+    .map((l) => `<option value="${escapeHtml(l.code)}">${escapeHtml(l.label)}</option>`)
+    .join("");
+  // A language that has since been removed or disabled would otherwise leave
+  // the select blank and look broken.
+  sel.value = langs.some((l) => l.code === PREFS.language) ? PREFS.language : "en";
+
+  sel.addEventListener("change", async () => {
+    const code = sel.value;
+    const ok = await savePref(LANGUAGE_KEY, "language", code);
+    if (!ok) { showMsg(msg, t("Failed to save"), "error"); return; }
+    setLangCookie(code);
+    localStorage.setItem(LANG_OWNER_KEY, localStorage.getItem(USER_KEY) || "");
+    showMsg(msg, t("Preferences saved"), "ok");
+    // Reload so the server re-renders the static markup in the new language;
+    // translating in place would leave anything already painted behind.
+    sessionStorage.removeItem("tagged_web_lang_reloaded");
+    setTimeout(() => location.reload(), 400);
+  });
 }
 
 async function initAccount() {
@@ -1665,7 +1915,7 @@ function initPasskeys() {
       const r = await apiFetch("webauthn/register/begin", { method: "POST" });
       if (!r.ok) { showMsg(msg, (await r.text()) || "Could not start registration", "error"); return; }
       options = prepCreationOptions((await r.json()).publicKey);
-    } catch (e) { showMsg(msg, "Network error", "error"); return; }
+    } catch (e) { showMsg(msg, t("Network error"), "error"); return; }
     let cred;
     try { cred = await navigator.credentials.create({ publicKey: options }); }
     catch (e) { showMsg(msg, "Passkey setup was cancelled", "error"); return; }
@@ -1677,7 +1927,7 @@ function initPasskeys() {
       if (!r.ok) { showMsg(msg, (await r.text()) || "Could not save passkey", "error"); return; }
       render((await r.json()).credentials || []);
       showMsg(msg, "Passkey added", "ok");
-    } catch (e) { showMsg(msg, "Network error", "error"); }
+    } catch (e) { showMsg(msg, t("Network error"), "error"); }
   }
 
   async function remove(id) {
@@ -1693,7 +1943,7 @@ function initPasskeys() {
       if (!r.ok) { showMsg(msg, (await r.text()) || "Could not remove passkey", "error"); return; }
       render((await r.json()).credentials || []);
       showMsg(msg, "Passkey removed", "ok");
-    } catch (e) { showMsg(msg, "Network error", "error"); }
+    } catch (e) { showMsg(msg, t("Network error"), "error"); }
   }
 
   addBtn.addEventListener("click", add);
@@ -1724,7 +1974,7 @@ function initMfaSection() {
     if (state.enabled) {
       statusEl.innerHTML = `<div class="mfa-row">
           <span class="mfa-badge on">Enabled</span>
-          <span class="mfa-note">${state.remaining} backup code${state.remaining === 1 ? "" : "s"} remaining</span>
+          <span class="mfa-note">${escapeHtml(tn("{n} backup code remaining", state.remaining))}</span>
           <button class="danger-btn btn-sm" id="mfa-disable-btn" type="button">Disable</button>
         </div>
         <div id="mfa-disable-wrap" hidden>
@@ -1856,9 +2106,9 @@ function initTokenSection(hasPassword) {
   // endpoint (already authorized by the web session).
   async function revealWithoutPassword() {
     showMsg(msg, "Loading…", "");
-    const t = await fetchApiToken(false);
-    if (!t) { showMsg(msg, "Could not load token", "error"); return; }
-    token = t;
+    const tok = await fetchApiToken(false);
+    if (!tok) { showMsg(msg, "Could not load token", "error"); return; }
+    token = tok;
     input.value = token;
     reveal();
     showMsg(msg, "", "");
@@ -1877,9 +2127,9 @@ function initTokenSection(hasPassword) {
     if (!pw) { showMsg(msg, "Enter your password", "error"); return; }
     showMsg(msg, "Verifying…", "");
     if (!(await verifyPassword(pw))) { showMsg(msg, "Incorrect password", "error"); return; }
-    const t = await fetchApiToken(false);
-    if (!t) { showMsg(msg, "Could not load token", "error"); return; }
-    token = t;
+    const tok = await fetchApiToken(false);
+    if (!tok) { showMsg(msg, "Could not load token", "error"); return; }
+    token = tok;
     input.value = token;
     closePrompt();
     reveal();
@@ -1902,9 +2152,9 @@ function initTokenSection(hasPassword) {
       confirmLabel: "Regenerate",
     }))) return;
     showMsg(msg, "Regenerating…", "");
-    const t = await fetchApiToken(true);
-    if (!t) { showMsg(msg, "Failed to regenerate", "error"); return; }
-    token = t;
+    const tok = await fetchApiToken(true);
+    if (!tok) { showMsg(msg, "Failed to regenerate", "error"); return; }
+    token = tok;
     input.value = token;
     reveal();
     showMsg(msg, "New token generated", "ok");
@@ -1913,16 +2163,21 @@ function initTokenSection(hasPassword) {
 
 // ---- Time entries page ------------------------------------------------------
 
-const WEEKDAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function fmtColon(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 3600) + ":" + pad(Math.floor((sec % 3600) / 60)); }
 function weekStartOf(d) { return midnight(addDays(d, -weekStartOffset(d))); }
 function weekTitle(start) {
   const end = addDays(start, 6);
-  const mS = MONTHS[start.getMonth()].slice(0, 3);
-  const mE = MONTHS[end.getMonth()].slice(0, 3);
-  if (start.getMonth() === end.getMonth()) return `${mS} ${start.getDate()} – ${end.getDate()}, ${end.getFullYear()}`;
-  return `${mS} ${start.getDate()} – ${mE} ${end.getDate()}, ${end.getFullYear()}`;
+  const mS = monthShort(start.getMonth());
+  const mE = monthShort(end.getMonth());
+  // Two patterns rather than one: a week inside a single month names it once,
+  // and both need to be reorderable -- "13.-19. Juli 2026" puts the month last.
+  if (start.getMonth() === end.getMonth()) {
+    return t("{month} {from} – {to}, {year}",
+      { month: mS, from: start.getDate(), to: end.getDate(), year: end.getFullYear() });
+  }
+  return t("{fromMonth} {from} – {toMonth} {to}, {year}",
+    { fromMonth: mS, from: start.getDate(), toMonth: mE, to: end.getDate(), year: end.getFullYear() });
 }
 
 async function putRecord(obj) {
@@ -1940,9 +2195,9 @@ function entryCard(r) {
   return `<div class="te-card" data-key="${escapeHtml(r.key)}">
     <span class="te-dot" style="background:${dotColor}"></span>
     <div class="te-time"><div class="t1">${clock(r.t1)}</div><div class="t2">${clock(r.t2)}</div></div>
-    <div class="te-body"><div class="te-desc ${descText ? "" : "none"}">${descText ? escapeHtml(descText) : "No description"}</div>${tagBadges ? `<div class="te-tags">${tagBadges}</div>` : ""}</div>
+    <div class="te-body"><div class="te-desc ${descText ? "" : "none"}">${descText ? escapeHtml(descText) : escapeHtml(t("No description"))}</div>${tagBadges ? `<div class="te-tags">${tagBadges}</div>` : ""}</div>
     <div class="te-dur">${fmtHM(recDur(r))}</div>
-    <div class="te-menu"><button class="te-menu-btn" aria-label="Menu">⋯</button><div class="menu-pop"><button class="resume">Resume</button><button class="edit">Edit</button><button class="delete danger-btn">Delete</button></div></div>
+    <div class="te-menu"><button class="te-menu-btn" aria-label="Menu">⋯</button><div class="menu-pop"><button class="resume">${escapeHtml(t("Resume"))}</button><button class="edit">${escapeHtml(t("Edit"))}</button><button class="delete danger-btn">${escapeHtml(t("Delete"))}</button></div></div>
   </div>`;
 }
 
@@ -1975,7 +2230,7 @@ function renderEntryDetails() {
     host.classList.remove("filled");
     host.innerHTML = `<div class="um-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-      <p>Select an entry to view its details and actions.</p>
+      <p>${escapeHtml(t("Select an entry to view its details and actions."))}</p>
     </div>`;
     return;
   }
@@ -1995,24 +2250,24 @@ function renderEntryDetails() {
     </div>
   </div>`;
 
-  const detailsCard = udCard("Details", [
-    udRow("Date", escapeHtml(fmtLongDate(day))),
-    udRow("Start", clock(r.t1)),
-    udRow("End", clock(r.t2)),
-    udRow("Duration", fmtHM(recDur(r))),
-  ].join(""), `<button class="secondary btn-sm" id="d-edit-entry">Edit</button>`);
+  const detailsCard = udCard(t("Details"), [
+    udRow(t("Date"), escapeHtml(fmtLongDate(day))),
+    udRow(t("Start"), clock(r.t1)),
+    udRow(t("End"), clock(r.t2)),
+    udRow(t("Duration"), fmtHM(recDur(r))),
+  ].join(""), `<button class="secondary btn-sm" id="d-edit-entry">${escapeHtml(t("Edit"))}</button>`);
 
-  const tagsCard = udCard("Tags", tags.length
+  const tagsCard = udCard(t("Tags"), tags.length
     ? `<div class="ud-roles">${tags.map((t) => badge(t.slice(1).toLowerCase())).join("")}</div>`
-    : `<p class="muted um-note">No tags on this entry.</p>`);
+    : `<p class="muted um-note">${escapeHtml(t("No tags on this entry."))}</p>`);
 
   const actions = `<div class="ud-stack">
     <button id="d-entry-resume">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true" style="vertical-align:-2px;margin-right:6px"><path d="M8 5v14l11-7z"/></svg>
-      Resume entry
+      ${escapeHtml(t("Resume entry"))}
     </button>
-    <button class="secondary" id="d-entry-edit">Edit entry</button>
-    <button class="danger-btn" id="d-entry-delete">Delete entry</button>
+    <button class="secondary" id="d-entry-edit">${escapeHtml(t("Edit entry"))}</button>
+    <button class="danger-btn" id="d-entry-delete">${escapeHtml(t("Delete entry"))}</button>
   </div>`;
 
   host.classList.add("filled");
@@ -2055,7 +2310,7 @@ async function resumeEntry(r) {
 
 // fmtLongDate renders "Saturday, Jul 18 2026" for the panel header.
 function fmtLongDate(d) {
-  return `${WEEKDAY_FULL[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()} ${d.getFullYear()}`;
+  return t("{weekday}, {month} {d} {year}", { weekday: weekdayName(d.getDay()), month: monthShort(d.getMonth()), d: d.getDate(), year: d.getFullYear() });
 }
 
 // deleteEntry soft-deletes a record after confirmation. Shared by the details
@@ -2063,12 +2318,12 @@ function fmtLongDate(d) {
 // Returns true when the entry was actually deleted.
 async function deleteEntry(r) {
   if (!(await confirmModal({
-    title: "Delete entry",
-    body: "Delete this entry? This cannot be undone.",
+    title: t("Delete entry"),
+    body: t("Delete this entry? This cannot be undone."),
   }))) return false;
   await putRecord({ key: r.key, mt: Math.floor(Date.now() / 1000), t1: r.t1, t2: r.t2, ds: "HIDDEN " + (r.ds || "") });
   if (ENTRY_SELECTED === r.key) ENTRY_SELECTED = null;
-  toast("Entry deleted", "ok");
+  toast(t("Entry deleted"), "ok");
   await loadAll();
   renderEntriesPage();
   return true;
@@ -2108,8 +2363,8 @@ function tlZoom(factor) {
 function tlRangeTitle(s, e) {
   const a = new Date(s * 1000), b = new Date((e - 1) * 1000);
   const sameDay = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  if (sameDay) return `${WEEKDAY_FULL[a.getDay()]}, ${MONTHS[a.getMonth()].slice(0, 3)} ${a.getDate()}`;
-  const mA = MONTHS[a.getMonth()].slice(0, 3), mB = MONTHS[b.getMonth()].slice(0, 3);
+  if (sameDay) return t("{weekday}, {month} {d}", { weekday: weekdayName(a.getDay()), month: monthShort(a.getMonth()), d: a.getDate() });
+  const mA = monthShort(a.getMonth()), mB = monthShort(b.getMonth());
   if (a.getFullYear() === b.getFullYear()) return `${mA} ${a.getDate()} – ${mB} ${b.getDate()}, ${b.getFullYear()}`;
   return `${mA} ${a.getDate()}, ${a.getFullYear()} – ${mB} ${b.getDate()}, ${b.getFullYear()}`;
 }
@@ -2167,14 +2422,14 @@ function renderTimeline() {
   let step = TL_STEPS[TL_STEPS.length - 1];
   for (const s of TL_STEPS) { if (s * pxPerSec >= 44) { step = s; break; } }
   let grid = "";
-  for (let t = tlFloorToStep(tlStart, step); t <= tlEnd; t += step) {
-    if (t < tlStart) continue;
-    const y = (t - tlStart) * pxPerSec;
-    const d = new Date(t * 1000);
+  for (let ts = tlFloorToStep(tlStart, step); ts <= tlEnd; ts += step) {
+    if (ts < tlStart) continue;
+    const y = (ts - tlStart) * pxPerSec;
+    const d = new Date(ts * 1000);
     const isDay = d.getHours() === 0 && d.getMinutes() === 0;
     let label;
-    if (step >= 86400) label = `${DOW_BY_DAY[d.getDay()]} ${d.getDate()}`;
-    else if (isDay) label = `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+    if (step >= 86400) label = `${dowShort(d.getDay())} ${d.getDate()}`;
+    else if (isDay) label = t("{month} {d}", { month: monthShort(d.getMonth()), d: d.getDate() });
     else label = pad(d.getHours()) + ":" + pad(d.getMinutes());
     grid += `<div class="tl-grid${isDay || step >= 86400 ? " day" : ""}" style="top:${y}px"><span class="tl-grid-label">${label}</span></div>`;
   }
@@ -2242,7 +2497,7 @@ function renderEntriesPage() {
     const has = ALL.some((r) => r.t1 >= s && r.t1 < e);
     const sel = dayKey(d) === dayKey(selDate);
     const off = !workdaySet().has(d.getDay());
-    cells.push(`<div class="wday ${sel ? "sel" : ""} ${has ? "has" : ""} ${off ? "offday" : ""}" data-i="${i}"><div class="dow">${DOW_BY_DAY[d.getDay()]}</div><div class="dnum">${d.getDate()}</div><div class="dtot">${sel ? fmtHM(tot) : fmtColon(tot)}</div><div class="wdot"></div></div>`);
+    cells.push(`<div class="wday ${sel ? "sel" : ""} ${has ? "has" : ""} ${off ? "offday" : ""}" data-i="${i}"><div class="dow">${dowShort(d.getDay())}</div><div class="dnum">${d.getDate()}</div><div class="dtot">${sel ? fmtHM(tot) : fmtColon(tot)}</div><div class="wdot"></div></div>`);
   }
   const daysEl = document.getElementById("week-days");
   daysEl.innerHTML = cells.join("");
@@ -2253,13 +2508,13 @@ function renderEntriesPage() {
   }));
   document.getElementById("week-total").textContent = fmtHM(weekTotal);
 
-  document.getElementById("day-title").textContent = `${WEEKDAY_FULL[selDate.getDay()]}, ${MONTHS[selDate.getMonth()].slice(0, 3)} ${selDate.getDate()}`;
+  document.getElementById("day-title").textContent = t("{weekday}, {month} {d}", { weekday: weekdayName(selDate.getDay()), month: monthShort(selDate.getMonth()), d: selDate.getDate() });
   const [ds, de] = dayRange(selDate);
   const dayRecs = ALL.filter((r) => r.t1 >= ds && r.t1 < de).sort((a, b) => a.t1 - b.t1);
   document.getElementById("day-total").textContent = fmtHM(dayRecs.reduce((a, r) => a + recDur(r), 0));
 
   const list = document.getElementById("te-list");
-  list.innerHTML = dayRecs.length ? dayRecs.map(entryCard).join("") : '<div class="empty">No entries for this day.</div>';
+  list.innerHTML = dayRecs.length ? dayRecs.map(entryCard).join("") : `<div class="empty">${escapeHtml(t("No entries for this day."))}</div>`;
 
   list.querySelectorAll(".te-menu-btn").forEach((btn) => btn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -2351,7 +2606,7 @@ function renderEmTags() {
         const c = colorFor(t);
         return `<span class="em-tag-chip" style="background:${c}26;color:${c}">${escapeHtml(labelFor(t) || ("#" + t))}<button class="x" data-t="${escapeHtml(t)}" type="button" aria-label="Remove">×</button></span>`;
       }).join("")
-    : '<span class="em-none">No tags yet.</span>';
+    : `<span class="em-none">${escapeHtml(t("No tags yet."))}</span>`;
   host.querySelectorAll(".x").forEach((b) => b.addEventListener("click", () => {
     emTags = emTags.filter((x) => x !== b.dataset.t);
     renderEmTags();
@@ -2368,9 +2623,9 @@ function renderEmTagMenu() {
     return `<button type="button" class="em-tag-opt" data-t="${escapeHtml(t)}"><span class="dot" style="background:${c}"></span>${escapeHtml(labelFor(t) || ("#" + t))}</button>`;
   }).join("");
   menu.innerHTML =
-    (items || '<div class="em-tag-empty">No saved tags</div>') +
+    (items || `<div class="em-tag-empty">${escapeHtml(t("No saved tags"))}</div>`) +
     '<div class="em-tag-sep"></div>' +
-    '<button type="button" class="em-tag-new">＋ New Tag…</button>';
+    `<button type="button" class="em-tag-new">＋ ${escapeHtml(t("New tag…"))}</button>`;
 
   menu.querySelectorAll(".em-tag-opt").forEach((b) => b.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -2390,8 +2645,8 @@ function renderEmTagMenu() {
 }
 
 function addEmTag(raw) {
-  const t = normalizeTag(raw);
-  if (t && !emTags.includes(t)) emTags.push(t);
+  const tag = normalizeTag(raw);
+  if (tag && !emTags.includes(tag)) emTags.push(tag);
   const wrap = document.getElementById("em-add-wrap");
   const inp = document.getElementById("em-tag-input");
   inp.value = "";
@@ -2406,7 +2661,7 @@ function openEntryModal(rec, preset) {
   document.getElementById("em-add-wrap").hidden = true;
   closeAllMenus();
   emError("");
-  document.getElementById("em-title").textContent = rec ? "Edit Entry" : "New Entry";
+  document.getElementById("em-title").textContent = rec ? t("Edit entry") : t("New entry");
   const ds = rec ? (rec.ds || "") : "";
   document.getElementById("em-desc").value = ds.replace(RE_TAG_G, "").trim();
   emTags = rec ? [...new Set(allTagsOf(ds).map((t) => t.slice(1).toLowerCase()))] : [];
@@ -2438,15 +2693,15 @@ async function saveEntryModal() {
   const descText = document.getElementById("em-desc").value.trim();
   const t1 = combineDT(document.getElementById("em-start-date").value, document.getElementById("em-start-time").value);
   const t2 = combineDT(document.getElementById("em-end-date").value, document.getElementById("em-end-time").value);
-  if (isNaN(t1) || isNaN(t2)) { emError("Enter a valid start and end time."); return; }
-  if (t2 < t1) { emError("End must be after start."); return; }
+  if (isNaN(t1) || isNaN(t2)) { emError(t("Enter a valid start and end time.")); return; }
+  if (t2 < t1) { emError(t("End must be after start.")); return; }
   let ds = descText;
   if (emTags.length) ds = (descText + " " + emTags.map((t) => "#" + t).join(" ")).trim();
   const editing = !!emKey;
   const key = emKey || randomKey();
   const ok = await putRecord({ key, mt: Math.floor(Date.now() / 1000), t1, t2, ds });
-  if (!ok) { emError("Failed to save."); return; }
-  toast(editing ? "Entry updated" : "Entry saved", "ok");
+  if (!ok) { emError(t("Failed to save.")); return; }
+  toast(editing ? t("Entry updated") : t("Entry saved"), "ok");
   closeEntryModal();
   await loadAll();
   renderEntriesPage();
@@ -2511,7 +2766,7 @@ function repDate(epoch) { const d = new Date(epoch * 1000); return `${d.getFullY
 function repPeriodLabel(epoch, period) {
   const d = new Date(epoch * 1000), y = d.getFullYear();
   if (period === "week") { const w = isoWeek(epoch); return `${w.year}W${pad(w.week)}`; }
-  if (period === "month") return `${MONTHS[d.getMonth()].slice(0, 3)} ${y}`;
+  if (period === "month") return t("{month} {year}", { month: monthShort(d.getMonth()), year: y });
   if (period === "quarter") return `${y}Q${Math.floor(d.getMonth() / 3) + 1}`;
   if (period === "year") return `${y}`;
   return `${y}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; // day
@@ -2615,7 +2870,7 @@ function renderReportPreview() {
   }
   let html = '<table class="rep-table">';
   for (const row of rows) {
-    if (row[0] === "total") html += `<tr class="total"><th class="num">${escapeHtml(row[1])}</th><th colspan="4">Total</th></tr>`;
+    if (row[0] === "total") html += `<tr class="total"><th class="num">${escapeHtml(row[1])}</th><th colspan="4">${escapeHtml(t("Total"))}</th></tr>`;
     else if (row[0] === "head") html += `<tr class="grp"><th class="num">${escapeHtml(row[1])}</th><th colspan="4">${escapeHtml(row[2])}</th></tr>`;
     else if (row[0] === "record") {
       const [, , dur, date, st, en, ds, tags] = row;
@@ -2711,7 +2966,7 @@ function reportSavePDF() {
 
   let body = '<table class="r">';
   for (const row of rows) {
-    if (row[0] === "total") body += `<tr class="tot"><td class="n">${escapeHtml(row[1])}</td><td colspan="4">Total</td></tr>`;
+    if (row[0] === "total") body += `<tr class="tot"><td class="n">${escapeHtml(row[1])}</td><td colspan="4">${escapeHtml(t("Total"))}</td></tr>`;
     else if (row[0] === "blank") body += '<tr class="sp"><td colspan="5"></td></tr>';
     else if (row[0] === "head") body += `<tr class="g"><td class="n">${escapeHtml(row[1])}</td><td colspan="4">${escapeHtml(row[2])}</td></tr>`;
     else if (row[0] === "record") {
@@ -2869,7 +3124,7 @@ function fmtBytes(n) {
 function fmtDate(epoch) {
   if (!epoch) return "—";
   const d = new Date(epoch * 1000);
-  return d.getDate() + " " + MONTHS[d.getMonth()].slice(0, 3) + " " + d.getFullYear();
+  return t("{d} {month} {year}", { d: d.getDate(), month: monthShort(d.getMonth()), year: d.getFullYear() });
 }
 
 // Admin page state: the full user list and the currently-selected username.
@@ -3044,7 +3299,7 @@ function renderUsersTable() {
             </span>
           </div>
         </td>
-        <td><span class="badge ${role.cls}">${escapeHtml(role.label)}</span></td>
+        <td><span class="badge ${role.cls}">${escapeHtml(t(role.label))}</span></td>
         <td><span class="status-dot ${st.cls}"></span>${escapeHtml(st.label)}</td>
         <td class="muted">${fmtBytes(u.size_bytes)}</td>
         <td class="muted">${fmtDate(u.modified)}</td>
@@ -3052,7 +3307,7 @@ function renderUsersTable() {
       </tr>`;
     }).join("");
   }
-  count.textContent = `Showing ${rows.length} of ${ADMIN_USERS.length} user${ADMIN_USERS.length === 1 ? "" : "s"}`;
+  count.textContent = t("Showing {shown} of {total}", { shown: rows.length, total: tn("{n} user", ADMIN_USERS.length) });
 
   body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", (e) => {
     if (e.target.closest(".um-dots")) return; // dots handled separately
@@ -3280,7 +3535,7 @@ function groupsOf(u) {
 function mfaSummary(u) {
   const parts = [];
   if (u.totp_enabled) parts.push("Authenticator app");
-  if (u.passkeys) parts.push(`${u.passkeys} passkey${u.passkeys === 1 ? "" : "s"}`);
+  if (u.passkeys) parts.push(tn("{n} passkey", u.passkeys));
   return parts;
 }
 
@@ -3309,7 +3564,7 @@ function renderUserDetails() {
     <div class="ud-id">
       <div class="ud-name-row">
         <span class="ud-name">${escapeHtml(displayName(u.username, p))}</span>
-        <span class="badge ${role.cls}">${escapeHtml(role.label)}</span>
+        <span class="badge ${role.cls}">${escapeHtml(t(role.label))}</span>
       </div>
       ${fullName(p) ? `<div class="ud-username">${escapeHtml(u.username)}</div>` : ""}
       ${state}
@@ -3364,7 +3619,7 @@ function renderUserDetails() {
     ? "Configured root admin — the role is fixed in the server config."
     : (def && def.desc) || "";
   const rolesCard = udCard("Roles", `
-    <div class="ud-roles"><span class="badge ${role.cls}">${escapeHtml(role.label)}</span></div>
+    <div class="ud-roles"><span class="badge ${role.cls}">${escapeHtml(t(role.label))}</span></div>
     <p class="muted um-note">${escapeHtml(roleNote)}</p>`,
     u.config_admin || isSelf || !(window.TT_CAPS || []).includes("roles.manage")
       ? "" : `<button class="secondary btn-sm" id="d-manage-roles">Manage</button>`);
@@ -3552,7 +3807,7 @@ function openEditRoles(username) {
     return `<label class="role-choice${on ? " on" : ""}" data-role="${escapeHtml(role.key)}">
       <input type="radio" name="er-role" value="${escapeHtml(role.key)}" ${on ? "checked" : ""}>
       <span class="role-choice-text">
-        <span class="role-choice-label">${escapeHtml(role.label)}</span>
+        <span class="role-choice-label">${escapeHtml(t(role.label))}</span>
         <span class="role-choice-desc">${escapeHtml(role.desc || "")}</span>
       </span>
     </label>`;
@@ -3771,12 +4026,12 @@ function renderRolesTable() {
     return `<tr class="um-row${sel}" data-r="${escapeHtml(r.key)}">
       <td>
         <div class="um-user">
-          <span class="badge ${roleBadgeCls(r.key)}">${escapeHtml(r.label)}</span>
+          <span class="badge ${roleBadgeCls(r.key)}">${escapeHtml(t(r.label))}</span>
         </div>
-        <div class="rl-desc">${escapeHtml(r.desc)}</div>
+        <div class="rl-desc">${escapeHtml(t(r.desc))}</div>
       </td>
       <td class="muted">${caps}</td>
-      <td class="muted">${n} user${n === 1 ? "" : "s"}</td>
+      <td class="muted">${escapeHtml(tn("{n} user", n))}</td>
       <td><button class="um-dots" data-r="${escapeHtml(r.key)}" title="Actions">⋯</button></td>
     </tr>`;
   }).join("");
@@ -3828,7 +4083,7 @@ function renderRoleDetails() {
     host.classList.remove("filled");
     host.innerHTML = `<div class="um-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"/><path d="M9.5 12l2 2 3.5-4"/></svg>
-      <p>Select a role to view and edit its permissions.</p>
+      <p>${escapeHtml(t("Select a role to view and edit its permissions."))}</p>
     </div>`;
     return;
   }
@@ -3839,8 +4094,8 @@ function renderRoleDetails() {
     const isLocked = locked.includes(c.key);
     return `<label class="perm-row${isLocked ? " locked" : ""}">
       <span class="perm-text">
-        <span class="perm-label">${escapeHtml(c.label)}</span>
-        <span class="perm-desc">${escapeHtml(c.desc)}</span>
+        <span class="perm-label">${escapeHtml(t(c.label))}</span>
+        <span class="perm-desc">${escapeHtml(t(c.desc))}</span>
       </span>
       <span class="toggle">
         <input type="checkbox" data-cap="${escapeHtml(c.key)}" ${on ? "checked" : ""} ${isLocked ? "disabled" : ""}>
@@ -3857,11 +4112,11 @@ function renderRoleDetails() {
         ${r.system ? `<span class="badge muted">Built in</span>` : ""}
       </div>
       ${r.desc ? `<p class="gr-desc">${escapeHtml(r.desc)}</p>` : `<p class="gr-desc ud-unset">No description</p>`}
-      <span class="ud-state">${n} user${n === 1 ? "" : "s"}</span>
+      <span class="ud-state">${escapeHtml(tn("{n} user", n))}</span>
     </div>
   </div>`;
 
-  const permsCard = udCard("Permissions", `
+  const permsCard = udCard(t("Permissions"), `
     <div class="perm-list">${rows}</div>
     ${locked.length ? `<p class="um-note muted" style="margin-top:10px">Dimmed permissions are required for the ${escapeHtml(r.label)} role and can't be removed.</p>` : ""}
     <div class="ud-danger" style="margin-top:14px">
@@ -3932,7 +4187,7 @@ async function applyRoleModal() {
   const msg = m.querySelector("#rm-msg");
   const label = m.querySelector("#rm-name").value.trim();
   const desc = m.querySelector("#rm-desc").value.trim();
-  if (!label) { showMsg(msg, "A role name is required", "error"); return; }
+  if (!label) { showMsg(msg, t("A role name is required"), "error"); return; }
   showMsg(msg, "Saving…", "");
   const editing = !!ROLE_EDIT_KEY;
   const r = await apiFetch("admin/role", {
@@ -3950,8 +4205,8 @@ async function applyRoleModal() {
 
 async function deleteRole(r) {
   if (!(await confirmModal({
-    title: `Delete role "${r.label}"`,
-    body: "Users keep their accounts; the role simply stops being available.",
+    title: t("Delete role") + ` "${r.label}"`,
+    body: t("Users keep their accounts; the role simply stops being available."),
   }))) return;
   const resp = await apiFetch("admin/role", {
     method: "DELETE", headers: { "Content-Type": "application/json" },
@@ -4062,12 +4317,12 @@ function renderGroupsTable() {
           ${g.description ? `<div class="rl-desc">${escapeHtml(g.description)}</div>` : ""}
         </td>
         <td><div class="ud-roles" style="margin:0">${ctrls}</div></td>
-        <td class="muted">${g.members.length} user${g.members.length === 1 ? "" : "s"}</td>
+        <td class="muted">${escapeHtml(tn("{n} user", g.members.length))}</td>
         <td><button class="um-dots" data-g="${escapeHtml(g.id)}" title="Actions">⋯</button></td>
       </tr>`;
     }).join("");
   }
-  count.textContent = `Showing ${rows.length} of ${GROUPS.length} group${GROUPS.length === 1 ? "" : "s"}`;
+  count.textContent = t("Showing {shown} of {total}", { shown: rows.length, total: tn("{n} group", GROUPS.length) });
   body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", (e) => {
     if (e.target.closest(".um-dots")) return; // dots handled separately
     selectGroup(tr.dataset.g);
@@ -4146,7 +4401,7 @@ function renderGroupDetails() {
     host.classList.remove("filled");
     host.innerHTML = `<div class="um-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/><circle cx="5" cy="9" r="2"/><path d="M2 20v-1a4 4 0 0 1 3-3.8"/><circle cx="19" cy="9" r="2"/><path d="M22 20v-1a4 4 0 0 0-3-3.8"/></svg>
-      <p>Select a group to manage its members and controllers.</p>
+      <p>${escapeHtml(t("Select a group to manage its members and controllers."))}</p>
     </div>`;
     return;
   }
@@ -4162,7 +4417,7 @@ function renderGroupDetails() {
     </div>
   </div>`;
 
-  const controllersCard = udCard("Controllers",
+  const controllersCard = udCard(t("Controllers"),
     peopleCard(g.controllers, "Nobody controls this group yet.") +
     `<p class="muted um-note" style="margin-top:10px">A controller can view and edit the time data of this group's members.</p>`,
     `<button class="secondary btn-sm" id="g-manage-controllers">Manage</button>`);
@@ -4355,7 +4610,7 @@ async function applyGroupEdit() {
   const m = groupEditModal();
   const msg = m.querySelector("#eg-group-msg");
   const name = m.querySelector("#eg-name").value.trim();
-  if (!name) { showMsg(msg, "A group name is required", "error"); return; }
+  if (!name) { showMsg(msg, t("A group name is required"), "error"); return; }
   showMsg(msg, "Saving…", "");
   const ok = await saveGroupFields(g,
     { name, description: m.querySelector("#eg-desc").value.trim() }, msg, `Saved ${name}`);
@@ -4372,7 +4627,7 @@ function openGroupDuplicate(id) {
   const m = groupDuplicateModal();
   m.querySelector("#dg-name").value = `${g.name} copy`;
   m.querySelector("#dg-intro").textContent =
-    `Creates a new group with the same description, ${g.controllers.length} controller${g.controllers.length === 1 ? "" : "s"} and ${g.members.length} member${g.members.length === 1 ? "" : "s"}.`;
+    t("Creates a new group with the same description, {controllers} and {members}.", { controllers: tn("{n} controller", g.controllers.length), members: tn("{n} member", g.members.length) });
   m.querySelector("#dg-msg").innerHTML = "";
   m.hidden = false;
   const input = m.querySelector("#dg-name");
@@ -4390,7 +4645,7 @@ async function applyGroupDuplicate() {
   const m = groupDuplicateModal();
   const msg = m.querySelector("#dg-msg");
   const name = m.querySelector("#dg-name").value.trim();
-  if (!name) { showMsg(msg, "A name for the copy is required", "error"); return; }
+  if (!name) { showMsg(msg, t("A name for the copy is required"), "error"); return; }
   showMsg(msg, "Duplicating…", "");
   const r = await apiFetch("admin/groups", {
     method: "PUT", headers: { "Content-Type": "application/json" },
@@ -4412,7 +4667,7 @@ async function applyGroupDuplicate() {
 async function deleteGroup(g) {
   if (!(await confirmModal({
     title: `Delete group "${g.name}"`,
-    body: "Its controllers lose access to these users. The user accounts themselves are not touched.",
+    body: t("Its controllers lose access to these users. The user accounts themselves are not touched."),
   }))) return;
   const r = await apiFetch("admin/group", {
     method: "DELETE", headers: { "Content-Type": "application/json" },
@@ -4497,7 +4752,7 @@ async function initGroups() {
   const createMsg = document.getElementById("create-group-msg");
   document.getElementById("create-group").addEventListener("click", async () => {
     const name = document.getElementById("new-group-name").value.trim();
-    if (!name) { showMsg(createMsg, "Enter a group name", "error"); return; }
+    if (!name) { showMsg(createMsg, t("Enter a group name"), "error"); return; }
     showMsg(createMsg, "Creating…", "");
     const r = await apiFetch("admin/groups", {
       method: "PUT", headers: { "Content-Type": "application/json" },
@@ -4617,14 +4872,14 @@ function renderTags() {
   const sorted = Array.from(keys).sort((a, b) => (stats[b]?.sec || 0) - (stats[a]?.sec || 0));
   const host = document.getElementById("tags-manage");
   if (sorted.length === 0) {
-    host.innerHTML = '<div class="empty">No tags yet — create one or add #tags to your entries.</div>';
+    host.innerHTML = `<div class="empty">${escapeHtml(t("No tags yet — create one or add #tags to your entries."))}</div>`;
     return;
   }
   host.innerHTML = sorted.map((k) => {
     const color = colorFor(k);
     const st = stats[k];
     const usage = st
-      ? `${st.count} ${st.count === 1 ? "entry" : "entries"} · ${fmtHM(st.sec)}`
+      ? `${tn("{n} entry", st.count)} · ${fmtHM(st.sec)}`
       : "No entries yet";
     return `<div class="tm-row tm-clickable" data-tag="${escapeHtml(k)}">
       <div class="tm-main">
@@ -4669,7 +4924,7 @@ function selectTagColor(hex) {
 function openTagModal(key) {
   tmEditKey = key || null;
   tmColor = key ? colorFor(key) : TAG_PRESETS[0];
-  document.getElementById("tm-title").textContent = tmEditKey ? "Edit Tag" : "New Tag";
+  document.getElementById("tm-title").textContent = tmEditKey ? t("Edit tag") : t("New tag");
   const name = document.getElementById("tm-name");
   name.value = tmEditKey ? labelFor(tmEditKey) : "";
   document.getElementById("tm-custom").value = tmColor;
@@ -4709,17 +4964,17 @@ async function renameTag(oldKey, newKey, newRaw) {
 async function saveTagModal() {
   const raw = document.getElementById("tm-name").value.trim().replace(/^#+/, "");
   const key = normalizeTag(raw);
-  if (!key) { tmError("Enter a tag name (letters, numbers, - or _; at least 2 characters)."); return; }
+  if (!key) { tmError(t("Enter a tag name (letters, numbers, - or _; at least 2 characters).")); return; }
 
   const usage = tagUsage();
   const renaming = tmEditKey && key !== tmEditKey;
   if ((!tmEditKey || renaming) && (usage[key] || TAGINFO_RAW[key])) {
-    tmError("A tag with that name already exists."); return;
+    tmError(t("A tag with that name already exists.")); return;
   }
 
   if (renaming) {
     const ok = await renameTag(tmEditKey, key, raw);
-    if (!ok) { tmError("Failed to rename tag."); return; }
+    if (!ok) { tmError(t("Failed to rename tag.")); return; }
   }
 
   // Save the color plus the display title, preserving any other taginfo fields.
@@ -4733,7 +4988,7 @@ async function saveTagModal() {
   TAGCOLORS[key] = tmColor;
 
   closeTagModal();
-  showMsg(document.getElementById("tags-msg"), tmEditKey ? "Tag updated" : "Tag created", "ok");
+  showMsg(document.getElementById("tags-msg"), tmEditKey ? t("Tag updated") : t("Tag created"), "ok");
   await loadAll();
   renderTags();
 }
@@ -4742,7 +4997,7 @@ async function deleteTagModal() {
   if (!tmEditKey) return;
   const st = tagUsage()[tmEditKey];
   const warn = st
-    ? `It will be removed from ${st.count} ${st.count === 1 ? "entry" : "entries"} (the entries themselves are kept).`
+    ? t("It will be removed from {entries} (the entries themselves are kept).", { entries: tn("{n} entry", st.count) })
     : "It is not used by any entry.";
   if (!(await confirmModal({ title: `Delete tag "${labelFor(tmEditKey)}"`, body: warn }))) return;
 
@@ -4850,7 +5105,7 @@ async function bulkAddTags() {
     if (exists) updated++; else created++;
   }
 
-  if (!settings.length) { bulkLog("No valid tags found.", "err", invalid === 0); return; }
+  if (!settings.length) { bulkLog(t("No valid tags found."), "err", invalid === 0); return; }
 
   const btn = document.getElementById("bulk-add");
   btn.disabled = true;
@@ -5223,11 +5478,11 @@ async function initServers() {
   const msg = document.getElementById("servers-msg");
   try {
     const r = await apiFetch("admin/server");
-    if (!r.ok) { showMsg(msg, "Could not load server settings", "error"); return; }
+    if (!r.ok) { showMsg(msg, t("Could not load server settings"), "error"); return; }
     const d = await r.json();
     toggle.checked = !!d.registration_open;
     toggle.disabled = false;
-  } catch (e) { showMsg(msg, "Could not load server settings", "error"); return; }
+  } catch (e) { showMsg(msg, t("Could not load server settings"), "error"); return; }
 
   toggle.addEventListener("change", async () => {
     const open = toggle.checked;
@@ -5239,7 +5494,7 @@ async function initServers() {
         body: JSON.stringify({ registration_open: open }),
       });
       if (!r.ok) { throw new Error(await r.text()); }
-      showMsg(msg, open ? "Registration enabled" : "Registration disabled", "ok");
+      showMsg(msg, open ? t("Registration enabled") : t("Registration disabled"), "ok");
     } catch (e) {
       toggle.checked = !open; // revert on failure
       showMsg(msg, "Could not save: " + (e.message || "error"), "error");
@@ -5268,13 +5523,13 @@ async function loadModules() {
     host.textContent = "Could not load modules";
     return;
   }
-  if (!mods.length) { host.textContent = "No optional modules on this server."; return; }
+  if (!mods.length) { host.textContent = t("No optional modules on this server."); return; }
   host.classList.remove("muted");
   host.innerHTML = mods.map((m) => `
     <label class="setting-row" for="mod-${escapeHtml(m.key)}">
       <span class="setting-label">
-        <strong>${escapeHtml(m.label)}</strong>
-        <span class="muted">${escapeHtml(m.desc)}</span>
+        <strong>${escapeHtml(t(m.label))}</strong> <!-- i18n-dynamic: server-sent, declared in i18nServerStrings -->
+        <span class="muted">${escapeHtml(t(m.desc))}</span> <!-- i18n-dynamic -->
       </span>
       <span class="toggle">
         <input type="checkbox" id="mod-${escapeHtml(m.key)}" data-mod="${escapeHtml(m.key)}" ${m.enabled ? "checked" : ""}>
@@ -5282,9 +5537,9 @@ async function loadModules() {
       </span>
     </label>`).join("");
 
-  host.querySelectorAll("input[data-mod]").forEach((t) => t.addEventListener("change", async () => {
-    const key = t.dataset.mod, on = t.checked;
-    t.disabled = true;
+  host.querySelectorAll("input[data-mod]").forEach((cb) => cb.addEventListener("change", async () => {
+    const key = cb.dataset.mod, on = cb.checked;
+    cb.disabled = true;
     showMsg(msg, "Saving…", "");
     try {
       const r = await apiFetch("admin/server", {
@@ -5294,12 +5549,13 @@ async function loadModules() {
       if (!r.ok) throw new Error(await r.text());
       // The nav is built from whoami, so it only picks this up on the next page
       // load -- say so rather than leaving the operator wondering.
-      showMsg(msg, `${key} module ${on ? "enabled" : "disabled"}. Reload to update the menu.`, "ok");
+      showMsg(msg, on ? t("{module} module enabled. Reload to update the menu.", { module: key })
+                 : t("{module} module disabled. Reload to update the menu.", { module: key }), "ok");
     } catch (e) {
-      t.checked = !on; // revert on failure
+      cb.checked = !on; // revert on failure
       showMsg(msg, "Could not save: " + (e.message || "error"), "error");
     } finally {
-      t.disabled = false;
+      cb.disabled = false;
     }
   }));
 }
@@ -5325,6 +5581,108 @@ const OAUTH_PRESETS = {
   },
   custom: { id: "", name: "", enabled: false, username_field: "email" },
 };
+
+// OAUTH_HELP drives the setup panel beside the provider cards. `id` is the
+// provider id the redirect URL is built from, so each section shows exactly the
+// URL that has to be registered on that provider's side. Google and GitHub have
+// presets, so their endpoint values are filled in for the admin; Azure AD has
+// none and is set up through "+ Custom", which is why it carries a value table.
+const OAUTH_HELP = [
+  {
+    id: "github",
+    title: "GitHub",
+    steps: [
+      "In GitHub, open <strong>Settings → Developer settings → OAuth Apps</strong> and choose <strong>New OAuth App</strong>.",
+      "Fill in an application name and set <strong>Homepage URL</strong> to this server's address.",
+      "Paste the redirect URL above into <strong>Authorization callback URL</strong>, then register the app.",
+      "On the app page, copy the <strong>Client ID</strong>, then choose <strong>Generate a new client secret</strong> and copy that too — GitHub shows the secret only once.",
+      "Back here, press <strong>+ GitHub</strong>, paste both values into the new card and press <strong>Save changes</strong>.",
+    ],
+    notes: [
+      "The preset fills in the endpoints and asks for the <code>read:user</code> scope. It uses GitHub's <code>login</code> as the username because the email is null on profiles that keep it private.",
+    ],
+  },
+  {
+    id: "google",
+    title: "Google",
+    steps: [
+      "In the <strong>Google Cloud Console</strong>, select an existing project or create one.",
+      "Open <strong>APIs &amp; Services → OAuth consent screen</strong> and complete it. Pick <strong>External</strong> unless every user is in your Workspace.",
+      "Open <strong>APIs &amp; Services → Credentials</strong> and choose <strong>Create credentials → OAuth client ID</strong>, application type <strong>Web application</strong>.",
+      "Under <strong>Authorized redirect URIs</strong>, add the redirect URL above.",
+      "Create the client, then copy the <strong>Client ID</strong> and <strong>Client secret</strong>.",
+      "Back here, press <strong>+ Google</strong>, paste both values and press <strong>Save changes</strong>.",
+    ],
+    notes: [
+      "While the consent screen is still in <strong>Testing</strong>, only the test users you list can sign in. Publish it once you are ready to let everyone in.",
+    ],
+  },
+  {
+    id: "azure",
+    title: "Azure AD / Microsoft Entra ID",
+    steps: [
+      "In the <strong>Microsoft Entra admin center</strong>, open <strong>App registrations → New registration</strong>.",
+      "Choose the supported account types. <strong>Single tenant</strong> is right unless you want people from other directories to sign in.",
+      "Under <strong>Redirect URI</strong>, pick the platform <strong>Web</strong> and paste the redirect URL above, then register.",
+      "From the app's <strong>Overview</strong>, copy the <strong>Application (client) ID</strong> and the <strong>Directory (tenant) ID</strong>.",
+      "Open <strong>Certificates &amp; secrets → New client secret</strong> and copy its <strong>Value</strong> — not the Secret ID, and it is only shown now.",
+      "Back here, press <strong>+ Custom</strong> and fill the card in with the values below, using the client ID and secret you just copied.",
+    ],
+    values: [
+      ["Provider id", "azure"],
+      ["Authorization URL", "https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/authorize"],
+      ["Token URL", "https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/token"],
+      ["Userinfo URL", "https://graph.microsoft.com/oidc/userinfo"],
+      ["Scopes", "openid email profile"],
+      ["Username claim", "email"],
+    ],
+    notes: [
+      "Replace <code>&lt;tenant&gt;</code> with the Directory (tenant) ID you copied, or use <code>organizations</code> to accept any work or school account.",
+      "The provider id must stay <code>azure</code>, or the redirect URL above stops matching the one you registered.",
+      "If your tenant does not populate <code>email</code>, point the userinfo URL at <code>https://graph.microsoft.com/v1.0/me</code> instead, add the <code>User.Read</code> scope and set the username claim to <code>userPrincipalName,mail</code>.",
+    ],
+  },
+];
+
+// renderOAuthHelp builds the setup panel. base is the server's callback base, so
+// the URLs shown are the real ones for this deployment rather than a template.
+function renderOAuthHelp(base) {
+  const host = document.getElementById("oauth-help-body");
+  if (!host) return;
+  host.innerHTML = OAUTH_HELP.map((p) => {
+    const url = `${base}/${p.id}`;
+    const values = p.values ? `
+      <p class="help-eg-label">Values for the custom card</p>
+      <table class="oh-vals"><tbody>
+        ${p.values.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${v}</td></tr>`).join("")}
+      </tbody></table>` : "";
+    const notes = (p.notes || []).map((n) => `<p class="help-note">${n}</p>`).join("");
+    return `<details class="help-fold">
+      <summary>${escapeHtml(p.title)}</summary>
+      <div class="help-body">
+        <div class="oh-redirect">
+          <span class="oh-redirect-label">Redirect URL for ${escapeHtml(p.title)}</span>
+          <div class="oh-copy-row">
+            <div class="oh-url">${escapeHtml(url)}</div>
+            <button class="secondary btn-sm" type="button" data-copy="${escapeHtml(url)}">Copy</button>
+          </div>
+        </div>
+        <ol class="oh-steps">${p.steps.map((s) => `<li>${s}</li>`).join("")}</ol>
+        ${values}
+        ${notes}
+      </div>
+    </details>`;
+  }).join("");
+
+  host.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(b.dataset.copy);
+      toast("Redirect URL copied", "ok");
+    } catch (e) {
+      toast("Could not copy — select the URL and copy it manually", "error");
+    }
+  }));
+}
 
 const OAUTH_FIELDS = [
   { key: "name", label: "Display name", ph: "Google", type: "text" },
@@ -5364,7 +5722,7 @@ async function initOAuth() {
     cb.type = "checkbox"; cb.dataset.key = "enabled"; cb.checked = !!p.enabled;
     en.appendChild(cb); en.appendChild(document.createTextNode(" Enabled"));
     const rm = document.createElement("button");
-    rm.type = "button"; rm.className = "link danger-btn"; rm.textContent = "Remove";
+    rm.type = "button"; rm.className = "link danger-btn"; rm.textContent = t("Remove");
     rm.addEventListener("click", () => { card.remove(); refreshEmpty(); });
     head.appendChild(en); head.appendChild(rm);
     card.appendChild(head);
@@ -5401,12 +5759,13 @@ async function initOAuth() {
   // Load current config.
   try {
     const r = await apiFetch("admin/oauth");
-    if (!r.ok) { showMsg(msg, "Could not load OAuth settings", "error"); return; }
+    if (!r.ok) { showMsg(msg, t("Could not load OAuth settings"), "error"); return; }
     const d = await r.json();
     if (base) base.textContent = d.callback_base || "";
+    renderOAuthHelp(d.callback_base || "");
     (d.providers || []).forEach(addCard);
     refreshEmpty();
-  } catch (e) { showMsg(msg, "Could not load OAuth settings", "error"); return; }
+  } catch (e) { showMsg(msg, t("Could not load OAuth settings"), "error"); return; }
 
   document.getElementById("oauth-add-google").addEventListener("click", () => addCard({ ...OAUTH_PRESETS.google }));
   document.getElementById("oauth-add-github").addEventListener("click", () => addCard({ ...OAUTH_PRESETS.github }));
@@ -5420,8 +5779,8 @@ async function initOAuth() {
         body: JSON.stringify({ providers: collect() }),
       });
       if (!r.ok) { showMsg(msg, (await r.text()) || "Save failed", "error"); return; }
-      showMsg(msg, "Saved. Enabled providers now appear on the login page.", "ok");
-    } catch (e) { showMsg(msg, "Network error", "error"); }
+      showMsg(msg, t("Saved. Enabled providers now appear on the login page."), "ok");
+    } catch (e) { showMsg(msg, t("Network error"), "error"); }
   });
 }
 
@@ -5617,8 +5976,8 @@ function renderPlanner() {
 
   let html = `<div class="pl-head pl-mem">Group / member</div>`;
   html += days.map((d) => {
-    const t = ymd(d) === todayKey ? " today" : "";
-    return `<div class="pl-head${t}">${DOW_BY_DAY[d.getDay()].slice(0, 1) + DOW_BY_DAY[d.getDay()].slice(1).toLowerCase()} ${d.getDate()}</div>`;
+    const todayCls = ymd(d) === todayKey ? " today" : "";
+    return `<div class="pl-head${todayCls}">${dowShort(d.getDay()).slice(0, 1) + dowShort(d.getDay()).slice(1).toLowerCase()} ${d.getDate()}</div>`;
   }).join("");
 
   for (const g of PL_GROUPS) {
@@ -5691,7 +6050,7 @@ function renderPlDetails() {
     : `${s.start} – ${s.end} (${fmtHM(shiftMinutes(s) * 60)})`;
   host.innerHTML = `
     <div class="sd-when">${escapeHtml(when)}</div>
-    <div class="sd-date">${WEEKDAY_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}</div>
+    <div class="sd-date">${escapeHtml(t("{weekday}, {d} {month} {year}", { weekday: weekdayName(d.getDay()), d: d.getDate(), month: monthName(d.getMonth()), year: d.getFullYear() }))}</div>
     <div class="sd-row"><span class="sd-dot" style="--c:${k.color}"></span>${escapeHtml(k.label)}</div>
     <div class="sd-row">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg>
@@ -5738,7 +6097,7 @@ function renderPlLegend() {
 
 function renderPlCal() {
   const grid = document.getElementById("sh-cal-grid");
-  document.getElementById("sh-cal-title").textContent = MONTHS[PL_CAL.getMonth()] + " " + PL_CAL.getFullYear();
+  document.getElementById("sh-cal-title").textContent = t("{month} {year}", { month: monthName(PL_CAL.getMonth()), year: PL_CAL.getFullYear() });
   const first = new Date(PL_CAL.getFullYear(), PL_CAL.getMonth(), 1);
   const start = weekStartOf(first);
   const todayKey = ymd(new Date());
@@ -6375,7 +6734,372 @@ function initSkills() {
   renderSkills();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+// ---- Admin · Translations ---------------------------------------------------
+// The catalog's keys come from the source itself (a build-time extractor scans
+// data-i18n attributes and t() call sites), so this page always offers exactly
+// the strings the UI currently has -- no hand-maintained key list to drift.
+
+let TR_LANGS = [];        // [{code,label,enabled,translated,total}]
+let TR_CODE = null;       // language being edited
+let TR_KEYS = [];         // [{key,ctx,plural}] from the catalog
+let TR_STRINGS = {};      // key -> "translation" | {one, other}
+let TR_DIRTY = {};        // key -> new value, not yet saved
+let TR_SHOWN = 200;       // rows rendered; the rest are behind "Show more"
+
+function trMsg() { return document.getElementById("i18n-msg"); }
+
+async function initTranslations() {
+  document.getElementById("tr-add").addEventListener("click", openAddLang);
+  document.getElementById("tr-add-cancel").addEventListener("click", closeAddLang);
+  document.getElementById("tr-add-save").addEventListener("click", saveNewLang);
+  document.getElementById("tr-save").addEventListener("click", saveTranslations);
+  document.getElementById("tr-more").addEventListener("click", () => { TR_SHOWN += 200; renderTrRows(); });
+  for (const id of ["tr-filter", "tr-section", "tr-untranslated"]) {
+    document.getElementById(id).addEventListener("input", () => { TR_SHOWN = 200; renderTrRows(); });
+  }
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAddLang(); });
+  await loadTrLangs();
+}
+
+async function loadTrLangs() {
+  try {
+    const r = await apiFetch("admin/translations");
+    if (!r.ok) { showMsg(trMsg(), t("Could not load translations"), "error"); return; }
+    const d = await r.json();
+    TR_LANGS = d.languages || [];
+  } catch (e) { showMsg(trMsg(), t("Could not load translations"), "error"); return; }
+  renderTrLangs();
+  if (TR_LANGS.length && !TR_CODE) await selectTrLang(TR_LANGS[0].code);
+  else if (!TR_LANGS.length) {
+    document.getElementById("tr-none").hidden = false;
+    document.getElementById("tr-editor").hidden = true;
+  }
+}
+
+function renderTrLangs() {
+  const host = document.getElementById("tr-lang-list");
+  if (!TR_LANGS.length) {
+    host.innerHTML = `<p class="muted um-note">${escapeHtml(t("No languages yet."))}</p>`;
+    return;
+  }
+  host.innerHTML = TR_LANGS.map((l) => {
+    const pct = l.total ? Math.round((l.translated / l.total) * 100) : 0;
+    return `<div class="tr-lang${l.code === TR_CODE ? " selected" : ""}" data-code="${escapeHtml(l.code)}">
+      <div class="tr-lang-head">
+        <span class="tr-lang-name">${escapeHtml(l.label)}</span>
+        <span class="tr-lang-code">${escapeHtml(l.code)}</span>
+      </div>
+      <div class="tr-bar"><span style="width:${pct}%"></span></div>
+      <div class="tr-lang-foot">
+        <span class="muted">${l.translated} / ${l.total} · ${pct}%</span>
+        <label class="tr-enable" title="${escapeHtml(t("Offer this language to users"))}">
+          <input type="checkbox" data-enable="${escapeHtml(l.code)}"${l.enabled ? " checked" : ""}>
+          <span>${escapeHtml(t("Enabled"))}</span>
+        </label>
+      </div>
+      <div class="tr-lang-actions">
+        <button class="link" type="button" data-export="${escapeHtml(l.code)}">${escapeHtml(t("Export"))}</button>
+        <button class="link" type="button" data-import="${escapeHtml(l.code)}">${escapeHtml(t("Import"))}</button>
+        <button class="link danger" type="button" data-del="${escapeHtml(l.code)}">${escapeHtml(t("Delete"))}</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  host.querySelectorAll(".tr-lang").forEach((el) => el.addEventListener("click", (e) => {
+    if (e.target.closest("button") || e.target.closest("label")) return;
+    selectTrLang(el.dataset.code);
+  }));
+  host.querySelectorAll("[data-enable]").forEach((cb) => cb.addEventListener("change", () =>
+    setTrEnabled(cb.dataset.enable, cb.checked)));
+  host.querySelectorAll("[data-export]").forEach((b) => b.addEventListener("click", () => exportTrLang(b.dataset.export)));
+  host.querySelectorAll("[data-import]").forEach((b) => b.addEventListener("click", () => importTrLang(b.dataset.import)));
+  host.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => deleteTrLang(b.dataset.del)));
+}
+
+async function selectTrLang(code) {
+  if (Object.keys(TR_DIRTY).length && !(await confirmModal({
+    title: t("Discard unsaved changes?"),
+    body: t("You have edits that have not been saved yet."),
+    confirmLabel: t("Discard"),
+  }))) return;
+  TR_DIRTY = {};
+  TR_SHOWN = 200;
+  try {
+    const r = await apiFetch("admin/translations?code=" + encodeURIComponent(code));
+    if (!r.ok) { showMsg(trMsg(), await r.text(), "error"); return; }
+    const d = await r.json();
+    TR_CODE = d.code;
+    TR_KEYS = d.keys || [];
+    TR_STRINGS = d.strings || {};
+  } catch (e) { showMsg(trMsg(), t("Could not load translations"), "error"); return; }
+  document.getElementById("tr-none").hidden = true;
+  document.getElementById("tr-editor").hidden = false;
+  renderTrLangs();
+  renderTrSections();
+  renderTrRows();
+}
+
+// renderTrSections fills the section picker from the catalog's ctx values. It
+// is what makes several hundred rows navigable at all.
+function renderTrSections() {
+  const sel = document.getElementById("tr-section");
+  const seen = [...new Set(TR_KEYS.map((k) => k.ctx))].sort();
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">${escapeHtml(t("All sections"))}</option>` +
+    seen.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  if (seen.includes(keep)) sel.value = keep;
+}
+
+// trValue returns the current value for a key: the unsaved edit if there is
+// one, otherwise what the server has.
+function trValue(key) {
+  if (key in TR_DIRTY) return TR_DIRTY[key];
+  const v = TR_STRINGS[key];
+  if (v == null) return "";
+  return typeof v === "string" ? v : (v.one || "");
+}
+
+function trOther(key) {
+  const dk = key + " other";
+  if (dk in TR_DIRTY) return TR_DIRTY[dk];
+  const v = TR_STRINGS[key];
+  return v && typeof v === "object" ? (v.other || "") : "";
+}
+
+function trFiltered() {
+  const q = document.getElementById("tr-filter").value.trim().toLowerCase();
+  const section = document.getElementById("tr-section").value;
+  const only = document.getElementById("tr-untranslated").checked;
+  return TR_KEYS.filter((k) => {
+    if (section && k.ctx !== section) return false;
+    if (only && trValue(k.key)) return false;
+    if (!q) return true;
+    return k.key.toLowerCase().includes(q) || trValue(k.key).toLowerCase().includes(q);
+  });
+}
+
+function renderTrRows() {
+  const rows = trFiltered();
+  const body = document.getElementById("tr-body");
+  const slice = rows.slice(0, TR_SHOWN);
+  body.innerHTML = slice.length ? slice.map((k) => {
+    const val = trValue(k.key);
+    const plural = k.plural
+      ? `<input class="tr-input" data-key="${escapeHtml(k.key)}" data-form="other"
+           value="${escapeHtml(trOther(k.key))}" placeholder="${escapeHtml(t("Plural form"))}">`
+      : "";
+    return `<tr class="${val ? "" : "tr-missing"}">
+      <td class="tr-en"><span>${escapeHtml(k.key)}</span><span class="tr-ctx">${escapeHtml(k.ctx)}</span></td>
+      <td>
+        <input class="tr-input" data-key="${escapeHtml(k.key)}" data-form="one"
+          value="${escapeHtml(val)}" placeholder="${escapeHtml(k.key)}">
+        ${plural}
+      </td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="2" class="muted">${escapeHtml(t("No strings match."))}</td></tr>`;
+
+  body.querySelectorAll(".tr-input").forEach((inp) => inp.addEventListener("input", () => {
+    const k = inp.dataset.key + (inp.dataset.form === "other" ? " other" : "");
+    TR_DIRTY[k] = inp.value;
+    renderTrDirty();
+  }));
+
+  document.getElementById("tr-more").hidden = rows.length <= TR_SHOWN;
+  const done = TR_KEYS.filter((k) => trValue(k.key)).length;
+  const pct = TR_KEYS.length ? Math.round((done / TR_KEYS.length) * 100) : 0;
+  document.getElementById("tr-progress").textContent =
+    `${done} / ${TR_KEYS.length} · ${pct}%` + (rows.length !== TR_KEYS.length ? ` · ${rows.length} shown` : "");
+  renderTrDirty();
+}
+
+function renderTrDirty() {
+  const n = Object.keys(TR_DIRTY).length;
+  document.getElementById("tr-dirty").textContent = n ? tn("{n} unsaved change", n) : "";
+}
+
+// trPayload folds the dirty edits into the {one, other} shape the API expects.
+function trPayload() {
+  const out = {};
+  for (const dk of Object.keys(TR_DIRTY)) {
+    const isOther = dk.endsWith(" other");
+    const key = isOther ? dk.slice(0, -" other".length) : dk;
+    if (key in out) continue;
+    const one = trValue(key), other = trOther(key);
+    out[key] = other ? { one, other } : one;
+  }
+  return out;
+}
+
+async function saveTranslations() {
+  if (!TR_CODE || !Object.keys(TR_DIRTY).length) return;
+  showMsg(trMsg(), t("Saving…"), "");
+  try {
+    const r = await apiFetch("admin/translations", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: TR_CODE, strings: trPayload() }),
+    });
+    if (!r.ok) { showMsg(trMsg(), await r.text(), "error"); return; }
+    const d = await r.json();
+    TR_DIRTY = {};
+    showMsg(trMsg(), t("Translations saved"), "ok");
+    if ((d.orphaned || []).length) {
+      showMsg(trMsg(), tn("{n} stored string is no longer used by the interface", d.orphaned.length), "");
+    }
+    await selectTrLang(TR_CODE);
+    await loadTrLangs();
+  } catch (e) { showMsg(trMsg(), t("Could not save"), "error"); }
+}
+
+async function setTrEnabled(code, on) {
+  try {
+    const r = await apiFetch("admin/translations", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, enabled: on }),
+    });
+    if (!r.ok) { showMsg(trMsg(), await r.text(), "error"); return; }
+    showMsg(trMsg(), on ? t("Language enabled") : t("Language disabled"), "ok");
+    await loadTrLangs();
+  } catch (e) { showMsg(trMsg(), t("Could not save"), "error"); }
+}
+
+async function deleteTrLang(code) {
+  const l = TR_LANGS.find((x) => x.code === code);
+  if (!(await confirmModal({
+    title: t("Delete language"),
+    body: t("Every translation for this language is removed. Users set to it fall back to English."),
+  }))) return;
+  try {
+    const r = await apiFetch("admin/translations?code=" + encodeURIComponent(code), { method: "DELETE" });
+    if (!r.ok) { showMsg(trMsg(), await r.text(), "error"); return; }
+    if (TR_CODE === code) { TR_CODE = null; TR_DIRTY = {}; }
+    showMsg(trMsg(), t("Language deleted") + (l ? ": " + l.label : ""), "ok");
+    await loadTrLangs();
+  } catch (e) { showMsg(trMsg(), t("Could not delete"), "error"); }
+}
+
+// exportTrLang downloads the catalog as JSON. Translating several hundred
+// strings in a browser form is punishing; a file can go to a translator or a
+// translation service and come back through Import.
+async function exportTrLang(code) {
+  try {
+    const r = await apiFetch("admin/translations?code=" + encodeURIComponent(code));
+    if (!r.ok) { showMsg(trMsg(), await r.text(), "error"); return; }
+    const d = await r.json();
+    // Every key, so the file is a complete worksheet rather than only what has
+    // been done so far.
+    const strings = {};
+    for (const k of d.keys || []) {
+      const v = (d.strings || {})[k.key];
+      strings[k.key] = v == null ? (k.plural ? { one: "", other: "" } : "") : v;
+    }
+    const blob = new Blob([JSON.stringify({ code: d.code, label: d.label, strings }, null, 2)],
+      { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `tagged-${d.code}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { showMsg(trMsg(), t("Could not export"), "error"); }
+}
+
+// importTrLang reads a JSON file and shows what it would change before applying
+// it. The preview matters: English-as-key means an edited source string orphans
+// its translation, and silently discarding a translator's work is exactly the
+// failure this feature must not have.
+function importTrLang(code) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch (e) { showMsg(trMsg(), t("That file is not valid JSON."), "error"); return; }
+    const strings = data && data.strings;
+    if (!strings || typeof strings !== "object") {
+      showMsg(trMsg(), t("That file has no strings object."), "error"); return;
+    }
+
+    const known = new Set(TR_KEYS.map((k) => k.key));
+    let added = 0, changed = 0;
+    const orphaned = [];
+    for (const [k, v] of Object.entries(strings)) {
+      const text = typeof v === "string" ? v : (v && v.one) || "";
+      if (!text) continue;
+      if (!known.has(k)) { orphaned.push(k); continue; }
+      const cur = (TR_STRINGS[k] && (typeof TR_STRINGS[k] === "string" ? TR_STRINGS[k] : TR_STRINGS[k].one)) || "";
+      if (!cur) added++;
+      else if (cur !== text) changed++;
+    }
+
+    const lines = [
+      tn("{n} new translation", added),
+      tn("{n} changed translation", changed),
+      tn("{n} key in the file is not used by this version of the interface", orphaned.length),
+    ];
+    if (orphaned.length) lines.push("", t("Unused keys are kept, not discarded:"), orphaned.slice(0, 10).join("\n"));
+    if (!(await confirmModal({
+      title: t("Import translations"),
+      body: lines.join("\n"),
+      confirmLabel: t("Import"),
+      danger: false,
+    }))) return;
+
+    try {
+      const r = await apiFetch("admin/translations", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, label: data.label || undefined, replace: true, strings }),
+      });
+      if (!r.ok) { showMsg(trMsg(), await r.text(), "error"); return; }
+      TR_DIRTY = {};
+      showMsg(trMsg(), t("Translations imported"), "ok");
+      await selectTrLang(code);
+      await loadTrLangs();
+    } catch (e) { showMsg(trMsg(), t("Could not import"), "error"); }
+  });
+  input.click();
+}
+
+function openAddLang() {
+  document.getElementById("tr-new-code").value = "";
+  document.getElementById("tr-new-label").value = "";
+  document.getElementById("tr-add-msg").textContent = "";
+  document.getElementById("tr-add-modal").hidden = false;
+  document.getElementById("tr-new-code").focus();
+}
+function closeAddLang() { document.getElementById("tr-add-modal").hidden = true; }
+
+async function saveNewLang() {
+  const code = document.getElementById("tr-new-code").value.trim().toLowerCase();
+  const label = document.getElementById("tr-new-label").value.trim();
+  const msg = document.getElementById("tr-add-msg");
+  // Same shape the server enforces, checked here so the error is immediate.
+  if (!/^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(code)) {
+    msg.textContent = t("Use a code like de, fr or pt-BR."); return;
+  }
+  if (code === "en") { msg.textContent = t("English is the source language."); return; }
+  if (!label) { msg.textContent = t("A display name is required."); return; }
+  try {
+    const r = await apiFetch("admin/translations", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, label, enabled: false, strings: {} }),
+    });
+    if (!r.ok) { msg.textContent = await r.text(); return; }
+  } catch (e) { msg.textContent = t("Could not add the language."); return; }
+  closeAddLang();
+  showMsg(trMsg(), t("Language added"), "ok");
+  TR_CODE = code;
+  await loadTrLangs();
+  await selectTrLang(code);
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  // Before any page initialiser renders anything, so runtime strings and the
+  // static markup agree. On the common path the server already translated the
+  // HTML and this only loads the catalog for t().
+  await initI18n();
   if (document.getElementById("setup-form")) return initSetup();
   if (document.getElementById("login-form")) return initLogin();
   if (document.getElementById("register-form")) return initRegister();
@@ -6393,5 +7117,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("oauth-page")) return initOAuth();
   if (document.getElementById("tags-manage")) return initTags();
   if (document.getElementById("acc-username")) return initAccount();
+  if (document.getElementById("i18n-page")) return initTranslations();
   if (document.getElementById("about-content")) return initAbout();
 });

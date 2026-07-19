@@ -19,6 +19,8 @@ import (
 	"strings"
 )
 
+//go:generate go run ./gen
+
 //go:embed static/*
 var files embed.FS
 
@@ -83,6 +85,8 @@ func route(reqPath string) string {
 		return "settings.html"
 	case "oauth":
 		return "oauth.html"
+	case "translations":
+		return "translations.html"
 	case "tags":
 		return "tags.html"
 	case "about":

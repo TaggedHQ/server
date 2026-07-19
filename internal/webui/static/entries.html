@@ -19,57 +19,61 @@
       <nav class="nav">
         <a href="{{PREFIX}}">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          <span>Dashboard</span>
+          <span data-i18n="Dashboard">Dashboard</span>
         </a>
         <a class="active" href="{{PREFIX}}entries">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-          <span>Time entries</span>
+          <span data-i18n="Time entries">Time entries</span>
         </a>
         <a href="{{PREFIX}}tags">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
-          <span>Tags</span>
+          <span data-i18n="Tags">Tags</span>
         </a>
         <a id="nav-shifts" href="{{PREFIX}}shifts" style="display:none">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="M8 14h3"/></svg>
-          <span>Shifts</span>
+          <span data-i18n="Shifts">Shifts</span>
         </a>
         <a id="nav-skills" href="{{PREFIX}}skills" style="display:none">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
-          <span>Skills</span>
+          <span data-i18n="Skills">Skills</span>
         </a>
         <a href="{{PREFIX}}impexp">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
-          <span>Import / Export</span>
+          <span data-i18n="Import / Export">Import / Export</span>
         </a>
         <a href="{{PREFIX}}account">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="9" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>          
-          <span>Account</span>
+          <span data-i18n="Account">Account</span>
         </a>
         <a id="nav-about" href="{{PREFIX}}about">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
-          <span>About</span>
+          <span data-i18n="About">About</span>
         </a>
         <div id="nav-admin" class="nav-section" style="display:none">
-          <div class="nav-head">Admin</div>
+          <div class="nav-head" data-i18n="Admin">Admin</div>
           <a href="{{PREFIX}}users">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <span>Users</span>
+            <span data-i18n="Users">Users</span>
           </a>
           <a href="{{PREFIX}}roles">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"/><path d="M9.5 12l2 2 3.5-4"/></svg>            
-            <span>Roles</span>
+            <span data-i18n="Roles">Roles</span>
           </a>
           <a href="{{PREFIX}}groups">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/><circle cx="5" cy="9" r="2"/><path d="M2 20v-1a4 4 0 0 1 3-3.8"/><circle cx="19" cy="9" r="2"/><path d="M22 20v-1a4 4 0 0 0-3-3.8"/></svg>            
-            <span>Groups</span>
+            <span data-i18n="Groups">Groups</span>
           </a>
           <a href="{{PREFIX}}settings">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg>
-            <span>Settings</span>
+            <span data-i18n="Settings">Settings</span>
           </a>
           <a href="{{PREFIX}}oauth">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>
-            <span>OAuth</span>
+            <span data-i18n="OAuth">OAuth</span>
+          </a>
+          <a href="{{PREFIX}}translations">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M9 3v2M6 5c0 6-2 8-4 10M5 9c0 3 3 5 6 6"/><path d="M13 20l4-9 4 9M14.5 17h5"/></svg>
+            <span data-i18n="Translations">Translations</span>
           </a>
         </div>
       </nav>
@@ -78,7 +82,7 @@
           <span class="avatar" id="avatar">?</span>
           <span class="name" id="side-user">…</span>
         </a>
-        <button class="icon-btn" id="logout" title="Log out">
+        <button class="icon-btn" id="logout" title="Log out" data-i18n-title="Log out">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/></svg>
         </button>
       </div>
@@ -87,35 +91,35 @@
     <div class="content" id="entries-layout">
       <div class="main-col" style="width:100%">
         <div class="page-head">
-          <h1>Time entries</h1>
+          <h1 data-i18n="Time entries">Time entries</h1>
           <div class="head-actions">
-            <button id="open-report" class="secondary">▤ Report</button>
-            <button id="new-entry">＋ New entry</button>
+            <button id="open-report" class="secondary">▤ <span data-i18n="Report">Report</span></button>
+            <button id="new-entry">＋ <span data-i18n="New entry">New entry</span></button>
           </div>
         </div>
 
         <div class="panel">
           <div class="week-head">
-            <button class="icon-btn" id="week-prev" title="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <button class="icon-btn" id="week-prev" title="Previous week" data-i18n-title="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
             <span class="wtitle">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
               <span id="week-title">—</span>
             </span>
-            <button class="icon-btn" id="week-next" title="Next week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+            <button class="icon-btn" id="week-next" title="Next week" data-i18n-title="Next week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
           </div>
           <div class="week-days" id="week-days"></div>
-          <div class="week-total"><span>Total</span><span class="wt-val" id="week-total">0h 00m</span></div>
+          <div class="week-total"><span data-i18n="Total">Total</span><span class="wt-val" id="week-total">0h 00m</span></div>
         </div>
 
         <div class="view-switch-row">
-          <div class="view-switch" id="view-switch" role="tablist" aria-label="View">
+          <div class="view-switch" id="view-switch" role="tablist" aria-label="View" data-i18n-aria-label="View">
             <button type="button" class="vs-btn" data-view="list" role="tab">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-              List
+              <span data-i18n="List">List</span>
             </button>
             <button type="button" class="vs-btn" data-view="timeline" role="tab">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><rect x="4" y="5" width="8" height="4" rx="1"/><rect x="12" y="14" width="8" height="4" rx="1"/></svg>
-              Timeline
+              <span data-i18n="Timeline">Timeline</span>
             </button>
           </div>
         </div>
@@ -127,14 +131,14 @@
               <span id="tl-range">—</span>
             </span>
             <div class="tl-controls">
-              <button class="secondary btn-sm" id="tl-today" title="Jump to now">Today</button>
+              <button class="secondary btn-sm" id="tl-today" title="Jump to now" data-i18n-title="Jump to now" data-i18n="Today">Today</button>
               <div class="tl-group">
-                <button class="icon-btn" id="tl-up" title="Earlier — ↑ / PageUp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg></button>
-                <button class="icon-btn" id="tl-down" title="Later — ↓ / PageDown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
+                <button class="icon-btn" id="tl-up" title="Earlier — ↑ / PageUp" data-i18n-title="Earlier — ↑ / PageUp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg></button>
+                <button class="icon-btn" id="tl-down" title="Later — ↓ / PageDown" data-i18n-title="Later — ↓ / PageDown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
               </div>
               <div class="tl-group">
-                <button class="icon-btn" id="tl-zoom-out" title="Zoom out — →"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg></button>
-                <button class="icon-btn" id="tl-zoom-in" title="Zoom in — ←"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg></button>
+                <button class="icon-btn" id="tl-zoom-out" title="Zoom out — →" data-i18n-title="Zoom out — →"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg></button>
+                <button class="icon-btn" id="tl-zoom-in" title="Zoom in — ←" data-i18n-title="Zoom in — ←"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg></button>
               </div>
             </div>
           </div>
@@ -142,8 +146,8 @@
             <div class="tl-canvas" id="tl-canvas"></div>
           </div>
           <div class="tl-foot">
-            <span><span class="tl-foot-val" id="tl-visible-total">0h 00m</span> in view</span>
-            <span class="tl-hint">Scroll or ↑ ↓ to pan · ← → to zoom · double-click to add</span>
+            <span><span class="tl-foot-val" id="tl-visible-total">0h 00m</span> <span data-i18n="in view">in view</span></span>
+            <span class="tl-hint" data-i18n="Scroll or ↑ ↓ to pan · ← → to zoom · double-click to add">Scroll or ↑ ↓ to pan · ← → to zoom · double-click to add</span>
           </div>
         </div>
 
@@ -157,7 +161,7 @@
         <div class="panel um-details" id="entry-details">
           <div class="um-empty">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-            <p>Select an entry to view its details and actions.</p>
+            <p data-i18n="Select an entry to view its details and actions.">Select an entry to view its details and actions.</p>
           </div>
         </div>
       </aside>
@@ -169,84 +173,84 @@
       <div class="sheet-title" id="em-title">Edit Entry</div>
 
       <div class="sheet-section">
-        <div class="sheet-label">Description</div>
-        <input id="em-desc" class="em-input" type="text" placeholder="What did you work on?" autocomplete="off">
+        <div class="sheet-label" data-i18n="Description">Description</div>
+        <input id="em-desc" class="em-input" type="text" placeholder="What did you work on?" data-i18n-placeholder="What did you work on?" autocomplete="off">
       </div>
 
       <div class="sheet-section">
         <div class="sheet-section-head">
-          <span class="sheet-label">Tags</span>
+          <span class="sheet-label" data-i18n="Tags">Tags</span>
           <div class="em-add-anchor">
-            <button id="em-add-tag" class="link-accent" type="button">＋ Add</button>
+            <button id="em-add-tag" class="link-accent" type="button">＋ <span data-i18n="Add">Add</span></button>
             <div class="menu-pop em-tag-menu" id="em-tag-menu"></div>
           </div>
         </div>
         <div class="em-tags" id="em-tags"></div>
         <div id="em-add-wrap" hidden>
           <div class="em-add-row">
-            <input id="em-tag-input" type="text" placeholder="New tag name" autocomplete="off">
-            <button id="em-tag-add-btn" class="btn-sm" type="button">Add</button>
+            <input id="em-tag-input" type="text" placeholder="New tag name" data-i18n-placeholder="New tag name" autocomplete="off">
+            <button id="em-tag-add-btn" class="btn-sm" type="button" data-i18n="Add">Add</button>
           </div>
         </div>
       </div>
 
       <div class="sheet-section">
-        <div class="sheet-label" style="margin-bottom:4px">Time</div>
+        <div class="sheet-label" style="margin-bottom:4px" data-i18n="Time">Time</div>
         <div class="time-row">
-          <span class="tr-label">Start</span>
+          <span class="tr-label" data-i18n="Start">Start</span>
           <div class="tr-inputs"><input type="date" id="em-start-date"><input type="time" id="em-start-time"></div>
         </div>
         <div class="time-row">
-          <span class="tr-label">End</span>
+          <span class="tr-label" data-i18n="End">End</span>
           <div class="tr-inputs"><input type="date" id="em-end-date"><input type="time" id="em-end-time"></div>
         </div>
       </div>
 
       <div class="em-msg" id="em-msg"></div>
       <div class="sheet-actions">
-        <button id="em-delete" class="danger-btn" type="button" hidden>Delete</button>
+        <button id="em-delete" class="danger-btn" type="button" hidden data-i18n="Delete">Delete</button>
         <div class="spacer"></div>
-        <button id="em-cancel" class="secondary" type="button">Cancel</button>
-        <button id="em-save" type="button">Save</button>
+        <button id="em-cancel" class="secondary" type="button" data-i18n="Cancel">Cancel</button>
+        <button id="em-save" type="button" data-i18n="Save">Save</button>
       </div>
     </div>
   </div>
 
   <div class="modal-overlay" id="report-modal" hidden>
     <div class="sheet report">
-      <div class="sheet-title">Report</div>
+      <div class="sheet-title" data-i18n="Report">Report</div>
 
       <div class="sheet-section">
         <div class="rep-grid">
           <label class="rep-field">
-            <span class="sheet-label">From</span>
+            <span class="sheet-label" data-i18n="From">From</span>
             <input type="date" id="rp-from">
           </label>
           <label class="rep-field">
-            <span class="sheet-label">To</span>
+            <span class="sheet-label" data-i18n="To">To</span>
             <input type="date" id="rp-to">
           </label>
           <label class="rep-field">
-            <span class="sheet-label">Grouping</span>
+            <span class="sheet-label" data-i18n="Grouping">Grouping</span>
             <select class="set-select" id="rp-grouping">
-              <option value="none">None</option>
-              <option value="tags">Tags</option>
-              <option value="ds">Description</option>
+              <option value="none" data-i18n="None">None</option>
+              <option value="tags" data-i18n="Tags">Tags</option>
+              <option value="ds" data-i18n="Description">Description</option>
             </select>
           </label>
           <label class="rep-field">
-            <span class="sheet-label">Group by period</span>
+            <span class="sheet-label" data-i18n="Group by period">Group by period</span>
             <select class="set-select" id="rp-period">
-              <option value="none">None</option>
-              <option value="day">Day</option>
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-              <option value="quarter">Quarter</option>
-              <option value="year">Year</option>
+              <option value="none" data-i18n="None">None</option>
+              <option value="day" data-i18n="Day">Day</option>
+              <option value="week" data-i18n="Week">Week</option>
+              <option value="month" data-i18n="Month">Month</option>
+              <option value="quarter" data-i18n="Quarter">Quarter</option>
+              <option value="year" data-i18n="Year">Year</option>
             </select>
           </label>
           <label class="rep-field">
-            <span class="sheet-label">Duration format</span>
+            <span class="sheet-label" data-i18n="Duration format">Duration format</span>
             <select class="set-select" id="rp-format">
               <option value="hm">9:07</option>
               <option value="hms">9:07:24</option>
@@ -257,20 +261,20 @@
             </select>
           </label>
           <label class="rep-field rep-check">
-            <span class="sheet-label">Details</span>
-            <label class="rep-inline"><input type="checkbox" id="rp-records" checked> Show records</label>
+            <span class="sheet-label" data-i18n="Details">Details</span>
+            <label class="rep-inline"><input type="checkbox" id="rp-records" checked> <span data-i18n="Show records">Show records</span></label>
           </label>
         </div>
       </div>
 
       <div class="sheet-section">
-        <div class="sheet-label" style="margin-bottom:10px">Export as file</div>
+        <div class="sheet-label" style="margin-bottom:10px" data-i18n="Export as file">Export as file</div>
         <div class="rep-export">
           <input type="text" id="rp-filename" class="rep-filename" placeholder="filename" autocomplete="off" spellcheck="false">
           <div class="rep-export-btns">
             <button type="button" class="secondary btn-sm" id="rp-csv">⬇ CSV</button>
             <button type="button" class="secondary btn-sm" id="rp-pdf">⬇ PDF</button>
-            <button type="button" class="secondary btn-sm" id="rp-copy">⧉ Copy table</button>
+            <button type="button" class="secondary btn-sm" id="rp-copy">⧉ <span data-i18n="Copy table">Copy table</span></button>
           </div>
         </div>
         <div class="rep-msg" id="rp-msg"></div>
@@ -280,7 +284,7 @@
 
       <div class="sheet-actions">
         <div class="spacer"></div>
-        <button type="button" class="secondary" id="rp-close">Close</button>
+        <button type="button" class="secondary" id="rp-close" data-i18n="Close">Close</button>
       </div>
     </div>
   </div>

@@ -35,6 +35,7 @@ const (
 	capServerManage = "server.manage" // server-wide settings
 	capOAuthManage  = "oauth.manage"  // identity provider configuration
 	capUsersActAs   = "users.actas"   // view/edit another user's data ("switch to")
+	capI18nManage   = "translations.manage"
 )
 
 // Role keys. Also persisted, also stable.
@@ -59,6 +60,7 @@ var allCaps = []capDef{
 	{capServerManage, "Server settings", "Change server-wide settings such as self-registration."},
 	{capOAuthManage, "OAuth providers", "Configure external identity providers."},
 	{capUsersActAs, "Switch to users", "View and edit the data of users in the groups they control."},
+	{capI18nManage, "Translations", "Add languages and translate the interface."},
 }
 
 // roleDef describes one role. Operators can add their own, so the label and
@@ -89,7 +91,7 @@ func defaultRoles() []roleDef {
 			Caps: []string{}},
 		{Key: roleAdmin, Label: "Admin", System: true,
 			Desc: "Administers the server: users, roles, groups and settings.",
-			Caps: []string{capUsersManage, capRolesManage, capGroupsManage, capServerManage, capOAuthManage}},
+			Caps: []string{capUsersManage, capRolesManage, capGroupsManage, capServerManage, capOAuthManage, capI18nManage}},
 		{Key: roleController, Label: "Controller",
 			Desc: "Oversees the users in the groups they control.",
 			Caps: []string{capUsersActAs}},
@@ -527,7 +529,7 @@ func capList(caps map[string]bool) []string {
 // unlocks an admin page. Used to decide whether to show the Admin menu at all.
 func hasAnyAdminCap(caps map[string]bool) bool {
 	return caps[capUsersManage] || caps[capRolesManage] || caps[capGroupsManage] ||
-		caps[capServerManage] || caps[capOAuthManage]
+		caps[capServerManage] || caps[capOAuthManage] || caps[capI18nManage]
 }
 
 // adminGetRoles returns the permission matrix plus the capability catalog, the
