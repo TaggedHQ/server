@@ -1,6 +1,66 @@
 [
   {
+    "key": "About Tagged",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Backend Dependencies",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Based on TimeTagger",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Build Date",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "GPL-3.0",
+    "ctx": "about",
+    "plural": false
+  },
+  {
     "key": "GitHub Repository",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "GitHub ↗",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Go Version",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Open-source time tracker Tagged is based on.",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Revision",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "TimeTagger",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Version",
+    "ctx": "about",
+    "plural": false
+  },
+  {
+    "key": "Website ↗",
     "ctx": "about",
     "plural": false
   },
@@ -31,11 +91,6 @@
   },
   {
     "key": "Controls how the entries overview lays out each week.",
-    "ctx": "account",
-    "plural": false
-  },
-  {
-    "key": "Copy",
     "ctx": "account",
     "plural": false
   },
@@ -235,11 +290,6 @@
     "plural": false
   },
   {
-    "key": "Create",
-    "ctx": "admin·groups",
-    "plural": false
-  },
-  {
     "key": "Design team",
     "ctx": "admin·groups",
     "plural": false
@@ -256,11 +306,6 @@
   },
   {
     "key": "Edit group",
-    "ctx": "admin·groups",
-    "plural": false
-  },
-  {
-    "key": "Group",
     "ctx": "admin·groups",
     "plural": false
   },
@@ -465,7 +510,17 @@
     "plural": false
   },
   {
+    "key": "All status",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
     "key": "Create user",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Deactivated",
     "ctx": "admin·users",
     "plural": false
   },
@@ -490,7 +545,12 @@
     "plural": false
   },
   {
-    "key": "Password",
+    "key": "No password",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "Registered",
     "ctx": "admin·users",
     "plural": false
   },
@@ -505,12 +565,12 @@
     "plural": false
   },
   {
-    "key": "Select a user to view details, roles and actions.",
+    "key": "Search users…",
     "ctx": "admin·users",
     "plural": false
   },
   {
-    "key": "Status",
+    "key": "Select a user to view details, roles and actions.",
     "ctx": "admin·users",
     "plural": false
   },
@@ -521,6 +581,11 @@
   },
   {
     "key": "User Management",
+    "ctx": "admin·users",
+    "plural": false
+  },
+  {
+    "key": "min. 4 characters",
     "ctx": "admin·users",
     "plural": false
   },
@@ -600,7 +665,37 @@
     "plural": false
   },
   {
+    "key": "Authorization URL",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Azure AD / Microsoft Entra ID",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Back here, press *+ Custom* and fill the card in with the values below, using the client ID and secret you just copied.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Back here, press *+ GitHub*, paste both values into the new card and press *Save changes*.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Back here, press *+ Google*, paste both values and press *Save changes*.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Change server-wide settings such as self-registration.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Choose the supported account types. *Single tenant* is right unless you want people from other directories to sign in.",
     "ctx": "app",
     "plural": false
   },
@@ -616,6 +711,11 @@
   },
   {
     "key": "Could not add the language.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Could not copy — select the URL and copy it manually",
     "ctx": "app",
     "plural": false
   },
@@ -665,12 +765,12 @@
     "plural": false
   },
   {
-    "key": "Creates a new group with the same description, {controllers} and {members}.",
+    "key": "Create the client, then copy the *Client ID* and *Client secret*.",
     "ctx": "app",
     "plural": false
   },
   {
-    "key": "Date",
+    "key": "Creates a new group with the same description, {controllers} and {members}.",
     "ctx": "app",
     "plural": false
   },
@@ -805,7 +905,22 @@
     "plural": false
   },
   {
+    "key": "Fill in an application name and set *Homepage URL* to this server's address.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Friday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "From the app's *Overview*, copy the *Application (client) ID* and the *Directory (tenant) ID*.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "GitHub",
     "ctx": "app",
     "plural": false
   },
@@ -815,12 +930,32 @@
     "plural": false
   },
   {
-    "key": "Import",
+    "key": "Google",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "If your tenant does not populate `email`, point the userinfo URL at `https://graph.microsoft.com/v1.0/me` instead, add the `User.Read` scope and set the username claim to `userPrincipalName,mail`.",
     "ctx": "app",
     "plural": false
   },
   {
     "key": "Import translations",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "In GitHub, open *Settings → Developer settings → OAuth Apps* and choose *New OAuth App*.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "In the *Google Cloud Console*, select an existing project or create one.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "In the *Microsoft Entra admin center*, open *App registrations → New registration*.",
     "ctx": "app",
     "plural": false
   },
@@ -1005,7 +1140,32 @@
     "plural": false
   },
   {
+    "key": "On the app page, copy the *Client ID*, then choose *Generate a new client secret* and copy that too — GitHub shows the secret only once.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Open *APIs \u0026 Services → Credentials* and choose *Create credentials → OAuth client ID*, application type *Web application*.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Open *APIs \u0026 Services → OAuth consent screen* and complete it. Pick *External* unless every user is in your Workspace.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Open *Certificates \u0026 secrets → New client secret* and copy its *Value* — not the Secret ID, and it is only shown now.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Oversees the users in the groups they control.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Paste the redirect URL above into *Authorization callback URL*, then register the app.",
     "ctx": "app",
     "plural": false
   },
@@ -1025,12 +1185,32 @@
     "plural": false
   },
   {
+    "key": "Provider id",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Redirect URL copied",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Redirect URL for {provider}",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Registration disabled",
     "ctx": "app",
     "plural": false
   },
   {
     "key": "Registration enabled",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Replace `\u003ctenant\u003e` with the Directory (tenant) ID you copied, or use `organizations` to accept any work or school account.",
     "ctx": "app",
     "plural": false
   },
@@ -1066,6 +1246,11 @@
   },
   {
     "key": "Saving…",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Scopes",
     "ctx": "app",
     "plural": false
   },
@@ -1135,7 +1320,22 @@
     "plural": false
   },
   {
+    "key": "The preset fills in the endpoints and asks for the `read:user` scope. It uses GitHub's `login` as the username because the email is null on profiles that keep it private.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "The provider id must stay `azure`, or the redirect URL above stops matching the one you registered.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Thursday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Token URL",
     "ctx": "app",
     "plural": false
   },
@@ -1160,6 +1360,16 @@
     "plural": false
   },
   {
+    "key": "Under *Authorized redirect URIs*, add the redirect URL above.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Under *Redirect URI*, pick the platform *Web* and paste the redirect URL above, then register.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Unused keys are kept, not discarded:",
     "ctx": "app",
     "plural": false
@@ -1170,7 +1380,22 @@
     "plural": false
   },
   {
+    "key": "Userinfo URL",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Username claim",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Users keep their accounts; the role simply stops being available.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Values for the custom card",
     "ctx": "app",
     "plural": false
   },
@@ -1186,6 +1411,11 @@
   },
   {
     "key": "Wednesday",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "While the consent screen is still in *Testing*, only the test users you list can sign in. Publish it once you are ready to let everyone in.",
     "ctx": "app",
     "plural": false
   },
@@ -1257,62 +1487,74 @@
   {
     "key": "{n} backup code remaining",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} backup codes remaining"
   },
   {
     "key": "{n} changed translation",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} changed translations"
   },
   {
     "key": "{n} controller",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} controllers"
   },
   {
     "key": "{n} entry",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} entries"
   },
   {
     "key": "{n} group",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} groups"
   },
   {
     "key": "{n} key in the file is not used by this version of the interface",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} keys in the file are not used by this version of the interface"
   },
   {
     "key": "{n} member",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} members"
   },
   {
     "key": "{n} new translation",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} new translations"
   },
   {
     "key": "{n} passkey",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} passkeys"
   },
   {
     "key": "{n} stored string is no longer used by the interface",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} stored strings are no longer used by the interface"
   },
   {
     "key": "{n} unsaved change",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} unsaved changes"
   },
   {
     "key": "{n} user",
     "ctx": "app",
-    "plural": true
+    "plural": true,
+    "other": "{n} users"
   },
   {
     "key": "{weekday}, {d} {month} {year}",
@@ -1350,7 +1592,22 @@
     "plural": false
   },
   {
+    "key": "Add skill",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Admin",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "All roles",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Apply",
     "ctx": "common",
     "plural": false
   },
@@ -1360,7 +1617,52 @@
     "plural": false
   },
   {
+    "key": "Categories",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Category",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Certificate number",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Choose an icon",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Close",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Colour",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Confirm password",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Controllers",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Copy",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Create",
     "ctx": "common",
     "plural": false
   },
@@ -1370,7 +1672,17 @@
     "plural": false
   },
   {
+    "key": "Date",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Delete",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Description",
     "ctx": "common",
     "plural": false
   },
@@ -1400,6 +1712,11 @@
     "plural": false
   },
   {
+    "key": "Expiry is counted from this date.",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Export",
     "ctx": "common",
     "plural": false
@@ -1410,7 +1727,22 @@
     "plural": false
   },
   {
+    "key": "Group",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Groups",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Icon",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Import",
     "ctx": "common",
     "plural": false
   },
@@ -1420,7 +1752,27 @@
     "plural": false
   },
   {
+    "key": "Issue date",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Issued by",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Level",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Loading…",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Log in",
     "ctx": "common",
     "plural": false
   },
@@ -1445,6 +1797,11 @@
     "plural": false
   },
   {
+    "key": "My Skills",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Name",
     "ctx": "common",
     "plural": false
@@ -1460,6 +1817,11 @@
     "plural": false
   },
   {
+    "key": "None",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "OAuth",
     "ctx": "common",
     "plural": false
@@ -1470,7 +1832,27 @@
     "plural": false
   },
   {
+    "key": "Password",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Permissions",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Person",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Pick a Font Awesome icon",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Proficiency levels",
     "ctx": "common",
     "plural": false
   },
@@ -1510,6 +1892,11 @@
     "plural": false
   },
   {
+    "key": "Search icons…",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Select a group to manage its members and controllers.",
     "ctx": "common",
     "plural": false
@@ -1525,6 +1912,11 @@
     "plural": false
   },
   {
+    "key": "Selected icon",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Settings",
     "ctx": "common",
     "plural": false
@@ -1535,12 +1927,37 @@
     "plural": false
   },
   {
+    "key": "Show archived",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Skill",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Skill Levels",
+    "ctx": "common",
+    "plural": false
+  },
+  {
     "key": "Skills",
     "ctx": "common",
     "plural": false
   },
   {
     "key": "Start",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Status",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Style",
     "ctx": "common",
     "plural": false
   },
@@ -1586,6 +2003,16 @@
   },
   {
     "key": "Users",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "choose a file",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "or",
     "ctx": "common",
     "plural": false
   },
@@ -1645,22 +2072,12 @@
     "plural": false
   },
   {
-    "key": "Close",
-    "ctx": "entries",
-    "plural": false
-  },
-  {
     "key": "Copy table",
     "ctx": "entries",
     "plural": false
   },
   {
     "key": "Day",
-    "ctx": "entries",
-    "plural": false
-  },
-  {
-    "key": "Description",
     "ctx": "entries",
     "plural": false
   },
@@ -1721,11 +2138,6 @@
   },
   {
     "key": "Next week",
-    "ctx": "entries",
-    "plural": false
-  },
-  {
-    "key": "None",
     "ctx": "entries",
     "plural": false
   },
@@ -1805,12 +2217,307 @@
     "plural": false
   },
   {
+    "key": "Accepted names",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Analyse",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Column",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Date-time format",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Download all your time records as a CSV file — useful for backups, processing, or moving your data elsewhere.",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Example",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "ISO 8601",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Key",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Keys",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Local (readable)",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Optional",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Optional*",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Required",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Required*",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "See the import format",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Stop",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "The first row must be a header naming the columns. Column names are case-insensitive, and values may be wrapped in double quotes.",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Times",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "Unix timestamp",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "key,start,stop,tags,description abc123,2026-07-12 09:00,2026-07-12 11:00,#work #dev,Feature build",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "⧉ Copy table",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "⬇ Download CSV",
+    "ctx": "import-export",
+    "plural": false
+  },
+  {
+    "key": "6-digit code or backup code",
+    "ctx": "login",
+    "plural": false
+  },
+  {
+    "key": "Authentication code",
+    "ctx": "login",
+    "plural": false
+  },
+  {
+    "key": "Create one",
+    "ctx": "login",
+    "plural": false
+  },
+  {
+    "key": "Log in to your account",
+    "ctx": "login",
+    "plural": false
+  },
+  {
     "key": "Sign in with a passkey",
     "ctx": "login",
     "plural": false
   },
   {
+    "key": "Verify",
+    "ctx": "login",
+    "plural": false
+  },
+  {
+    "key": "← Back to login",
+    "ctx": "login",
+    "plural": false
+  },
+  {
+    "key": "Active",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Add a skill",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "All statuses",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Assign a skill",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Awaiting approval",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Everyone",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Expired",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "My skills",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "My team",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Pick a skill from the catalogue to record that you have it.",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Search person or skill…",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Team skills",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Valid until",
+    "ctx": "myskills",
+    "plural": false
+  },
+  {
+    "key": "Create a new account",
+    "ctx": "register",
+    "plural": false
+  },
+  {
+    "key": "Create account",
+    "ctx": "register",
+    "plural": false
+  },
+  {
+    "key": "Admin username",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "Create admin \u0026 finish",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "Performance Server",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "PostgreSQL connection URL",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "PostgreSQL — scalable and concurrent, for larger deployments.",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "SQLite — zero setup, one file. Great for personal and small‑team use.",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "Server type",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "Simple Server",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "We'll test the connection before continuing.",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "Welcome — let's set up your server",
+    "ctx": "setup",
+    "plural": false
+  },
+  {
+    "key": "Group status",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Kind",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Legend",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Member",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Plan the week for the groups you control.",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
     "key": "Schedule",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Scheduled",
     "ctx": "shifts",
     "plural": false
   },
@@ -1820,7 +2527,112 @@
     "plural": false
   },
   {
-    "key": "Add skill",
+    "key": "Add category",
+    "ctx": "skillcats",
+    "plural": false
+  },
+  {
+    "key": "Archived",
+    "ctx": "skillcats",
+    "plural": false
+  },
+  {
+    "key": "Archived categories are hidden when adding a skill, but keep the skills already filed under them.",
+    "ctx": "skillcats",
+    "plural": false
+  },
+  {
+    "key": "How skills are filed. Every skill belongs to one category, which gives it its colour.",
+    "ctx": "skillcats",
+    "plural": false
+  },
+  {
+    "key": "New category",
+    "ctx": "skillcats",
+    "plural": false
+  },
+  {
+    "key": "Search categories…",
+    "ctx": "skillcats",
+    "plural": false
+  },
+  {
+    "key": "Add level",
+    "ctx": "skilllevels",
+    "plural": false
+  },
+  {
+    "key": "Lowest first, 2 to 10 rungs",
+    "ctx": "skilllevels",
+    "plural": false
+  },
+  {
+    "key": "Save levels",
+    "ctx": "skilllevels",
+    "plural": false
+  },
+  {
+    "key": "Shortening the scale does not delete anyone's rating: ratings above the new top rung are shown at the top rung instead.",
+    "ctx": "skilllevels",
+    "plural": false
+  },
+  {
+    "key": "The proficiency scale everyone rates against, lowest first.",
+    "ctx": "skilllevels",
+    "plural": false
+  },
+  {
+    "key": "1 year",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "3 years",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "Never",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "New skill",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "Renew every",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "Requires certificate",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "Requires manager approval",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "Search skills…",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "Team coverage",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "The catalogue people pick from. Define what a skill requires and see who holds it.",
+    "ctx": "skills",
+    "plural": false
+  },
+  {
+    "key": "What this skill covers",
     "ctx": "skills",
     "plural": false
   },
@@ -1866,11 +2678,6 @@
   },
   {
     "key": "Tag name",
-    "ctx": "tags",
-    "plural": false
-  },
-  {
-    "key": "choose a file",
     "ctx": "tags",
     "plural": false
   },

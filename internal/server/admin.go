@@ -91,6 +91,10 @@ var adminRouteCap = map[string]string{
 	"/server":       capServerManage,
 	"/oauth":        capOAuthManage,
 	"/translations": capI18nManage,
+	"/skill-axes":   capSkillsManage,
+	"/skill-cats":   capSkillsManage,
+	"/skill-cat":    capSkillsManage,
+	"/skill-levels": capSkillsManage,
 }
 
 // adminHandler dispatches admin-only sub-routes. `sub` is the path after
@@ -175,6 +179,25 @@ func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[stri
 	case "/user-groups":
 		if req.method() == "PUT" || req.method() == "POST" {
 			return s.adminSetUserGroups(req)
+		}
+	case "/skill-axes":
+		if req.method() == "GET" {
+			return s.adminGetSkillAxes()
+		}
+	case "/skill-cats":
+		if req.method() == "PUT" || req.method() == "POST" {
+			return s.adminSetSkillCats(req)
+		}
+	case "/skill-cat":
+		switch req.method() {
+		case "PUT", "POST":
+			return s.adminSaveSkillCat(req)
+		case "DELETE":
+			return s.adminDeleteSkillCat(req)
+		}
+	case "/skill-levels":
+		if req.method() == "PUT" || req.method() == "POST" {
+			return s.adminSetSkillLevels(req)
 		}
 	case "/server":
 		switch req.method() {

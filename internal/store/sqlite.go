@@ -39,8 +39,9 @@ func (b *SQLiteBackend) UserDB(username string) (UserDB, error) {
 	return &sqliteUserDB{idb: idb}, nil
 }
 
-// ensureAllTables creates the three tables with the same indices as the Python
-// server, so existing database files stay byte-compatible.
+// ensureAllTables creates the three Python-era tables with the same indices as
+// the Python server, so existing database files stay byte-compatible, plus the
+// skills table this server adds on top.
 func ensureAllTables(idb *ItemDB) error {
 	if err := idb.EnsureTable(TableUserinfo, "!key", "st"); err != nil {
 		return err
@@ -48,7 +49,10 @@ func ensureAllTables(idb *ItemDB) error {
 	if err := idb.EnsureTable(TableRecords, "!key", "st", "t1", "t2"); err != nil {
 		return err
 	}
-	return idb.EnsureTable(TableSettings, "!key", "st")
+	if err := idb.EnsureTable(TableSettings, "!key", "st"); err != nil {
+		return err
+	}
+	return idb.EnsureTable(TableSkills, "!key", "st")
 }
 
 // ListUsers enumerates the *.db files in rootUserDir.

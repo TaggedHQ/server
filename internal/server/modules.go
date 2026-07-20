@@ -97,6 +97,9 @@ func (s *Server) setModuleEnabled(key string, on bool) error {
 // moduleForPage maps a web UI page to the module that must be on for it to be
 // served. Pages absent from the map are always available.
 var moduleForPage = map[string]string{
-	"shifts": moduleShifts,
-	"skills": moduleSkills,
+	"shifts":      moduleShifts,
+	"myskills":    moduleSkills,
+	"skills":      moduleSkills,
+	"skillcats":   moduleSkills,
+	"skilllevels": moduleSkills,
 }

@@ -8,7 +8,7 @@
 
 Track your time with tags, see where it goes, and own your data.
 
-`🛠️ vibe coded` &nbsp;·&nbsp; `🐹 Go` &nbsp;·&nbsp; `🗄️ SQLite / Postgres` &nbsp;·&nbsp; `🔑 OAuth · 2FA · passkeys` &nbsp;·&nbsp; `🎨 dark theme`
+`🛠️ vibe coded` &nbsp;·&nbsp; `🐹 Go` &nbsp;·&nbsp; `🗄️ SQLite / Postgres` &nbsp;·&nbsp; `🔑 OAuth · 2FA · passkeys` &nbsp;·&nbsp; `🎓 skills & certificates` &nbsp;·&nbsp; `🎨 dark theme`
 
 </div>
 
@@ -45,7 +45,19 @@ Track your time with tags, see where it goes, and own your data.
 - 👥 **Groups with controllers.** Gather users into groups from
   **Admin → Groups** and put one or more **controllers** over each. A controller
   can view and edit the time data of their groups' members — and nobody else's.
-  Users can belong to more than one group.
+  A user belongs to **exactly one** group, so "which team is this person on?"
+  always has one answer; a controller may oversee as many as you like. Adding
+  someone to a group moves them out of their previous one, and says so.
+- 🎓 **Skills, certificates and renewals.** Switch on the **Skills** module and
+  define a catalogue — each skill with a category, a Font Awesome icon, a
+  proficiency scale, and rules: renew every 1 or 3 years, require a certificate,
+  require manager approval. People add skills to themselves from **My Skills**,
+  picking a category and then a skill from the catalogue — they never invent one.
+  A self‑claim on a skill that needs sign‑off waits as **pending** until one of
+  their group's controllers approves it; a manager assigning it directly *is* the
+  approval. Expiry counts from the certificate's issue date, so a backdated
+  ticket doesn't quietly gain a fresh term. Everyone can see who holds what
+  across the company; only a holder's own manager can act on it.
 - 🪪 **Profiles & pictures.** First/last name, job, department, e‑mail, phone and
   mobile, plus a profile picture. Everyone edits their own from **Account**;
   admins edit anyone from **Admin → Users**, where the list is searchable across
@@ -174,6 +186,51 @@ multi-arch container to `ghcr.io/taggedhq/server` and creates a GitHub Release:
 docker pull ghcr.io/taggedhq/server:vX.Y.Z   # or :latest
 ```
 
+## Skills
+
+An optional module (**Admin → Settings → Modules**) for tracking what people can
+do, what proves it, and when that proof runs out.
+
+It separates **defining** a skill from **holding** one:
+
+- **Defining is curated.** The catalogue, its categories and the proficiency
+  scale all sit behind a `skills.manage` capability, under the **Skills** section
+  in the nav. They are the shared vocabulary everything else is expressed in: if
+  anyone could add "Forklift" a second time, or reshape the scale mid‑flight,
+  every existing record would quietly mean something else.
+- **Holding is self‑service, but only from the catalogue.** On **My Skills** a
+  user picks a category, then a skill filed under it. What that skill requires —
+  a certificate, a manager's approval, renewal after a year or three — is part of
+  its definition, so the rules are set once rather than negotiated per person.
+
+Who may do what:
+
+| | Own entry | Someone you manage | Anyone else |
+|---|---|---|---|
+| See it | ✔ | ✔ | ✔ |
+| Set the level / certificate | ✔ | — | — |
+| Approve or reject a pending claim | — | ✔ | — |
+| Record a renewal for a **lapsed** certificate | ✔ | ✔ | — |
+
+A manager **vouches for** a claim rather than authoring it, so they cannot edit
+someone's level or evidence — that would make the record say something the holder
+never claimed. The single exception is a renewal: when a certificate has expired,
+a manager may record the new one, and the level carries over untouched.
+
+"Manager" means a controller of the group the holder belongs to — which is why
+group membership is exclusive. A holder in no group has no controller, so
+`skills.manage` can approve them as a backstop, and only them.
+
+Assignments live in each user's own store, not in `setup.json`, so they travel
+with the account and are deleted with it. The catalogue and the two axes are
+server‑wide and live alongside groups and roles.
+
+**Upgrading an existing install.** Like translations, the catalogue is gated on a
+new `skills.manage` capability, and roles are persisted — so the Admin role does
+**not** pick it up automatically. Tick it once under **Admin → Roles**, and grant
+it to whichever role you call "manager", or the Skills pages 403 and their nav
+entries stay hidden.
+
 ## Translations
 
 The UI ships in English. From **Admin → Translations** an admin adds a language
@@ -285,7 +342,10 @@ server/
 │   ├── util/               # JWT + helpers
 │   └── webui/              # embedded UI (HTML/CSS/JS, fonts, logo)
 │       ├── gen/            # build-time extractor for the translatable strings
-│       └── static/i18n/    # generated catalog of those strings (en.json)
+│       └── static/
+│           ├── i18n/       # generated catalog of those strings (en.json)
+│           ├── css/        # Font Awesome (icon picker for skills and groups)
+│           └── webfonts/   # its webfonts: solid, regular, brands
 └── README.md
 ```
 

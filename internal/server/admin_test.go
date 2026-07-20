@@ -178,44 +178,71 @@ func groupByID(t *testing.T, s *Server, id string) group {
 	return group{}
 }
 
-// A user can be in several groups at once, so setting their groups has to add
-// and remove across the whole list in one pass.
-func TestSetUserGroupsSpansSeveralGroups(t *testing.T) {
+// Membership is exclusive: the features built on groups need one unambiguous
+// team per person, so this call must refuse to put a user in two at once.
+func TestSetUserGroupsRefusesTwoGroupsForAUser(t *testing.T) {
 	s := newTestServer(t)
 	token := mkAdminToken(t, s)
 	mkPasswordUser(t, s, "user@x.com", "secret")
 	a := mkGroup(t, s, token, "Alpha")
 	b := mkGroup(t, s, token, "Beta")
-	c := mkGroup(t, s, token, "Gamma")
 
 	w := doAPI(t, s, "PUT", "/api/v2/admin/user-groups", token,
 		`{"username":"user@x.com","groups":["`+a+`","`+b+`"]}`)
-	if w.Code != 200 {
-		t.Fatalf("set groups: %d %s", w.Code, w.Body.String())
+	if w.Code != 400 {
+		t.Fatalf("two groups: got %d %s, want 400", w.Code, w.Body.String())
 	}
-	for _, tc := range []struct {
-		id   string
-		want bool
-	}{{a, true}, {b, true}, {c, false}} {
-		got := slices.Contains(groupByID(t, s, tc.id).Members, "user@x.com")
-		if got != tc.want {
-			t.Errorf("group %q membership = %v, want %v", tc.id, got, tc.want)
+	// Rejected means nothing was written, not "the first one won".
+	for _, id := range []string{a, b} {
+		if slices.Contains(groupByID(t, s, id).Members, "user@x.com") {
+			t.Errorf("group %q gained a member from a rejected call", id)
 		}
 	}
+}
 
-	// Moving to a different pair must drop the old ones in the same call.
-	w = doAPI(t, s, "PUT", "/api/v2/admin/user-groups", token,
-		`{"username":"user@x.com","groups":["`+c+`"]}`)
-	if w.Code != 200 {
-		t.Fatalf("move groups: %d %s", w.Code, w.Body.String())
+// One group at a time still works, and moving replaces rather than accumulates.
+func TestSetUserGroupsMovesBetweenGroups(t *testing.T) {
+	s := newTestServer(t)
+	token := mkAdminToken(t, s)
+	mkPasswordUser(t, s, "user@x.com", "secret")
+	a := mkGroup(t, s, token, "Alpha")
+	b := mkGroup(t, s, token, "Beta")
+
+	for _, tc := range []struct{ set, gone string }{{a, b}, {b, a}} {
+		w := doAPI(t, s, "PUT", "/api/v2/admin/user-groups", token,
+			`{"username":"user@x.com","groups":["`+tc.set+`"]}`)
+		if w.Code != 200 {
+			t.Fatalf("set groups: %d %s", w.Code, w.Body.String())
+		}
+		if !slices.Contains(groupByID(t, s, tc.set).Members, "user@x.com") {
+			t.Errorf("not a member of %q after setting it", tc.set)
+		}
+		if slices.Contains(groupByID(t, s, tc.gone).Members, "user@x.com") {
+			t.Errorf("still a member of %q after moving away", tc.gone)
+		}
 	}
-	for _, tc := range []struct {
-		id   string
-		want bool
-	}{{a, false}, {b, false}, {c, true}} {
-		got := slices.Contains(groupByID(t, s, tc.id).Members, "user@x.com")
-		if got != tc.want {
-			t.Errorf("after the move, group %q membership = %v, want %v", tc.id, got, tc.want)
+}
+
+// Control is not exclusive: overseeing several groups is the normal case, and
+// the one-group rule must not leak onto the controller side.
+func TestSetUserGroupsLetsAControllerSpanGroups(t *testing.T) {
+	s := newTestServer(t)
+	token := mkAdminToken(t, s)
+	mkPasswordUser(t, s, "ctrl@x.com", "secret")
+	if err := s.setStoredController("ctrl@x.com", true); err != nil {
+		t.Fatalf("setStoredController: %v", err)
+	}
+	a := mkGroup(t, s, token, "Alpha")
+	b := mkGroup(t, s, token, "Beta")
+
+	w := doAPI(t, s, "PUT", "/api/v2/admin/user-groups", token,
+		`{"username":"ctrl@x.com","groups":["`+a+`","`+b+`"]}`)
+	if w.Code != 200 {
+		t.Fatalf("controller over two groups: %d %s", w.Code, w.Body.String())
+	}
+	for _, id := range []string{a, b} {
+		if !slices.Contains(groupByID(t, s, id).Controllers, "ctrl@x.com") {
+			t.Errorf("controller missing from %q", id)
 		}
 	}
 }

@@ -86,10 +86,13 @@ function t(key, vars) {
 // tn picks the singular or plural form. Two forms cover English and most of
 // western Europe; languages with richer plural systems (Polish, Russian,
 // Arabic) would need real ICU categories, which this deliberately is not.
-function tn(key, n, vars) {
-  const m = I18N.strings[normKey(key)];
-  let out = key;
-  if (m && typeof m === "object") out = (n === 1 ? m.one : m.other) || m.one || key;
+function tn(one, other, n, vars) {
+  const m = I18N.strings[normKey(one)];
+  // Both English forms are passed in, because the key is only the singular and
+  // English plurals are not derivable from it -- "entry" becomes "entries", not
+  // "entrys". Without the second argument an untranslated UI renders "64 user".
+  let out = n === 1 ? one : other;
+  if (m && typeof m === "object") out = (n === 1 ? m.one : m.other) || out;
   else if (typeof m === "string" && m) out = m;
   return interpolate(out, Object.assign({ n }, vars || {}));
 }
@@ -98,6 +101,30 @@ function tn(key, n, vars) {
 // a translator can reorder them, which positional ones would not survive.
 function interpolate(s, vars) {
   return s.replace(/\{(\w+)\}/g, (whole, k) => (k in vars ? String(vars[k]) : whole));
+}
+
+// tEmph translates a sentence that needs emphasis inside it, and returns HTML.
+//
+// The catalog must never contain HTML. If a key were
+// "In GitHub, open <strong>Settings</strong>", a translator would have to
+// hand-copy tags correctly (they will not), and trusting a translation as HTML
+// would hand an admin an injection point into every page.
+//
+// So the catalog carries a lightweight convention instead: *emphasis* and
+// `code`. The translated text is escaped first, and only the marker pairs
+// become tags afterwards -- markup can therefore only ever come from the
+// markers, never from the translation's own characters. Translators can move
+// the markers to wherever their grammar needs them.
+// tKey translates a key held in a variable, for the handful of places where the
+// string is declared in one of the i18n*Strings blocks and passed around as
+// data. Keeping the dynamic call in one named helper means the "t() needs a
+// literal" guard stays strict everywhere else.
+function tKey(key) { return t(key); } // i18n-dynamic: caller's key is declared elsewhere
+
+function tEmph(key, vars) {
+  return escapeHtml(t(key, vars))  // i18n-dynamic: this is the helper
+    .replace(/\*([^*]+)\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 // applyI18n translates the marked-up static markup in root. It is a no-op in
@@ -940,14 +967,26 @@ const NAV_CAP = {
   settings: "server.manage",
   oauth: "oauth.manage",
   translations: "translations.manage",
+  // The whole Skills section defines the catalogue, so all three take the same
+  // capability. Users reach skills through My Skills in the main menu, which
+  // only lets them pick from what is defined here.
+  skills: "skills.manage",
+  skillcats: "skills.manage",
+  skilllevels: "skills.manage",
 };
 
-// NAV_MODULE maps a nav entry to the optional module that must be switched on for
-// it to lead anywhere. Off by default, so these stay hidden until an admin
-// enables them on the Settings page.
+// NAV_MODULE maps a single nav entry to the optional module that must be
+// switched on for it to lead anywhere. Off by default, so these stay hidden
+// until an admin enables them on the Settings page.
 const NAV_MODULE = {
   "nav-shifts": "shifts",
-  "nav-skills": "skills",
+  "nav-my-skills": "skills",
+};
+
+// NAV_SECTION_MODULE does the same for a whole nav section, so the Skills
+// heading disappears with its entries rather than sitting above nothing.
+const NAV_SECTION_MODULE = {
+  "nav-skills-section": "skills",
 };
 
 // revealChrome makes one whoami call to reveal role-specific UI: the Admin nav
@@ -959,6 +998,7 @@ async function revealChrome() {
     const d = await r.json();
     window.TT_IS_ADMIN = !!d.is_admin;
     window.TT_IS_CONTROLLER = !!d.is_controller;
+    window.TT_USER = d.username;
     window.TT_CAPS = d.caps || [];
     window.TT_MODULES = d.modules || [];
     const can = (c) => window.TT_CAPS.includes(c);
@@ -985,20 +1025,32 @@ async function revealChrome() {
       }
     }
 
-    // The Admin section is hidden by default; reveal it (falling back to the
-    // .nav-section stylesheet display) once we know at least one entry is
-    // allowed, then drop the entries this role cannot reach.
-    const na = document.getElementById("nav-admin");
-    if (na) {
+    // Every nav section resolves the same way: a section tied to an optional
+    // module disappears wholesale when the module is off, and inside it each
+    // entry survives only if the viewer holds the capability it needs. A section
+    // left with nothing reachable is hidden too, so a heading never sits above
+    // an empty list.
+    //
+    // Entries with no capability in NAV_CAP (the Skills page itself) are open,
+    // and count towards keeping their section visible.
+    document.querySelectorAll(".nav-section").forEach((sec) => {
+      const mod = NAV_SECTION_MODULE[sec.id];
+      if (mod && !window.TT_MODULES.includes(mod)) {
+        sec.style.display = "none";
+        return;
+      }
       let any = false;
-      na.querySelectorAll("a").forEach((a) => {
+      sec.querySelectorAll("a").forEach((a) => {
         const page = a.getAttribute("href").split("/").filter(Boolean).pop();
         const cap = NAV_CAP[page];
-        if (cap && !can(cap)) a.style.display = "none";
-        else if (cap) any = true;
+        const entryMod = NAV_MODULE[a.id];
+        const reachable = (!cap || can(cap)) && (!entryMod || window.TT_MODULES.includes(entryMod));
+        if (!reachable) { a.style.display = "none"; return; }
+        a.style.display = "";
+        any = true;
       });
-      if (any) na.style.display = "";
-    }
+      sec.style.display = any ? "" : "none";
+    });
     if (can("users.actas")) setupSwitcher();
   } catch (e) { /* ignore */ }
 }
@@ -1974,7 +2026,7 @@ function initMfaSection() {
     if (state.enabled) {
       statusEl.innerHTML = `<div class="mfa-row">
           <span class="mfa-badge on">Enabled</span>
-          <span class="mfa-note">${escapeHtml(tn("{n} backup code remaining", state.remaining))}</span>
+          <span class="mfa-note">${escapeHtml(tn("{n} backup code remaining", "{n} backup codes remaining", state.remaining))}</span>
           <button class="danger-btn btn-sm" id="mfa-disable-btn" type="button">Disable</button>
         </div>
         <div id="mfa-disable-wrap" hidden>
@@ -3307,7 +3359,7 @@ function renderUsersTable() {
       </tr>`;
     }).join("");
   }
-  count.textContent = t("Showing {shown} of {total}", { shown: rows.length, total: tn("{n} user", ADMIN_USERS.length) });
+  count.textContent = t("Showing {shown} of {total}", { shown: rows.length, total: tn("{n} user", "{n} users", ADMIN_USERS.length) });
 
   body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", (e) => {
     if (e.target.closest(".um-dots")) return; // dots handled separately
@@ -3535,7 +3587,7 @@ function groupsOf(u) {
 function mfaSummary(u) {
   const parts = [];
   if (u.totp_enabled) parts.push("Authenticator app");
-  if (u.passkeys) parts.push(tn("{n} passkey", u.passkeys));
+  if (u.passkeys) parts.push(tn("{n} passkey", "{n} passkeys", u.passkeys));
   return parts;
 }
 
@@ -3724,39 +3776,60 @@ function editGroupsModal() { return document.getElementById("edit-groups-modal")
 
 let GROUP_PICK = null; // Set of group ids ticked in the modal
 
-// openEditGroups lists every group with a checkbox, since a user can be in more
-// than one. What ticking a box means depends on the account's role, so the modal
-// says so up front.
+// openEditGroups lists every group. Which control it uses follows the rule the
+// server enforces: a member belongs to exactly one group, so those are radios
+// (plus a "no group" option, since leaving is a legitimate choice); a controller
+// oversees any number, so those stay checkboxes.
 function openEditGroups(username) {
   const u = ADMIN_USERS.find((x) => x.username === username);
   if (!u || !ADMIN_GROUPS) return;
   const slot = groupSlotOf(u);
   if (!slot) return;
+  const single = slot === "members";
   GROUP_PICK = new Set(groupsOf(u).map((g) => g.id));
 
   const m = editGroupsModal();
   m.querySelector("#eg-msg").innerHTML = "";
-  m.querySelector("#eg-intro").textContent = slot === "controllers"
-    ? `${displayName(u.username, u.profile)} controls the groups you tick, and can act as their members.`
-    : `${displayName(u.username, u.profile)} belongs to the groups you tick.`;
-  m.querySelector("#eg-options").innerHTML = ADMIN_GROUPS.map((g) => {
-    const on = GROUP_PICK.has(g.id);
-    const count = (g[slot] || []).length;
-    return `<label class="group-choice${on ? " on" : ""}" data-group="${escapeHtml(g.id)}">
-      <input type="checkbox" ${on ? "checked" : ""}>
+  m.querySelector("#eg-intro").textContent = single
+    ? `${displayName(u.username, u.profile)} belongs to the one group you pick.`
+    : `${displayName(u.username, u.profile)} controls the groups you tick, and can act as their members.`;
+
+  const choice = (id, label, desc, on) => `
+    <label class="group-choice${on ? " on" : ""}" data-group="${escapeHtml(id)}">
+      <input type="${single ? "radio" : "checkbox"}"${single ? ' name="eg-group"' : ""} ${on ? "checked" : ""}>
       <span class="group-choice-text">
-        <span class="group-choice-label">${escapeHtml(g.name)}</span>
-        <span class="group-choice-desc">${g.description
-          ? escapeHtml(g.description)
-          : `${count} ${slot === "controllers" ? "controller" : "member"}${count === 1 ? "" : "s"}`}</span>
+        <span class="group-choice-label">${escapeHtml(label)}</span>
+        <span class="group-choice-desc">${desc}</span>
       </span>
     </label>`;
+
+  let html = ADMIN_GROUPS.map((g) => {
+    const count = (g[slot] || []).length;
+    return choice(g.id, g.name, g.description
+      ? escapeHtml(g.description)
+      : `${count} ${single ? "member" : "controller"}${count === 1 ? "" : "s"}`,
+      GROUP_PICK.has(g.id));
   }).join("");
+  // Radios cannot be un-picked by clicking, so leaving every group needs its own
+  // option -- otherwise a member could never be removed from this screen.
+  if (single) {
+    html = choice("", "No group", "Not on any team.", GROUP_PICK.size === 0) + html;
+  }
+  m.querySelector("#eg-options").innerHTML = html;
+
   m.querySelectorAll(".group-choice").forEach((el) => el.addEventListener("change", () => {
     const id = el.dataset.group;
-    if (el.querySelector("input").checked) GROUP_PICK.add(id);
-    else GROUP_PICK.delete(id);
-    el.classList.toggle("on", GROUP_PICK.has(id));
+    if (single) {
+      GROUP_PICK = new Set(id ? [id] : []);
+    } else if (el.querySelector("input").checked) {
+      GROUP_PICK.add(id);
+    } else {
+      GROUP_PICK.delete(id);
+    }
+    // Radios move the highlight as a set, so repaint every row, not just this one.
+    m.querySelectorAll(".group-choice").forEach((row) => {
+      row.classList.toggle("on", row.dataset.group ? GROUP_PICK.has(row.dataset.group) : GROUP_PICK.size === 0);
+    });
   }));
   m.hidden = false;
 }
@@ -3909,6 +3982,29 @@ async function requireCap(cap) {
   } catch (e) { return false; }
 }
 
+// renderRoleFilter fills the Users page role filter from the server's actual
+// role list. The options used to be hardcoded to the three built-in roles, so
+// any role an operator added on the Roles page could never be filtered on --
+// and a renamed built-in showed its old label.
+//
+// The value is the role key, which is what userMatchesFilters compares against
+// roleOf(u).key. The label goes through the catalog so built-in roles translate
+// while an operator's own role name passes through unchanged.
+function renderRoleFilter() {
+  const sel = document.getElementById("role-filter");
+  if (!sel) return;
+  const keep = sel.value; // survive a re-render after roles change
+  const all = sel.querySelector('option[value=""]');
+  sel.innerHTML = "";
+  sel.appendChild(all || new Option(t("All roles"), ""));
+  for (const r of ADMIN_ROLES) {
+    sel.appendChild(new Option(tKey(r.label || r.key), r.key));
+  }
+  // Only restore a selection that still exists; a deleted role must not leave
+  // the list filtered by something invisible.
+  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "";
+}
+
 async function initAdmin() {
   if (!(await requireCap("users.manage"))) return;
 
@@ -3992,6 +4088,7 @@ async function initAdmin() {
   // Roles and groups first: the details panel renders both out of them, and a
   // visitor without the matching permission simply gets no card.
   await loadAdminRoles();
+  renderRoleFilter();
   await loadUserGroups();
   loadUsers();
 }
@@ -4031,7 +4128,7 @@ function renderRolesTable() {
         <div class="rl-desc">${escapeHtml(t(r.desc))}</div>
       </td>
       <td class="muted">${caps}</td>
-      <td class="muted">${escapeHtml(tn("{n} user", n))}</td>
+      <td class="muted">${escapeHtml(tn("{n} user", "{n} users", n))}</td>
       <td><button class="um-dots" data-r="${escapeHtml(r.key)}" title="Actions">⋯</button></td>
     </tr>`;
   }).join("");
@@ -4112,7 +4209,7 @@ function renderRoleDetails() {
         ${r.system ? `<span class="badge muted">Built in</span>` : ""}
       </div>
       ${r.desc ? `<p class="gr-desc">${escapeHtml(r.desc)}</p>` : `<p class="gr-desc ud-unset">No description</p>`}
-      <span class="ud-state">${escapeHtml(tn("{n} user", n))}</span>
+      <span class="ud-state">${escapeHtml(tn("{n} user", "{n} users", n))}</span>
     </div>
   </div>`;
 
@@ -4313,16 +4410,16 @@ function renderGroupsTable() {
         : `<span class="badge muted">None</span>`;
       return `<tr class="um-row${sel}" data-g="${escapeHtml(g.id)}">
         <td>
-          <div class="um-user"><span class="um-name">${escapeHtml(g.name)}</span></div>
+          <div class="um-user">${groupAvatarHtml(g, "sm")}<span class="um-name">${escapeHtml(g.name)}</span></div>
           ${g.description ? `<div class="rl-desc">${escapeHtml(g.description)}</div>` : ""}
         </td>
         <td><div class="ud-roles" style="margin:0">${ctrls}</div></td>
-        <td class="muted">${escapeHtml(tn("{n} user", g.members.length))}</td>
+        <td class="muted">${escapeHtml(tn("{n} user", "{n} users", g.members.length))}</td>
         <td><button class="um-dots" data-g="${escapeHtml(g.id)}" title="Actions">⋯</button></td>
       </tr>`;
     }).join("");
   }
-  count.textContent = t("Showing {shown} of {total}", { shown: rows.length, total: tn("{n} group", GROUPS.length) });
+  count.textContent = t("Showing {shown} of {total}", { shown: rows.length, total: tn("{n} group", "{n} groups", GROUPS.length) });
   body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", (e) => {
     if (e.target.closest(".um-dots")) return; // dots handled separately
     selectGroup(tr.dataset.g);
@@ -4370,6 +4467,18 @@ function groupInitials(name) {
   return letters.toUpperCase();
 }
 
+// groupAvatarHtml renders a group's badge: its Font Awesome icon where it has
+// one, and its initials otherwise -- the same "icon or shortcode" fallback a
+// skill badge uses, so a group always shows something. `cls` adds a size
+// modifier (e.g. "lg") shared with the .gr-avatar rules.
+function groupAvatarHtml(g, cls = "") {
+  const c = `gr-avatar${cls ? " " + cls : ""}`;
+  if (g.icon) {
+    return `<span class="${c}"><i class="${faClass(escapeHtml(g.icon), g.icon_style)}"></i></span>`;
+  }
+  return `<span class="${c}">${escapeHtml(groupInitials(g.name))}</span>`;
+}
+
 // dirEntry looks a username up in the directory, tolerating one that is not
 // there (a group can outlive the account it names until the prune runs).
 function dirEntry(username) { return GROUP_DIR[username] || {}; }
@@ -4408,7 +4517,7 @@ function renderGroupDetails() {
   host.classList.add("filled");
 
   const head = `<div class="ud-head">
-    <span class="gr-avatar">${escapeHtml(groupInitials(g.name))}</span>
+    ${groupAvatarHtml(g)}
     <div class="ud-id">
       <div class="ud-name">${escapeHtml(g.name)}</div>
       ${g.description
@@ -4448,6 +4557,8 @@ async function saveGroupFields(g, changes, msgEl, okText) {
     id: g.id,
     name: g.name,
     description: g.description || "",
+    icon: g.icon || "",
+    icon_style: g.icon_style || "",
     members: g.members,
     controllers: g.controllers,
     ...changes,
@@ -4457,7 +4568,17 @@ async function saveGroupFields(g, changes, msgEl, okText) {
     body: JSON.stringify(body),
   });
   if (!r.ok) { showMsg(msgEl, await r.text(), "error"); return false; }
-  showMsg(groupsMsg(), okText, "ok");
+  // Membership is exclusive, so a save can have pulled people off other groups.
+  // Report it: the admin edited this group and needs to know what else moved.
+  let note = okText;
+  try {
+    const moved = (await r.json()).moved || [];
+    if (moved.length) {
+      const who = moved.map((mv) => `${mv.username} (from ${mv.from_name || mv.from})`).join(", ");
+      note = `${okText} — moved ${who}`;
+    }
+  } catch (e) { /* a body we cannot read must not turn a successful save into an error */ }
+  showMsg(groupsMsg(), note, "ok");
   loadGroups();
   return true;
 }
@@ -4517,6 +4638,14 @@ function renderGroupPeople() {
   const free = PEOPLE_POOL.filter((u) => !PEOPLE_PICK.has(u));
   const matches = q ? free.filter((u) => personSearchText(u).includes(q)) : free;
   const shown = matches.slice(0, PEOPLE_RESULT_LIMIT);
+  // Members belong to one group, so adding someone takes them off their current
+  // team. Name that team on the row: the move is a real side effect and the
+  // admin should see it before clicking, not only in the message afterwards.
+  const currentGroup = (u) => {
+    if (PEOPLE_KIND !== "members") return "";
+    const g = GROUPS.find((x) => x.id !== GROUP_SELECTED && (x.members || []).includes(u));
+    return g ? `<span class="gr-move-note muted">moves from ${escapeHtml(g.name)}</span>` : "";
+  };
 
   const results = m.querySelector("#gp-results");
   if (!free.length) {
@@ -4528,6 +4657,7 @@ function renderGroupPeople() {
   } else {
     results.innerHTML = shown.map((u) => `<div class="gr-result" data-u="${escapeHtml(u)}">
         ${personLine(u)}
+        ${currentGroup(u)}
         <button class="secondary btn-sm gr-person-btn" data-add="${escapeHtml(u)}">Add</button>
       </div>`).join("")
       + (matches.length > shown.length
@@ -4549,8 +4679,8 @@ function openGroupPeople(id, kind) {
   const m = groupPeopleModal();
   m.querySelector("#gp-title").textContent = kind === "controllers" ? "Manage controllers" : "Manage members";
   m.querySelector("#gp-intro").textContent = kind === "controllers"
-    ? `Who oversees ${g.name}. Only users with the Controller role can be picked.`
-    : `Who belongs to ${g.name}. Only users with the User role can be picked.`;
+    ? `Who oversees ${g.name}. Only users with the Controller role can be picked, and a controller may oversee several groups.`
+    : `Who belongs to ${g.name}. Only users with the User role can be picked, and adding someone moves them off their current group.`;
   m.querySelector("#gp-msg").innerHTML = "";
   m.querySelector("#gp-search").value = "";
   renderGroupPeople();
@@ -4598,6 +4728,7 @@ function openGroupEdit(id) {
   m.querySelector("#eg-name").value = g.name;
   m.querySelector("#eg-desc").value = g.description || "";
   m.querySelector("#eg-group-msg").innerHTML = "";
+  iconField("eg", g.icon || "", g.icon_style || "");
   m.hidden = false;
   m.querySelector("#eg-name").focus();
 }
@@ -4612,8 +4743,12 @@ async function applyGroupEdit() {
   const name = m.querySelector("#eg-name").value.trim();
   if (!name) { showMsg(msg, t("A group name is required"), "error"); return; }
   showMsg(msg, "Saving…", "");
-  const ok = await saveGroupFields(g,
-    { name, description: m.querySelector("#eg-desc").value.trim() }, msg, `Saved ${name}`);
+  const ok = await saveGroupFields(g, {
+    name,
+    description: m.querySelector("#eg-desc").value.trim(),
+    icon: m.querySelector("#eg-icon").value,
+    icon_style: m.querySelector("#eg-icon-style").value,
+  }, msg, `Saved ${name}`);
   if (ok) closeGroupEdit();
 }
 
@@ -4627,7 +4762,7 @@ function openGroupDuplicate(id) {
   const m = groupDuplicateModal();
   m.querySelector("#dg-name").value = `${g.name} copy`;
   m.querySelector("#dg-intro").textContent =
-    t("Creates a new group with the same description, {controllers} and {members}.", { controllers: tn("{n} controller", g.controllers.length), members: tn("{n} member", g.members.length) });
+    t("Creates a new group with the same description, {controllers} and {members}.", { controllers: tn("{n} controller", "{n} controllers", g.controllers.length), members: tn("{n} member", "{n} members", g.members.length) });
   m.querySelector("#dg-msg").innerHTML = "";
   m.hidden = false;
   const input = m.querySelector("#dg-name");
@@ -4652,6 +4787,8 @@ async function applyGroupDuplicate() {
     body: JSON.stringify({
       name,
       description: g.description || "",
+      icon: g.icon || "",
+      icon_style: g.icon_style || "",
       members: g.members,
       controllers: g.controllers,
     }),
@@ -4699,6 +4836,7 @@ function openAddGroup() {
   document.getElementById("create-group-msg").innerHTML = "";
   document.getElementById("new-group-name").value = "";
   document.getElementById("new-group-desc").value = "";
+  iconField("new-group", "", "");
   document.getElementById("add-group-modal").hidden = false;
   document.getElementById("new-group-name").focus();
 }
@@ -4710,6 +4848,9 @@ async function initGroups() {
   document.getElementById("group-search").addEventListener("input", renderGroupsTable);
   document.getElementById("add-group-btn").addEventListener("click", openAddGroup);
   document.getElementById("add-group-cancel").addEventListener("click", closeAddGroup);
+  wireIconPicker();
+  wireIconField("new-group", "add-group-modal");
+  wireIconField("eg", "edit-group-modal");
   document.getElementById("add-group-modal").addEventListener("click", (e) => {
     if (e.target.id === "add-group-modal") closeAddGroup();
   });
@@ -4759,6 +4900,8 @@ async function initGroups() {
       body: JSON.stringify({
         name,
         description: document.getElementById("new-group-desc").value.trim(),
+        icon: document.getElementById("new-group-icon").value,
+        icon_style: document.getElementById("new-group-icon-style").value,
         members: [], controllers: [],
       }),
     });
@@ -4879,7 +5022,7 @@ function renderTags() {
     const color = colorFor(k);
     const st = stats[k];
     const usage = st
-      ? `${tn("{n} entry", st.count)} · ${fmtHM(st.sec)}`
+      ? `${tn("{n} entry", "{n} entries", st.count)} · ${fmtHM(st.sec)}`
       : "No entries yet";
     return `<div class="tm-row tm-clickable" data-tag="${escapeHtml(k)}">
       <div class="tm-main">
@@ -4997,7 +5140,7 @@ async function deleteTagModal() {
   if (!tmEditKey) return;
   const st = tagUsage()[tmEditKey];
   const warn = st
-    ? t("It will be removed from {entries} (the entries themselves are kept).", { entries: tn("{n} entry", st.count) })
+    ? t("It will be removed from {entries} (the entries themselves are kept).", { entries: tn("{n} entry", "{n} entries", st.count) })
     : "It is not used by any entry.";
   if (!(await confirmModal({ title: `Delete tag "${labelFor(tmEditKey)}"`, body: warn }))) return;
 
@@ -5592,57 +5735,96 @@ const OAUTH_HELP = [
     id: "github",
     title: "GitHub",
     steps: [
-      "In GitHub, open <strong>Settings → Developer settings → OAuth Apps</strong> and choose <strong>New OAuth App</strong>.",
-      "Fill in an application name and set <strong>Homepage URL</strong> to this server's address.",
-      "Paste the redirect URL above into <strong>Authorization callback URL</strong>, then register the app.",
-      "On the app page, copy the <strong>Client ID</strong>, then choose <strong>Generate a new client secret</strong> and copy that too — GitHub shows the secret only once.",
-      "Back here, press <strong>+ GitHub</strong>, paste both values into the new card and press <strong>Save changes</strong>.",
+      "In GitHub, open *Settings → Developer settings → OAuth Apps* and choose *New OAuth App*.",
+      "Fill in an application name and set *Homepage URL* to this server's address.",
+      "Paste the redirect URL above into *Authorization callback URL*, then register the app.",
+      "On the app page, copy the *Client ID*, then choose *Generate a new client secret* and copy that too — GitHub shows the secret only once.",
+      "Back here, press *+ GitHub*, paste both values into the new card and press *Save changes*.",
     ],
     notes: [
-      "The preset fills in the endpoints and asks for the <code>read:user</code> scope. It uses GitHub's <code>login</code> as the username because the email is null on profiles that keep it private.",
+      "The preset fills in the endpoints and asks for the `read:user` scope. It uses GitHub's `login` as the username because the email is null on profiles that keep it private.",
     ],
   },
   {
     id: "google",
     title: "Google",
     steps: [
-      "In the <strong>Google Cloud Console</strong>, select an existing project or create one.",
-      "Open <strong>APIs &amp; Services → OAuth consent screen</strong> and complete it. Pick <strong>External</strong> unless every user is in your Workspace.",
-      "Open <strong>APIs &amp; Services → Credentials</strong> and choose <strong>Create credentials → OAuth client ID</strong>, application type <strong>Web application</strong>.",
-      "Under <strong>Authorized redirect URIs</strong>, add the redirect URL above.",
-      "Create the client, then copy the <strong>Client ID</strong> and <strong>Client secret</strong>.",
-      "Back here, press <strong>+ Google</strong>, paste both values and press <strong>Save changes</strong>.",
+      "In the *Google Cloud Console*, select an existing project or create one.",
+      "Open *APIs & Services → OAuth consent screen* and complete it. Pick *External* unless every user is in your Workspace.",
+      "Open *APIs & Services → Credentials* and choose *Create credentials → OAuth client ID*, application type *Web application*.",
+      "Under *Authorized redirect URIs*, add the redirect URL above.",
+      "Create the client, then copy the *Client ID* and *Client secret*.",
+      "Back here, press *+ Google*, paste both values and press *Save changes*.",
     ],
     notes: [
-      "While the consent screen is still in <strong>Testing</strong>, only the test users you list can sign in. Publish it once you are ready to let everyone in.",
+      "While the consent screen is still in *Testing*, only the test users you list can sign in. Publish it once you are ready to let everyone in.",
     ],
   },
   {
     id: "azure",
     title: "Azure AD / Microsoft Entra ID",
     steps: [
-      "In the <strong>Microsoft Entra admin center</strong>, open <strong>App registrations → New registration</strong>.",
-      "Choose the supported account types. <strong>Single tenant</strong> is right unless you want people from other directories to sign in.",
-      "Under <strong>Redirect URI</strong>, pick the platform <strong>Web</strong> and paste the redirect URL above, then register.",
-      "From the app's <strong>Overview</strong>, copy the <strong>Application (client) ID</strong> and the <strong>Directory (tenant) ID</strong>.",
-      "Open <strong>Certificates &amp; secrets → New client secret</strong> and copy its <strong>Value</strong> — not the Secret ID, and it is only shown now.",
-      "Back here, press <strong>+ Custom</strong> and fill the card in with the values below, using the client ID and secret you just copied.",
+      "In the *Microsoft Entra admin center*, open *App registrations → New registration*.",
+      "Choose the supported account types. *Single tenant* is right unless you want people from other directories to sign in.",
+      "Under *Redirect URI*, pick the platform *Web* and paste the redirect URL above, then register.",
+      "From the app's *Overview*, copy the *Application (client) ID* and the *Directory (tenant) ID*.",
+      "Open *Certificates & secrets → New client secret* and copy its *Value* — not the Secret ID, and it is only shown now.",
+      "Back here, press *+ Custom* and fill the card in with the values below, using the client ID and secret you just copied.",
     ],
     values: [
       ["Provider id", "azure"],
-      ["Authorization URL", "https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/authorize"],
-      ["Token URL", "https://login.microsoftonline.com/&lt;tenant&gt;/oauth2/v2.0/token"],
+      ["Authorization URL", "https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize"],
+      ["Token URL", "https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token"],
       ["Userinfo URL", "https://graph.microsoft.com/oidc/userinfo"],
       ["Scopes", "openid email profile"],
       ["Username claim", "email"],
     ],
     notes: [
-      "Replace <code>&lt;tenant&gt;</code> with the Directory (tenant) ID you copied, or use <code>organizations</code> to accept any work or school account.",
-      "The provider id must stay <code>azure</code>, or the redirect URL above stops matching the one you registered.",
-      "If your tenant does not populate <code>email</code>, point the userinfo URL at <code>https://graph.microsoft.com/v1.0/me</code> instead, add the <code>User.Read</code> scope and set the username claim to <code>userPrincipalName,mail</code>.",
+      "Replace `<tenant>` with the Directory (tenant) ID you copied, or use `organizations` to accept any work or school account.",
+      "The provider id must stay `azure`, or the redirect URL above stops matching the one you registered.",
+      "If your tenant does not populate `email`, point the userinfo URL at `https://graph.microsoft.com/v1.0/me` instead, add the `User.Read` scope and set the username claim to `userPrincipalName,mail`.",
     ],
   },
 ];
+
+
+// The OAuth provider walkthroughs. Declared here so the extractor catalogs
+// them: the render passes computed keys from the OAUTH_HELP table, and the
+// sentences use the *emphasis* convention rather than embedded markup.
+function i18nOAuthHelpStrings() {
+  t("GitHub");
+  t("In GitHub, open *Settings → Developer settings → OAuth Apps* and choose *New OAuth App*.");
+  t("Fill in an application name and set *Homepage URL* to this server's address.");
+  t("Paste the redirect URL above into *Authorization callback URL*, then register the app.");
+  t("On the app page, copy the *Client ID*, then choose *Generate a new client secret* and copy that too — GitHub shows the secret only once.");
+  t("Back here, press *+ GitHub*, paste both values into the new card and press *Save changes*.");
+  t("The preset fills in the endpoints and asks for the `read:user` scope. It uses GitHub's `login` as the username because the email is null on profiles that keep it private.");
+  t("Google");
+  t("In the *Google Cloud Console*, select an existing project or create one.");
+  t("Open *APIs & Services → OAuth consent screen* and complete it. Pick *External* unless every user is in your Workspace.");
+  t("Open *APIs & Services → Credentials* and choose *Create credentials → OAuth client ID*, application type *Web application*.");
+  t("Under *Authorized redirect URIs*, add the redirect URL above.");
+  t("Create the client, then copy the *Client ID* and *Client secret*.");
+  t("Back here, press *+ Google*, paste both values and press *Save changes*.");
+  t("While the consent screen is still in *Testing*, only the test users you list can sign in. Publish it once you are ready to let everyone in.");
+  t("Azure AD / Microsoft Entra ID");
+  t("In the *Microsoft Entra admin center*, open *App registrations → New registration*.");
+  t("Choose the supported account types. *Single tenant* is right unless you want people from other directories to sign in.");
+  t("Under *Redirect URI*, pick the platform *Web* and paste the redirect URL above, then register.");
+  t("From the app's *Overview*, copy the *Application (client) ID* and the *Directory (tenant) ID*.");
+  t("Open *Certificates & secrets → New client secret* and copy its *Value* — not the Secret ID, and it is only shown now.");
+  t("Back here, press *+ Custom* and fill the card in with the values below, using the client ID and secret you just copied.");
+  t("Provider id");
+  t("Authorization URL");
+  t("Token URL");
+  t("Userinfo URL");
+  t("Scopes");
+  t("Username claim");
+  t("Replace `<tenant>` with the Directory (tenant) ID you copied, or use `organizations` to accept any work or school account.");
+  t("The provider id must stay `azure`, or the redirect URL above stops matching the one you registered.");
+  t("If your tenant does not populate `email`, point the userinfo URL at `https://graph.microsoft.com/v1.0/me` instead, add the `User.Read` scope and set the username claim to `userPrincipalName,mail`.");
+  t("Values for the custom card"); t("Redirect URL for {provider}");
+}
 
 // renderOAuthHelp builds the setup panel. base is the server's callback base, so
 // the URLs shown are the real ones for this deployment rather than a template.
@@ -5652,22 +5834,22 @@ function renderOAuthHelp(base) {
   host.innerHTML = OAUTH_HELP.map((p) => {
     const url = `${base}/${p.id}`;
     const values = p.values ? `
-      <p class="help-eg-label">Values for the custom card</p>
+      <p class="help-eg-label">${escapeHtml(t("Values for the custom card"))}</p>
       <table class="oh-vals"><tbody>
-        ${p.values.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${v}</td></tr>`).join("")}
+        ${p.values.map(([k, v]) => `<tr><th>${escapeHtml(tKey(k))}</th><td>${escapeHtml(v)}</td></tr>`).join("")}
       </tbody></table>` : "";
-    const notes = (p.notes || []).map((n) => `<p class="help-note">${n}</p>`).join("");
+    const notes = (p.notes || []).map((n) => `<p class="help-note">${tEmph(n)}</p>`).join("");
     return `<details class="help-fold">
       <summary>${escapeHtml(p.title)}</summary>
       <div class="help-body">
         <div class="oh-redirect">
-          <span class="oh-redirect-label">Redirect URL for ${escapeHtml(p.title)}</span>
+          <span class="oh-redirect-label">${escapeHtml(t("Redirect URL for {provider}", { provider: p.title }))}</span>
           <div class="oh-copy-row">
             <div class="oh-url">${escapeHtml(url)}</div>
-            <button class="secondary btn-sm" type="button" data-copy="${escapeHtml(url)}">Copy</button>
+            <button class="secondary btn-sm" type="button" data-copy="${escapeHtml(url)}">${escapeHtml(t("Copy"))}</button>
           </div>
         </div>
-        <ol class="oh-steps">${p.steps.map((s) => `<li>${s}</li>`).join("")}</ol>
+        <ol class="oh-steps">${p.steps.map((step) => `<li>${tEmph(step)}</li>`).join("")}</ol>
         ${values}
         ${notes}
       </div>
@@ -5677,9 +5859,9 @@ function renderOAuthHelp(base) {
   host.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(b.dataset.copy);
-      toast("Redirect URL copied", "ok");
+      toast(t("Redirect URL copied"), "ok");
     } catch (e) {
-      toast("Could not copy — select the URL and copy it manually", "error");
+      toast(t("Could not copy — select the URL and copy it manually"), "error");
     }
   }));
 }
@@ -6273,112 +6455,464 @@ function initShifts() {
   setPlWeek(new Date());
 }
 
+// ---- Skill icons ------------------------------------------------------------
+// A skill's badge is a Font Awesome icon, chosen from a picker that browses the
+// whole bundled set rather than a hand-picked shortlist.
+//
+// The icon list is read from the stylesheet itself (all.min.css maps every name
+// to a codepoint via a --fa custom property), so it stays correct if the Font
+// Awesome build is ever upgraded -- there is no second list here to fall out of
+// date with the fonts actually shipped.
+//
+// Which face an icon exists in is a harder question: the stylesheet maps names
+// to codepoints but says nothing about whether a given codepoint is drawn by the
+// solid, regular or brands font. Rendering a brands glyph as solid produces an
+// empty box, so the styles are probed rather than guessed -- see probeIconStyle.
+//
+// Light and duotone are deliberately absent: they are Font Awesome Pro styles
+// with no webfont in this bundle, so offering them would only ever yield blanks.
+
+const FA_FAMILY_FREE = '"Font Awesome 7 Free"';
+const FA_FAMILY_BRANDS = '"Font Awesome 7 Brands"';
+
+// FA_STYLES is what the bundled Free build can actually draw, in the order the
+// picker lists them.
+const FA_STYLES = [
+  { key: "solid", label: "Solid", font: `900 24px ${FA_FAMILY_FREE}` },
+  { key: "regular", label: "Regular", font: `400 24px ${FA_FAMILY_FREE}` },
+  { key: "brands", label: "Brands", font: `400 24px ${FA_FAMILY_BRANDS}` },
+];
+
+let FA_ICONS = null;      // [{name, cp, styles:[...]}] once loaded
+let FA_LOADING = null;    // in-flight load, so two opens do not parse twice
+
+// parseIconCss pulls every icon name and codepoint out of the stylesheet.
+// Rules come in alias groups (".fa-try,.fa-turkish-lira{--fa:'\e2bb'}"), and
+// each alias is kept: people search for the name they know, not the canonical
+// one, and they all render identically.
+function parseIconCss(css) {
+  const out = new Map();
+  const rule = /([^{}]+)\{--fa:"\\([0-9a-f]+)"\}/g;
+  let m;
+  while ((m = rule.exec(css)) !== null) {
+    const cp = String.fromCodePoint(parseInt(m[2], 16));
+    for (const sel of m[1].split(",")) {
+      const name = sel.trim().match(/^\.fa-([a-z0-9-]+)$/);
+      if (name) out.set(name[1], cp);
+    }
+  }
+  return out;
+}
+
+// probeIconStyles works out which faces actually contain a glyph by measuring
+// it. A codepoint the font does not define falls back to the browser's notdef,
+// whose width differs from any real glyph in these fonts -- so measuring an
+// unassigned private-use codepoint once gives a reliable "missing" baseline to
+// compare against. It is the only way to tell solid from brands here, since the
+// stylesheet does not say.
+function probeIconStyles(icons) {
+  const ctx = document.createElement("canvas").getContext("2d");
+  const MISSING = ""; // private use, never assigned by Font Awesome
+  const baseline = {};
+  for (const st of FA_STYLES) {
+    ctx.font = st.font;
+    baseline[st.key] = ctx.measureText(MISSING).width;
+  }
+  for (const icon of icons) {
+    icon.styles = [];
+    for (const st of FA_STYLES) {
+      ctx.font = st.font;
+      if (ctx.measureText(icon.cp).width !== baseline[st.key]) icon.styles.push(st.key);
+    }
+  }
+  // An icon no face can draw is not offerable. This also filters the v4
+  // compatibility aliases, which map to codepoints the shipped fonts dropped.
+  return icons.filter((i) => i.styles.length);
+}
+
+// loadIcons fetches and classifies the set, once per page. The fonts must be
+// ready first: measuring before they load compares one fallback against
+// another and classifies everything as missing.
+function loadIcons() {
+  if (FA_ICONS) return Promise.resolve(FA_ICONS);
+  if (FA_LOADING) return FA_LOADING;
+  FA_LOADING = (async () => {
+    const resp = await fetch(`${PREFIX}css/all.min.css?v=${encodeURIComponent(VERSION || "")}`);
+    const css = await resp.text();
+    // Loading each face explicitly, rather than trusting document.fonts.ready,
+    // because a face with no glyph painted yet may not have been requested.
+    await Promise.all(FA_STYLES.map((st) => document.fonts.load(st.font, "").catch(() => {})));
+    const parsed = [...parseIconCss(css)].map(([name, cp]) => ({ name, cp }));
+    parsed.sort((a, b) => a.name.localeCompare(b.name));
+    FA_ICONS = probeIconStyles(parsed);
+    return FA_ICONS;
+  })();
+  return FA_LOADING;
+}
+
+// faClass is the class pair that renders one icon. Kept in one place so every
+// render site agrees on how a stored (name, style) becomes markup.
+function faClass(name, style) {
+  const st = FA_STYLES.some((s) => s.key === style) ? style : "solid";
+  return `fa-${st} fa-${name}`;
+}
+
+// skIconHtml renders a skill's badge: its icon where it has one, and the
+// two-letter mark otherwise. Entries created before the picker existed have only
+// a mark, so both paths stay live rather than one being a migration step.
+function skIconHtml(s, cls = "") {
+  const c = `sk-ic${cls ? " " + cls : ""}`;
+  const color = skColor(s);
+  if (s.icon) {
+    return `<span class="${c}" style="--c:${color}"><i class="${faClass(escapeHtml(s.icon), s.icon_style)}"></i></span>`;
+  }
+  return `<span class="${c}" style="--c:${color}">${escapeHtml(s.mark || "?")}</span>`;
+}
+
+// ---- the picker -------------------------------------------------------------
+
+let IP_PICK = null;        // {name, style} chosen in the modal, before Apply
+let IP_STYLE = "";         // style filter, "" = all
+let IP_SHOWN = 0;          // how many cards are drawn; the rest load on scroll
+const IP_PAGE = 180;       // cards per batch: enough to fill the grid twice over
+
+// IP_CATS is optional. Font Awesome's category metadata is a separate file from
+// the CSS and is not part of this bundle, so the section only appears if one is
+// dropped in at css/icon-categories.json ({"Business": ["briefcase", ...]}).
+let IP_CATS = null;
+let IP_CAT = "";
+
+function ipEls() {
+  return {
+    modal: document.getElementById("icon-modal"),
+    search: document.getElementById("ip-search"),
+    styles: document.getElementById("ip-styles"),
+    cats: document.getElementById("ip-cats"),
+    catsHead: document.getElementById("ip-cats-head"),
+    grid: document.getElementById("ip-grid"),
+    count: document.getElementById("ip-count"),
+    more: document.getElementById("ip-more"),
+    chip: document.getElementById("ip-chip"),
+    apply: document.getElementById("ip-apply"),
+  };
+}
+
+// ipMatches expands the icon list into one entry per (icon, style) pair, which
+// is what the grid shows: the same name in solid and regular are different
+// choices and both need to be pickable.
+function ipMatches() {
+  const q = (ipEls().search.value || "").trim().toLowerCase();
+  const out = [];
+  for (const icon of FA_ICONS || []) {
+    if (q && !icon.name.includes(q) && !icon.name.replace(/-/g, " ").includes(q)) continue;
+    if (IP_CAT && !(IP_CATS[IP_CAT] || []).includes(icon.name)) continue;
+    for (const st of icon.styles) {
+      if (IP_STYLE && st !== IP_STYLE) continue;
+      out.push({ name: icon.name, style: st });
+    }
+  }
+  return out;
+}
+
+function renderIpFilters() {
+  const el = ipEls();
+  const all = FA_ICONS || [];
+  const countFor = (key) => all.reduce((n, i) => n + (i.styles.includes(key) ? 1 : 0), 0);
+  const total = all.reduce((n, i) => n + i.styles.length, 0);
+
+  const row = (key, label, count, active) => `
+    <button type="button" class="ip-filter${active ? " on" : ""}" data-k="${escapeHtml(key)}">
+      <span class="ip-filter-label">${escapeHtml(label)}</span>
+      <span class="ip-filter-count">${count.toLocaleString()}</span>
+    </button>`;
+
+  el.styles.innerHTML =
+    row("", "All styles", total, IP_STYLE === "") +
+    FA_STYLES.map((st) => row(st.key, st.label, countFor(st.key), IP_STYLE === st.key)).join("");
+  el.styles.querySelectorAll(".ip-filter").forEach((b) => b.addEventListener("click", () => {
+    IP_STYLE = b.dataset.k;
+    renderIpFilters();
+    renderIpGrid(true);
+  }));
+
+  if (!IP_CATS) { el.catsHead.hidden = true; el.cats.innerHTML = ""; return; }
+  el.catsHead.hidden = false;
+  const names = Object.keys(IP_CATS).sort();
+  el.cats.innerHTML =
+    row("", "All categories", all.length, IP_CAT === "") +
+    names.map((n) => row(n, n, (IP_CATS[n] || []).length, IP_CAT === n)).join("");
+  el.cats.querySelectorAll(".ip-filter").forEach((b) => b.addEventListener("click", () => {
+    IP_CAT = b.dataset.k;
+    renderIpFilters();
+    renderIpGrid(true);
+  }));
+}
+
+// renderIpGrid draws a batch at a time. Two thousand icons across three styles
+// is several thousand cards; rendering them all costs a visible freeze, and
+// nobody scrolls that far before searching.
+function renderIpGrid(reset) {
+  const el = ipEls();
+  const matches = ipMatches();
+  if (reset) { IP_SHOWN = 0; el.grid.scrollTop = 0; }
+  IP_SHOWN = Math.min(matches.length, IP_SHOWN + IP_PAGE);
+  const page = matches.slice(0, IP_SHOWN);
+
+  el.count.textContent = `${matches.length.toLocaleString()} icons`;
+  el.grid.innerHTML = page.length
+    ? page.map((m) => {
+        const on = IP_PICK && IP_PICK.name === m.name && IP_PICK.style === m.style;
+        return `<button type="button" class="ip-card${on ? " on" : ""}" data-n="${escapeHtml(m.name)}" data-s="${escapeHtml(m.style)}">
+          ${on ? `<span class="ip-card-tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m5 13 4 4L19 7"/></svg></span>` : ""}
+          <i class="${faClass(escapeHtml(m.name), m.style)}"></i>
+          <span class="ip-card-name">${escapeHtml(m.name)}</span>
+          <span class="ip-card-style">${escapeHtml(m.style)}</span>
+        </button>`;
+      }).join("")
+    : `<p class="muted um-note">No icons match your search.</p>`;
+
+  el.more.hidden = IP_SHOWN >= matches.length;
+  el.more.textContent = el.more.hidden ? "" : `Showing ${IP_SHOWN.toLocaleString()} of ${matches.length.toLocaleString()} — keep scrolling for more`;
+
+  el.grid.querySelectorAll(".ip-card").forEach((b) => b.addEventListener("click", () => {
+    IP_PICK = { name: b.dataset.n, style: b.dataset.s };
+    renderIpGrid(false);
+    renderIpChip();
+  }));
+}
+
+function renderIpChip() {
+  const el = ipEls();
+  if (!IP_PICK) {
+    el.chip.className = "ip-chip-empty muted";
+    el.chip.textContent = "None";
+    el.apply.disabled = true;
+    return;
+  }
+  el.chip.className = "ip-chip";
+  el.chip.innerHTML = `<i class="${faClass(escapeHtml(IP_PICK.name), IP_PICK.style)}"></i>
+    <span>${escapeHtml(IP_PICK.name)} (${escapeHtml(IP_PICK.style)})</span>
+    <button type="button" class="ip-chip-x" id="ip-chip-clear" aria-label="Clear">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>`;
+  el.apply.disabled = false;
+  document.getElementById("ip-chip-clear").addEventListener("click", () => { IP_PICK = null; renderIpGrid(false); renderIpChip(); });
+}
+
+// IP_TARGET is what the picker is currently editing: the same modal serves the
+// skill sheet and the group editor, so the caller supplies how to read the
+// starting value, how to write the result back, and which sheet to hide while
+// the full-screen picker is up.
+let IP_TARGET = null;
+
+// openIconPickerFor opens the shared picker against a target:
+//   { get: () => ({name, style}), set: (name, style) => {}, sheet: elId|null }
+async function openIconPickerFor(target) {
+  IP_TARGET = target;
+  const el = ipEls();
+  // Hide the sheet the picker was opened from rather than dimming it: two
+  // stacked dialogs read as a mistake, and the grid wants the whole window.
+  if (target.sheet) document.getElementById(target.sheet).hidden = true;
+  el.modal.hidden = false;
+  el.grid.innerHTML = `<p class="muted um-note">Loading icons…</p>`;
+
+  // Start from whatever the form already holds, so reopening shows the current
+  // choice rather than a blank slate.
+  const cur = target.get() || {};
+  IP_PICK = cur.name ? { name: cur.name, style: cur.style || "solid" } : null;
+  IP_STYLE = "";
+  IP_CAT = "";
+  el.search.value = "";
+
+  await loadIcons();
+  if (IP_CATS === null) {
+    // Absent metadata is the normal case, not an error: the section simply
+    // does not appear.
+    IP_CATS = await fetch(`${PREFIX}css/icon-categories.json`)
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  }
+  renderIpFilters();
+  renderIpGrid(true);
+  renderIpChip();
+  el.search.focus();
+}
+
+// closeIconPicker always hands the user back to the sheet they came from, so
+// cancelling never loses the half-filled form behind it.
+function closeIconPicker() {
+  ipEls().modal.hidden = true;
+  if (IP_TARGET && IP_TARGET.sheet) document.getElementById(IP_TARGET.sheet).hidden = false;
+}
+
+// applyIconPick writes the choice back through the target and closes.
+function applyIconPick() {
+  if (IP_TARGET) IP_TARGET.set(IP_PICK ? IP_PICK.name : "", IP_PICK ? IP_PICK.style : "");
+  closeIconPicker();
+}
+
+// iconField renders one icon-trigger button into its preview and label. Shared
+// by the skill sheet and the group editor, which have identically-shaped
+// controls under different id prefixes.
+function iconField(prefix, name, style) {
+  const preview = document.getElementById(`${prefix}-icon-preview`);
+  const label = document.getElementById(`${prefix}-icon-name`);
+  document.getElementById(`${prefix}-icon`).value = name || "";
+  document.getElementById(`${prefix}-icon-style`).value = name ? (style || "solid") : "";
+  preview.innerHTML = name ? `<i class="${faClass(escapeHtml(name), style)}"></i>` : "?";
+  label.textContent = name ? `${name.replace(/-/g, " ")} (${style || "solid"})` : "Choose an icon";
+  label.classList.toggle("muted", !name);
+}
+
+// setSkillIcon keeps the create/edit skill sheet's icon control in step.
+function setSkillIcon(name, style) { iconField("new-skill", name, style); }
+
+// iconTarget builds a picker target for a set of `<prefix>-icon*` controls that
+// follow the shared shape: a hidden name, a hidden style, a preview and a label.
+function iconTarget(prefix, sheet) {
+  return {
+    sheet,
+    get: () => ({
+      name: document.getElementById(`${prefix}-icon`).value,
+      style: document.getElementById(`${prefix}-icon-style`).value,
+    }),
+    set: (name, style) => iconField(prefix, name, style),
+  };
+}
+
+// wireIconField binds one icon control to the picker, and its colour well (if
+// any) to the live preview tint. Called once per sheet that has one.
+function wireIconField(prefix, sheet, colorId) {
+  const btn = document.getElementById(`${prefix}-icon-btn`);
+  if (!btn) return;
+  btn.addEventListener("click", () => openIconPickerFor(iconTarget(prefix, sheet)));
+  if (colorId) {
+    const color = document.getElementById(colorId);
+    if (color) color.addEventListener("input", () => {
+      document.getElementById(`${prefix}-icon-preview`).style.setProperty("--c", color.value);
+    });
+  }
+}
+
+// wireIconPicker binds the shared modal chrome once, plus the skill sheet's own
+// icon field. Group pages wire their field separately via wireIconField.
+function wireIconPicker() {
+  const el = ipEls();
+  if (!el.modal) return;
+  document.getElementById("ip-close").addEventListener("click", closeIconPicker);
+  document.getElementById("ip-cancel").addEventListener("click", closeIconPicker);
+  el.apply.addEventListener("click", applyIconPick);
+  el.search.addEventListener("input", () => renderIpGrid(true));
+  // Near the bottom, draw the next batch. 240px of lead time so the grid is
+  // already filled by the time the reader gets there.
+  el.grid.addEventListener("scroll", () => {
+    if (el.grid.scrollTop + el.grid.clientHeight >= el.grid.scrollHeight - 240) renderIpGrid(false);
+  });
+  el.modal.addEventListener("click", (e) => { if (e.target === el.modal) closeIconPicker(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !el.modal.hidden) closeIconPicker();
+  });
+  wireIconField("new-skill", "add-skill-modal", "new-skill-color");
+}
+
 // ---- Skills -----------------------------------------------------------------
-// A catalog of skills, each with a proficiency scale and a rating per team
-// member. This is the design pass: it renders from the SAMPLE_SKILLS fixture and
-// the same fictional org the planner uses, and every edit stays in memory.
-// Wiring replaces loadSkills() with the API and leaves the render path alone.
+// An open catalog: any account may add a skill and rate itself against it, and
+// everyone sees who holds what. That visibility is the feature, not a leak --
+// the page exists so you can find the person to ask.
+//
+// Two halves with different owners. The categories and the proficiency scale are
+// admin-owned (Admin · Skills) because they are the vocabulary every rating is
+// expressed in; the catalog and the ratings are open. Everything here comes from
+// the server: the axes and the catalog from setup.json, the ratings from each
+// user's own store.
 
-// SKILL_LEVELS is the proficiency scale, low to high. A skill may use a shorter
-// scale (see `scale`), never a longer one.
-const SKILL_LEVELS = [
-  { n: 1, label: "Basic", color: "var(--lv-1)" },
-  { n: 2, label: "Intermediate", color: "var(--lv-2)" },
-  { n: 3, label: "Advanced", color: "var(--lv-3)" },
-  { n: 4, label: "Expert", color: "var(--lv-4)" },
-  { n: 5, label: "Master", color: "var(--lv-5)" },
-];
-const SKILL_CATS = [
-  { key: "development", label: "Development", color: "#4C82F7" },
-  { key: "devops", label: "DevOps", color: "#2FB79E" },
-  { key: "database", label: "Database", color: "#A66CFF" },
-  { key: "cloud", label: "Cloud", color: "#E9913C" },
-  { key: "design", label: "Design", color: "#EB459E" },
-  { key: "security", label: "Security", color: "#E5484D" },
-  { key: "data", label: "Data", color: "#3BA55D" },
-];
-function catDef(key) { return SKILL_CATS.find((c) => c.key === key) || SKILL_CATS[0]; }
-function levelDef(n) { return SKILL_LEVELS[n - 1] || SKILL_LEVELS[0]; }
-
-// Sample catalog. `mark` is the square badge's text, `scale` how many levels the
-// skill defines, `spread` roughly how much of the team holds it (0-100), and
-// `added` when it entered the catalog. Ratings are derived (see skRatings).
-const SAMPLE_SKILLS = [
-  { id: "SKL-0001", name: "Go (Golang)", mark: "GO", cat: "development", scale: 5, spread: 85, added: "2025-11-04", desc: "Programming language for building scalable backend services." },
-  { id: "SKL-0002", name: "JavaScript / TypeScript", mark: "JS", cat: "development", scale: 5, spread: 90, added: "2025-11-04", desc: "Language of the web UI and the Node tooling around it." },
-  { id: "SKL-0003", name: "Python", mark: "PY", cat: "development", scale: 5, spread: 70, added: "2026-01-12", desc: "Scripting, automation and data work." },
-  { id: "SKL-0004", name: "React", mark: "RE", cat: "development", scale: 4, spread: 65, added: "2026-02-02", desc: "Component framework used by the customer-facing apps." },
-  { id: "SKL-0005", name: "Docker", mark: "DK", cat: "devops", scale: 5, spread: 95, added: "2025-11-04", desc: "Container images and local development environments." },
-  { id: "SKL-0006", name: "Kubernetes", mark: "K8", cat: "devops", scale: 5, spread: 60, added: "2026-03-18", desc: "Orchestration for the production clusters." },
-  { id: "SKL-0007", name: "CI/CD", mark: "CI", cat: "devops", scale: 4, spread: 80, added: "2025-12-01", desc: "Build, test and release pipelines." },
-  { id: "SKL-0008", name: "Terraform", mark: "TF", cat: "cloud", scale: 4, spread: 55, added: "2026-06-30", desc: "Infrastructure as code across the cloud accounts." },
-  { id: "SKL-0009", name: "AWS", mark: "AW", cat: "cloud", scale: 5, spread: 62, added: "2025-11-20", desc: "Hosting, networking and managed services." },
-  { id: "SKL-0010", name: "PostgreSQL", mark: "PG", cat: "database", scale: 5, spread: 72, added: "2025-11-04", desc: "Primary relational store behind the Performance Server." },
-  { id: "SKL-0011", name: "Redis", mark: "RD", cat: "database", scale: 3, spread: 45, added: "2026-07-02", desc: "Caching and ephemeral state." },
-  { id: "SKL-0012", name: "UI/UX Design", mark: "UX", cat: "design", scale: 5, spread: 50, added: "2026-01-26", desc: "Interaction design, flows and usability review." },
-  { id: "SKL-0013", name: "Figma", mark: "FG", cat: "design", scale: 4, spread: 58, added: "2026-02-14", desc: "Design files, prototypes and the shared component library." },
-  { id: "SKL-0014", name: "Security Auditing", mark: "SC", cat: "security", scale: 5, spread: 40, added: "2026-07-08", desc: "Threat modelling and review of authentication paths." },
-  { id: "SKL-0015", name: "SQL / Analytics", mark: "SQ", cat: "data", scale: 4, spread: 68, added: "2026-05-11", desc: "Reporting queries and usage analysis." },
-  { id: "SKL-0016", name: "AngularJS", mark: "NG", cat: "development", scale: 3, spread: 30, added: "2025-11-04", desc: "Retired front-end framework, kept for the legacy admin.", archived: true },
-];
-
-let SKILLS = [];
+let SKILL_LEVELS = [];  // [{n,label}] the server's proficiency scale, low to high
+let SKILL_CATS = [];    // [{key,label,color}]
+let SKILLS = [];        // [{id,name,mark,cat,desc,scale,creator,added,archived}]
+let SK_RATINGS = {};    // skill id -> [{username,level,note}], strongest first
+let SK_PEOPLE = [];     // accounts the viewer may assign and approve for
+let SK_DIR = {};        // username -> {profile, avatar} for everyone holding a skill
+let SK_USERS = 0;       // accounts on the server, the denominator for coverage
 let SK_SELECTED = null;
 let SK_PAGE = 1;
 const SK_PER_PAGE = 10;
 
 function skillsMsg() { return document.getElementById("skills-msg"); }
 
-// skTeam is everyone the catalog rates: the same fictional org the planner
-// shows. Wiring: the members of the groups the viewer controls.
-function skTeam() { return SAMPLE_GROUPS.flatMap((g) => g.members); }
+// catDef and levelDef tolerate ids the server no longer defines: a category can
+// be renamed or a scale shortened between two renders, and a half-stale page
+// must degrade to a readable label rather than throw.
+function catDef(key) {
+  return SKILL_CATS.find((c) => c.key === key) || { key, label: key || "Uncategorised", color: "#8A8F98" };
+}
+function levelDef(n) { return SKILL_LEVELS.find((l) => l.n === n) || { n, label: "Level " + n }; }
 
-// skHash is a small deterministic string hash (FNV-1a plus a murmur3 finalizer).
-// It stands in for stored ratings so the fixture looks plausible and, more
-// importantly, stays stable across renders instead of reshuffling on every
-// repaint. The finalizer matters: plain FNV-1a leaves near-identical keys
-// ("SKL-0006|alice" vs "SKL-0007|alice") correlated in exactly the low bits the
-// callers reduce with %, which skewed coverage badly away from each skill's
-// spread.
-function skHash(s) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
-  h ^= h >>> 16; h = Math.imul(h, 2246822507) >>> 0;
-  h ^= h >>> 13; h = Math.imul(h, 3266489909) >>> 0;
-  h ^= h >>> 16;
-  return h >>> 0;
+// lvColor maps a rung onto the five-stop --lv-* ramp. The scale is operator-
+// defined and may have anywhere from 2 to 10 rungs, so the ramp is sampled by
+// position rather than indexed directly: low always reads cool, high always
+// reads hot, whatever the length.
+function lvColor(n) {
+  const span = Math.max(1, SKILL_LEVELS.length - 1);
+  const i = Math.min(5, Math.max(1, Math.round(1 + ((n - 1) / span) * 4)));
+  return `var(--lv-${i})`;
 }
 
-// skRatings derives {username: level} for a skill. A member holds the skill when
-// their hash falls inside its spread; the level comes from a second, independent
-// hash so holding a skill does not correlate with being good at it. Coverage
-// still lands a little off `spread` -- nine people is a small sample, and that
-// is what a real roster looks like.
-function skRatings(skill) {
-  const out = {};
-  for (const m of skTeam()) {
-    if (skHash(skill.id + "|" + m.username) % 100 >= skill.spread) continue;
-    out[m.username] = 1 + (skHash(m.username + "@" + skill.id) % skill.scale);
-  }
-  return out;
-}
+// skHolders returns everyone holding a skill, strongest first (the server sorts
+// it, so the top of the list is who to ask).
+function skHolders(skill) { return SK_RATINGS[skill.id] || []; }
 
-// skCounts returns how many members sit at each level, indexed 1..5.
+// skUsable is the same test the server sorts by: an assignment only counts if
+// it is approved and still in date. Coverage that included pending or lapsed
+// holders would answer "who could do this once" rather than "who can today",
+// which is the question the page exists to answer.
+function skUsable(h) { return h.status !== "pending" && !h.expired; }
+function skCurrent(skill) { return skHolders(skill).filter(skUsable); }
+
+// skCounts returns how many accounts sit at each rung, indexed by level.
+// Only usable assignments are counted, for the reason above.
 function skCounts(skill) {
-  const counts = [0, 0, 0, 0, 0, 0];
-  for (const lv of Object.values(skRatings(skill))) counts[lv]++;
+  const counts = new Array(SKILL_LEVELS.length + 1).fill(0);
+  for (const h of skCurrent(skill)) counts[h.level] = (counts[h.level] || 0) + 1;
   return counts;
 }
-function skRated(skill) { return Object.keys(skRatings(skill)).length; }
-// Coverage is the share of the team that holds the skill at all -- not how good
+function skRated(skill) { return skCurrent(skill).length; }
+// Coverage is the share of accounts that hold the skill at all -- not how good
 // they are at it, which is what the level distribution is for.
 function skCoverage(skill) {
-  const team = skTeam().length;
-  return team ? Math.round((skRated(skill) / team) * 100) : 0;
+  return SK_USERS ? Math.round((skRated(skill) / SK_USERS) * 100) : 0;
 }
-function skAvgLevel(skill) {
-  const lv = Object.values(skRatings(skill));
-  return lv.length ? lv.reduce((a, b) => a + b, 0) / lv.length : 0;
+// mine returns the viewer's own assignment, whatever its state.
+function myAssignment(skill) {
+  return skHolders(skill).find((h) => h.username === window.TT_USER) || null;
+}
+// myLevel is the viewer's own rating, or 0 if they have not claimed the skill.
+function myLevel(skill) {
+  const mine = myAssignment(skill);
+  return mine ? mine.level : 0;
+}
+// validityLabel renders a skill's renewal period the way the picker offers it.
+function validityLabel(months) {
+  if (!months) return "Never";
+  if (months === 12) return "1 year";
+  if (months === 36) return "3 years";
+  return `${months} months`;
+}
+// skColor is the badge colour: the skill's own where it sets one, otherwise its
+// category's, so a family of skills reads as a family by default.
+function skColor(s) { return s.color || catDef(s.cat).color; }
+// canManageHolder mirrors canManage on the server: a controller of the group
+// the holder belongs to, or anyone with skills.manage. Group membership is not
+// exposed to this page, so a plain controller relies on the server's answer --
+// the buttons show for skills.manage, and a 403 is reported if the server
+// disagrees.
+function canApproveAny() { return (window.TT_CAPS || []).includes("skills.manage"); }
+function isController() { return !!window.TT_IS_CONTROLLER || canApproveAny(); }
+// canEditSkill mirrors the server's rule exactly (see canEditSkill in skills.go):
+// the creator, or anyone holding skills.manage. The page hides what the server
+// would refuse; the server is still the one enforcing it.
+function canEditSkill(s) {
+  if ((window.TT_CAPS || []).includes("skills.manage")) return true;
+  return !!s.creator && s.creator === window.TT_USER;
 }
 
 function skActive() { return SKILLS.filter((s) => !s.archived); }
@@ -6393,7 +6927,7 @@ function skFiltered() {
   return SKILLS.filter((s) => {
     if (s.archived && !skShowArchived()) return false;
     if (cat && s.cat !== cat) return false;
-    if (lv && skCounts(s)[Number(lv)] === 0) return false;
+    if (lv && !skCounts(s)[Number(lv)]) return false;
     if (q && !s.name.toLowerCase().includes(q) && !(s.desc || "").toLowerCase().includes(q)) return false;
     return true;
   });
@@ -6403,39 +6937,70 @@ function renderSkTiles() {
   const active = skActive();
   const cats = [...new Set(active.map((s) => s.cat))];
   const cov = active.length ? Math.round(active.reduce((a, s) => a + skCoverage(s), 0) / active.length) : 0;
-  // Skills the team has real depth in: somebody is at Expert or above. An
-  // *average* of 4+ would need nearly everyone at expert level, so it read 0 for
-  // every plausible roster and told you nothing.
-  const expert = active.filter((s) => skCounts(s).slice(4).some((n) => n > 0)).length;
-  // "Recent" is the last 30 days, measured from today rather than stored.
-  const cutoff = ymd(addDays(new Date(), -30));
-  const fresh = active.filter((s) => (s.added || "") >= cutoff).length;
+  // Skills the team has real depth in: somebody sits in the top third of the
+  // scale. An *average* that high would need nearly everyone at the top, so it
+  // read 0 for every plausible roster and told you nothing.
+  const deep = Math.max(2, Math.ceil(SKILL_LEVELS.length * 0.67));
+  const expert = active.filter((s) => skCounts(s).slice(deep).some((n) => n > 0)).length;
+  // Skills nobody currently holds are the gap worth acting on: they are in the
+  // catalogue because somebody decided they matter, and right now no one can do
+  // them.
+  const uncovered = active.filter((s) => skRated(s) === 0).length;
+  const pending = active.reduce((a, s) => a + skHolders(s).filter((h) => h.status === "pending").length, 0);
   const tiles = [
-    { k: "Total skills", v: String(active.length), sub: fresh ? `+${fresh} in the last 30 days` : "None added recently", pos: fresh > 0 },
-    { k: "Categories", v: String(cats.length), sub: cats.slice(0, 3).map((c) => catDef(c).label).join(", ") + (cats.length > 3 ? "…" : "") },
+    { k: "Skills defined", v: String(active.length), sub: `Across ${cats.length} categor${cats.length === 1 ? "y" : "ies"}` },
+    { k: "Nobody holds", v: String(uncovered), sub: uncovered ? "No cover for these" : "Every skill is covered", pos: uncovered === 0 },
     { k: "Team coverage", v: cov + "%", sub: `Average across ${active.length} skill${active.length === 1 ? "" : "s"}` },
-    { k: "Expert skills", v: String(expert), sub: "With an expert on the team" },
+    { k: "Awaiting approval", v: String(pending), sub: pending ? "Claims needing a manager" : "Nothing waiting" },
   ];
   document.getElementById("sk-tiles").innerHTML = tiles.map((t) => `
     <div class="tile">
       <div class="k">${escapeHtml(t.k)}</div>
       <div class="v">${escapeHtml(t.v)}</div>
-      <div class="sub${t.pos ? " pos" : ""}">${escapeHtml(t.sub)}</div>
+      <div class="sub${t.pos ? " pos" : ""}">${t.sub}</div>
     </div>`).join("");
 }
 
-// skLevelGlyph renders the scale as one bar per level, lit where somebody on the
-// team holds it.
+// skLevelGlyph renders the scale as one bar per level, lit where somebody holds
+// it. The viewer's own rung is ringed, so you can read your standing off the
+// table without opening the detail panel.
 function skLevelGlyph(skill) {
   const counts = skCounts(skill);
+  const mine = myLevel(skill);
   const bars = [];
   for (let n = 1; n <= skill.scale; n++) {
     const on = counts[n] > 0;
-    bars.push(`<span class="sk-lv${on ? " on" : ""}" style="--c:${levelDef(n).color}" title="${escapeHtml(levelDef(n).label)}: ${counts[n]}">
+    const cls = `sk-lv${on ? " on" : ""}${n === mine ? " mine" : ""}`;
+    const who = n === mine ? " · you" : "";
+    bars.push(`<span class="${cls}" style="--c:${lvColor(n)}" title="${escapeHtml(levelDef(n).label)}: ${counts[n] || 0}${who}">
       <i></i><span>${n}</span>
     </span>`);
   }
   return `<div class="sk-levels">${bars.join("")}</div>`;
+}
+
+// openRowMenu toggles a row's action popover and pins it to the button.
+//
+// The skills table lives inside .table-wrap, which scrolls horizontally -- and a
+// box with overflow on one axis clips the other too, so an absolutely-positioned
+// menu inside it gets cut off at the table's edge. Switching to fixed
+// positioning takes the menu out of that clipping context entirely; the price is
+// that the coordinates have to be set here rather than in CSS.
+function openRowMenu(btn, pop) {
+  const wasOpen = pop.classList.contains("open");
+  closeAllMenus();
+  if (wasOpen) return;
+
+  pop.classList.add("open", "menu-pop-fixed");
+  const r = btn.getBoundingClientRect();
+  const h = pop.offsetHeight;
+  const w = pop.offsetWidth;
+  // Flip above the button when there is not room below, so the last row's menu
+  // is never half off-screen.
+  const below = window.innerHeight - r.bottom;
+  const top = below < h + 8 && r.top > h + 8 ? r.top - h - 4 : r.bottom + 4;
+  pop.style.top = `${Math.max(8, top)}px`;
+  pop.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
 }
 
 function renderSkTable() {
@@ -6453,10 +7018,13 @@ function renderSkTable() {
       const c = catDef(s.cat);
       const cov = skCoverage(s);
       const sel = s.id === SK_SELECTED ? " selected" : "";
+      const rated = skRated(s);
+      // Only offer the destructive actions the server would accept.
+      const owned = canEditSkill(s);
       return `<tr class="um-row${sel}" data-s="${escapeHtml(s.id)}">
         <td>
           <div class="um-user">
-            <span class="sk-ic" style="--c:${c.color}">${escapeHtml(s.mark)}</span>
+            ${skIconHtml(s)}
             <span class="um-name">${escapeHtml(s.name)}${s.archived ? ' <span class="badge muted">Archived</span>' : ""}</span>
           </div>
         </td>
@@ -6466,6 +7034,7 @@ function renderSkTable() {
           <div class="sk-cov">
             <span class="sk-pct">${cov}%</span>
             <div class="bar"><span style="width:${cov}%"></span></div>
+            <span class="muted sk-cov-n">${rated}/${SK_USERS}</span>
           </div>
         </td>
         <td>
@@ -6473,8 +7042,9 @@ function renderSkTable() {
             <button class="sk-menu-btn" aria-label="Actions">⋯</button>
             <div class="menu-pop">
               <button class="sk-m-details">Details</button>
+              ${owned ? `<button class="sk-m-edit">Edit</button>
               <button class="sk-m-archive">${s.archived ? "Restore" : "Archive"}</button>
-              <button class="danger-btn">Delete</button>
+              <button class="sk-m-delete danger-btn">Delete</button>` : ""}
             </div>
           </div>
         </td>
@@ -6490,14 +7060,14 @@ function renderSkTable() {
   body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", () => selectSkill(tr.dataset.s)));
   body.querySelectorAll(".sk-menu-btn").forEach((btn) => btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    const pop = btn.nextElementSibling;
-    const wasOpen = pop.classList.contains("open");
-    closeAllMenus();
-    if (!wasOpen) pop.classList.add("open");
+    openRowMenu(btn, btn.nextElementSibling);
   }));
   const rowSkill = (el) => SKILLS.find((x) => x.id === el.closest(".um-row").dataset.s);
   body.querySelectorAll(".sk-m-details").forEach((b) => b.addEventListener("click", (e) => {
     e.stopPropagation(); closeAllMenus(); selectSkill(rowSkill(b).id);
+  }));
+  body.querySelectorAll(".sk-m-edit").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation(); closeAllMenus(); openSkillSheet(rowSkill(b));
   }));
   body.querySelectorAll(".sk-m-archive").forEach((b) => b.addEventListener("click", (e) => {
     e.stopPropagation(); closeAllMenus(); toggleArchiveSkill(rowSkill(b));
@@ -6532,6 +7102,42 @@ function selectSkill(id) {
   renderSkDetails();
 }
 
+// skDirEntry is the profile/avatar for one holder. The skills endpoint serves
+// its own directory (the groups one needs groups.manage, which the people who
+// curate the catalogue do not necessarily hold), so this reads from that.
+function skDirEntry(username) { return SK_DIR[username] || {}; }
+
+// skPersonRow renders one holder the way the groups page renders a member:
+// avatar, display name, login underneath when it differs. The trailing slot
+// carries whatever that list needs to say about them -- a level, a status, or
+// the approve/reject pair.
+function skPersonRow(username, trailing = "") {
+  const d = skDirEntry(username);
+  const name = displayName(username, d.profile);
+  const you = username === window.TT_USER;
+  // The level, status and expiry go *inside* the name column rather than beside
+  // it. The panel is a ~400px side rail, and a person's name plus three pieces
+  // of assignment state cannot share one line there without colliding -- so they
+  // stack under the name, indented to it.
+  return `<div class="gr-person sk-person">
+    ${avatarHtml(username, d.profile, d.avatar)}
+    <span class="gr-person-text">
+      <span class="gr-person-name">${escapeHtml(name)}${you ? " (you)" : ""}</span>
+      ${name !== username ? `<span class="gr-person-sub">${escapeHtml(username)}</span>` : ""}
+      ${trailing}
+    </span>
+  </div>`;
+}
+
+// skStatusBadge says why an assignment does or does not count today. Pending and
+// expired are both "not usable", but for different reasons, so they read
+// differently rather than collapsing into one label.
+function skStatusBadge(h) {
+  if (h.status === "pending") return `<span class="badge warn">Pending</span>`;
+  if (h.expired) return `<span class="badge muted">Expired</span>`;
+  return `<span class="badge ok">Active</span>`;
+}
+
 function renderSkDetails() {
   const host = document.getElementById("skill-details");
   const s = SKILLS.find((x) => x.id === SK_SELECTED);
@@ -6539,120 +7145,351 @@ function renderSkDetails() {
     host.classList.remove("filled");
     host.innerHTML = `<div class="um-empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
-      <p>Select a skill to see its levels and team coverage.</p>
+      <p>Select a skill to see what it requires and who holds it.</p>
     </div>`;
     return;
   }
   host.classList.add("filled");
+
   const c = catDef(s.cat);
   const counts = skCounts(s);
   const rated = skRated(s);
+  const holders = skHolders(s);
   const segs = SKILL_LEVELS.slice(0, s.scale)
-    .map((l) => ({ sec: counts[l.n], color: l.color, label: l.label, n: l.n }))
+    .map((l) => ({ sec: counts[l.n] || 0, color: lvColor(l.n), label: l.label, n: l.n }))
     .filter((x) => x.sec > 0);
+  const owned = canEditSkill(s);
+  const canAssign = SK_PEOPLE.length > 0;
 
-  host.innerHTML = `
-    <div class="ud-head">
-      <span class="sk-ic lg" style="--c:${c.color}">${escapeHtml(s.mark)}</span>
-      <div class="ud-id">
-        <div class="sk-head-row"><h3>${escapeHtml(s.name)}</h3></div>
+  // Head: the badge, the name, and the two facts that identify it -- which
+  // category it belongs to and whether it is still in use.
+  const head = `<div class="ud-head">
+    ${skIconHtml(s, "lg")}
+    <div class="ud-id">
+      <div class="ud-name">${escapeHtml(s.name)}</div>
+      <div class="sk-head-meta">
+        <span class="sk-cat"><span class="sk-dot" style="--c:${c.color}"></span>${escapeHtml(c.label)}</span>
         <span class="badge ${s.archived ? "muted" : "ok"}">${s.archived ? "Archived" : "Active"}</span>
-        <div class="sd-meta">ID: ${escapeHtml(s.id)}</div>
       </div>
+      ${s.desc
+        ? `<p class="gr-desc">${escapeHtml(s.desc)}</p>`
+        : `<p class="gr-desc ud-unset">No description</p>`}
     </div>
+  </div>`;
 
-    <div class="ud-section">
-      <div class="sd-sec-head"><div class="ud-section-head">Category</div></div>
-      <span class="sk-cat"><span class="sk-dot" style="--c:${c.color}"></span>${escapeHtml(c.label)}</span>
-    </div>
+  // Requirements as label/value rows, which is what they are: the rules a
+  // holder has to satisfy, read top to bottom.
+  const requirements = udCard("Requirements",
+    udRow("Renew every", escapeHtml(validityLabel(s.validity_months)), s.validity_months ? "" : "ud-unset") +
+    udRow("Requires certificate", s.requires_proof ? "✔" : "—", s.requires_proof ? "" : "ud-unset") +
+    udRow("Requires manager approval", s.requires_approval ? "✔" : "—", s.requires_approval ? "" : "ud-unset"));
 
-    <div class="ud-section">
-      <div class="sd-sec-head"><div class="ud-section-head">Description</div></div>
-      <p class="sd-desc">${escapeHtml(s.desc || "No description.")}</p>
-    </div>
+  // Holders, with the approve/reject pair inline on anything still pending.
+  const holdersBody = holders.length
+    ? `<div class="gr-people">${holders.map((h) => {
+        const canDecide = canAssign && h.status === "pending" && h.username !== window.TT_USER;
+        const trailing = `<span class="sk-person-meta">
+          <span class="sk-person-lv">${escapeHtml(levelDef(h.level).label)}</span>
+          ${skStatusBadge(h)}
+          ${h.expires_at ? `<span class="sk-person-exp muted">${h.expired ? "expired" : "until"} ${escapeHtml(h.expires_at)}</span>` : ""}
+        </span>
+        ${canDecide ? `<span class="sd-approve">
+          <button class="secondary btn-sm sk-approve" data-u="${escapeHtml(h.username)}">Approve</button>
+          <button class="danger-link sk-reject" data-u="${escapeHtml(h.username)}">Reject</button>
+        </span>` : ""}`;
+        return skPersonRow(h.username, trailing);
+      }).join("")}</div>`
+    : `<p class="muted um-note">Nobody holds this skill yet.</p>`;
 
-    <div class="ud-section">
-      <div class="sd-sec-head"><div class="ud-section-head">Proficiency levels</div></div>
-      <div class="sd-lv-list">
-        ${SKILL_LEVELS.slice(0, s.scale).map((l) => `
-          <div class="sd-lv">
-            <span class="n">${l.n}</span>
-            <span class="sk-dot" style="--c:${l.color}"></span>
-            <span class="nm">${escapeHtml(l.label)}</span>
-            <span class="ct">${counts[l.n]} member${counts[l.n] === 1 ? "" : "s"}</span>
-          </div>`).join("")}
-      </div>
-    </div>
+  const holdersCard = udCard(`Holders${holders.length ? ` · ${holders.length}` : ""}`, holdersBody,
+    canAssign && !s.archived ? `<button class="secondary btn-sm" id="sk-assign">Assign</button>` : "");
 
-    <div class="ud-section">
-      <div class="sd-sec-head"><div class="ud-section-head">Team proficiency distribution</div></div>
-      ${rated === 0 ? `<p class="sd-desc">Nobody on the team holds this skill yet.</p>` : `
-        <div class="sd-dist">
+  // Coverage only earns the donut once somebody actually holds the skill; an
+  // empty ring next to "0 of 6" says nothing the number has not already said.
+  const coverageCard = udCard("Coverage",
+    rated === 0
+      ? `<p class="muted um-note">No cover: nobody can do this today.</p>`
+      : `<div class="sd-dist">
           <div class="donut-wrap">
-            <svg viewBox="0 0 42 42" width="96" height="96">${donutSVG(segs, rated)}</svg>
+            <svg viewBox="0 0 42 42" width="88" height="88">${donutSVG(segs, rated)}</svg>
             <div class="donut-center"><div><div class="d-total">${skCoverage(s)}%</div><div class="d-label">Coverage</div></div></div>
           </div>
           <div class="legend">
             ${segs.map((x) => `<div class="legend-row">
               <span class="dot" style="background:${x.color}"></span>
               <span class="legend-name">${x.n} ${escapeHtml(x.label)}</span>
-              <span class="legend-pct">${x.sec} (${Math.round((x.sec / rated) * 100)}%)</span>
+              <span class="legend-pct">${x.sec}</span>
             </div>`).join("")}
           </div>
-        </div>`}
-      <p class="um-note muted" style="margin-top:12px">${rated} of ${skTeam().length} team members hold this skill.</p>
-    </div>
+        </div>
+        <p class="muted um-note" style="margin-top:10px">${rated} of ${SK_USERS} account${SK_USERS === 1 ? "" : "s"} can do this today.</p>`);
 
-    <div class="ud-section">
-      <div class="sd-sec-head"><div class="ud-section-head">Used in</div></div>
-      <div class="sd-used">
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Time entries</span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/></svg>Shifts</span>
-        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5"/><rect x="7" y="11" width="3" height="8"/><rect x="13" y="7" width="3" height="12"/></svg>Reports</span>
-      </div>
-    </div>
+  // Provenance sits last: useful when auditing, never the first thing you need.
+  const about = udCard("About",
+    udRow("Added", escapeHtml(s.added || "—")) +
+    udRow("Added by", escapeHtml(s.creator || "—"), s.creator ? "" : "ud-unset") +
+    udRow("Levels", `${s.scale} of ${SKILL_LEVELS.length}`));
 
-    <div class="ud-section">
-      <div class="ud-actions">
-        <button class="secondary btn-sm" id="sk-archive">${s.archived ? "Restore" : "Archive"}</button>
-        <button class="danger-btn" id="sk-delete">Delete</button>
-      </div>
-    </div>`;
+  const actions = owned ? `<div class="ud-danger">
+    <button class="secondary" id="sk-edit">Edit skill</button>
+    <button class="secondary" id="sk-archive">${s.archived ? "Restore skill" : "Archive skill"}</button>
+    <button class="danger-btn" id="sk-delete">Delete skill</button>
+  </div>` : "";
 
-  host.querySelector("#sk-archive").addEventListener("click", () => toggleArchiveSkill(s));
-  host.querySelector("#sk-delete").addEventListener("click", () => deleteSkill(s));
+  host.innerHTML = head + requirements + holdersCard + coverageCard + about + actions;
+
+  const on = (sel, fn) => { const el = host.querySelector(sel); if (el) el.addEventListener("click", fn); };
+  on("#sk-assign", () => openAssign(s, ""));
+  host.querySelectorAll(".sk-approve").forEach((b) =>
+    b.addEventListener("click", () => decideSkill(s, b.dataset.u, false)));
+  host.querySelectorAll(".sk-reject").forEach((b) =>
+    b.addEventListener("click", () => decideSkill(s, b.dataset.u, true)));
+  on("#sk-edit", () => openSkillSheet(s));
+  on("#sk-archive", () => toggleArchiveSkill(s));
+  on("#sk-delete", () => deleteSkill(s));
 }
 
-function toggleArchiveSkill(s) {
-  s.archived = !s.archived;
-  showMsg(skillsMsg(), s.archived ? `Archived ${s.name}` : `Restored ${s.name}`, "ok");
-  renderSkills();
+// ---- Skills · assignment modal ----------------------------------------------
+// One sheet serves both "claim it for myself" and "assign it to somebody",
+// because the two capture identical details and differ only in who they land on.
+
+let AS_SKILL = null;
+// AS_TARGET is null for a self-claim, or a username (possibly "" until picked)
+// when a manager is assigning.
+let AS_TARGET = null;
+
+function assignModal() { return document.getElementById("assign-modal"); }
+function closeAssign() { assignModal().hidden = true; }
+
+function openAssign(s, target) {
+  AS_SKILL = s;
+  AS_TARGET = target;
+  const m = assignModal();
+  const self = target === null;
+  const mine = self ? myAssignment(s) : null;
+
+  m.querySelector("#as-title").textContent = self ? `Claim ${s.name}` : `Assign ${s.name}`;
+  m.querySelector("#as-sub").textContent = self
+    ? (s.requires_approval ? "A manager has to approve this before it counts." : "Everyone can see what you claim.")
+    : "Assigning counts as your approval.";
+  m.querySelector("#as-msg").innerHTML = "";
+
+  // The person picker only appears for a manager assignment. It lists everyone
+  // the page knows about; the server is the one that decides who the caller
+  // actually manages, and says so if not.
+  const whoRow = m.querySelector("#as-who-row");
+  whoRow.hidden = self;
+  if (!self) {
+    m.querySelector("#as-who").innerHTML = SK_PEOPLE.length
+      ? SK_PEOPLE.map((u) => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("")
+      : `<option value="">Nobody to assign to</option>`;
+  }
+
+  m.querySelector("#as-level").innerHTML = SKILL_LEVELS.slice(0, s.scale)
+    .map((l) => `<option value="${l.n}"${mine && mine.level === l.n ? " selected" : ""}>${l.n} · ${escapeHtml(l.label)}</option>`)
+    .join("");
+
+  const certBlock = m.querySelector("#as-cert-block");
+  // The fields show whenever the skill tracks a certificate. They are only
+  // *required* when the skill says so, which the server enforces.
+  certBlock.hidden = !s.requires_proof;
+  m.querySelector("#as-cert-number").value = mine && mine.cert ? (mine.cert.number || "") : "";
+  m.querySelector("#as-cert-issuer").value = mine && mine.cert ? (mine.cert.issuer || "") : "";
+  m.querySelector("#as-cert-date").value = mine && mine.cert ? (mine.cert.issue_date || "") : "";
+  m.querySelector("#as-note").value = mine ? (mine.note || "") : "";
+
+  m.hidden = false;
+}
+
+async function submitAssign() {
+  const m = assignModal();
+  const msg = m.querySelector("#as-msg");
+  const self = AS_TARGET === null;
+  const body = {
+    skill_id: AS_SKILL.id,
+    level: Number(m.querySelector("#as-level").value),
+    note: m.querySelector("#as-note").value.trim(),
+    cert: {
+      number: m.querySelector("#as-cert-number").value.trim(),
+      issuer: m.querySelector("#as-cert-issuer").value.trim(),
+      issue_date: m.querySelector("#as-cert-date").value,
+    },
+  };
+  if (!self) {
+    body.username = m.querySelector("#as-who").value;
+    if (!body.username) { showMsg(msg, "Pick somebody to assign this to", "error"); return; }
+  }
+  const r = await apiFetch(self ? "skills/mine" : "skills/assign", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  closeAssign();
+  showMsg(skillsMsg(), self
+    ? (AS_SKILL.requires_approval ? `Claimed ${AS_SKILL.name} — waiting for approval` : `Claimed ${AS_SKILL.name}`)
+    : `Assigned ${AS_SKILL.name} to ${body.username}`, "ok");
+  await refreshSkills();
+}
+
+// decideSkill approves or rejects one pending assignment. Both the catalogue
+// page and My Skills call it, so the message target and the reload are passed
+// in rather than assumed.
+async function decideSkill(s, username, reject, msgFn) {
+  const msgEl = (msgFn || skillsMsg)();
+  if (reject && !(await confirmModal({
+    title: `Reject ${s.name} for ${username}`,
+    body: "The claim is removed. They can claim it again with better evidence.",
+  }))) return;
+  const r = await apiFetch("skills/approve", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, skill_id: s.id, reject: !!reject }),
+  });
+  if (!r.ok) { showMsg(msgEl, await r.text(), "error"); return; }
+  showMsg(msgEl, reject ? `Rejected ${s.name} for ${username}` : `Approved ${s.name} for ${username}`, "ok");
+  if (typeof MS_MINE !== "undefined" && document.getElementById("ms-body")) await refreshMySkills();
+  else await refreshSkills();
+}
+
+// ---- Skills · server calls --------------------------------------------------
+
+// loadSkills fetches the catalog, both axes and every account's ratings in one
+// call. The server assembles the ratings by walking each user's store, so this
+// is deliberately one request rather than one per skill.
+async function loadSkills() {
+  const r = await apiFetch("skills");
+  if (!r.ok) { showMsg(skillsMsg(), await r.text(), "error"); return false; }
+  const d = await r.json();
+  SKILLS = d.skills || [];
+  SKILL_CATS = d.categories || [];
+  SKILL_LEVELS = d.levels || [];
+  SK_RATINGS = d.ratings || {};
+  SK_DIR = d.directory || {};
+  SK_USERS = d.users || 0;
+  // Who the viewer may assign for is the server's call: the group list a
+  // controller would need to work it out is closed to them.
+  const who = await apiFetch("skills/manageable");
+  SK_PEOPLE = who.ok ? ((await who.json()).users || []) : [];
+  return true;
+}
+
+// setMyLevel records the viewer's own rating. Level 0 clears the claim.
+async function setMyLevel(s, level) {
+  const r = await apiFetch("skills/mine", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ skill_id: s.id, level }),
+  });
+  if (!r.ok) { showMsg(skillsMsg(), await r.text(), "error"); return; }
+  showMsg(skillsMsg(), level
+    ? `You are now ${levelDef(level).label} at ${s.name}`
+    : `Cleared your rating for ${s.name}`, "ok");
+  await refreshSkills();
+}
+
+async function toggleArchiveSkill(s) {
+  const r = await apiFetch("skills/skill", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: s.id, archived: !s.archived }),
+  });
+  if (!r.ok) { showMsg(skillsMsg(), await r.text(), "error"); return; }
+  showMsg(skillsMsg(), s.archived ? `Restored ${s.name}` : `Archived ${s.name}`, "ok");
+  await refreshSkills();
 }
 
 async function deleteSkill(s) {
   if (!(await confirmModal({
     title: `Delete skill "${s.name}"`,
-    body: "Team ratings for it are removed too.",
+    body: "It disappears from everyone's catalog. Ratings are kept, so re-creating it under the same name restores them.",
   }))) return;
-  SKILLS = SKILLS.filter((x) => x.id !== s.id);
+  const r = await apiFetch("skills/skill", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: s.id }),
+  });
+  if (!r.ok) { showMsg(skillsMsg(), await r.text(), "error"); return; }
   if (SK_SELECTED === s.id) SK_SELECTED = null;
   showMsg(skillsMsg(), `Deleted ${s.name}`, "ok");
-  renderSkills();
+  await refreshSkills();
+}
+
+async function createSkill() {
+  const msg = document.getElementById("create-skill-msg");
+  const name = document.getElementById("new-skill-name").value.trim();
+  if (!name) { showMsg(msg, "Enter a skill name", "error"); return; }
+
+  const editing = SK_EDIT_ID !== null;
+  const body = {
+    name,
+    cat: document.getElementById("new-skill-cat").value,
+    desc: document.getElementById("new-skill-desc").value.trim(),
+    icon: document.getElementById("new-skill-icon").value,
+    icon_style: document.getElementById("new-skill-icon-style").value,
+    color: document.getElementById("new-skill-color").value,
+    validity_months: Number(document.getElementById("new-skill-validity").value),
+    requires_proof: document.getElementById("new-skill-proof").checked,
+    requires_approval: document.getElementById("new-skill-approval").checked,
+  };
+  if (editing) body.id = SK_EDIT_ID;
+
+  const r = await apiFetch(editing ? "skills/skill" : "skills", {
+    method: editing ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  const d = await r.json();
+  closeAddSkill();
+  // Select what was just written, so the detail panel shows the result.
+  SK_SELECTED = d.skill ? d.skill.id : SK_SELECTED;
+  showMsg(skillsMsg(), editing ? `Saved ${name}` : `Created ${name}`, "ok");
+  await refreshSkills();
+}
+
+// refreshSkills re-reads server state and repaints. Every mutation goes through
+// it rather than patching the local arrays: ratings are assembled server-side
+// from every account's store, so a local edit could not reproduce them anyway.
+async function refreshSkills() {
+  if (await loadSkills()) renderSkills();
 }
 
 function renderSkills() {
+  renderSkFilters();
   renderSkTiles();
   renderSkTable();
   renderSkDetails();
+}
+
+// renderSkFilters fills the category and level dropdowns from the server's axes,
+// preserving the current selection: an admin may reshape either one while the
+// page is open.
+function renderSkFilters() {
+  const catSel = document.getElementById("sk-cat-filter");
+  const lvSel = document.getElementById("sk-level-filter");
+  const newCat = document.getElementById("new-skill-cat");
+  const keepCat = catSel.value, keepLv = lvSel.value, keepNew = newCat.value;
+  const opt = (c) => `<option value="${escapeHtml(c.key)}">${escapeHtml(c.label)}</option>`;
+  // The filter offers every category, so existing skills in an archived one stay
+  // findable. The create/edit picker offers only active ones -- the server
+  // refuses a new skill in an archived category, so the picker shouldn't tempt.
+  catSel.innerHTML = `<option value="">All categories</option>` + SKILL_CATS.map(opt).join("");
+  newCat.innerHTML = SKILL_CATS.filter((c) => !c.archived).map(opt).join("");
+  lvSel.innerHTML = `<option value="">All levels</option>` +
+    SKILL_LEVELS.map((l) => `<option value="${l.n}">${l.n} · ${escapeHtml(l.label)}</option>`).join("");
+  catSel.value = keepCat;
+  lvSel.value = keepLv;
+  if (keepNew) newCat.value = keepNew;
 }
 
 // exportSkills downloads the catalog as JSON, ratings resolved.
 function exportSkills() {
   const out = SKILLS.map((s) => ({
     id: s.id, name: s.name, category: s.cat, description: s.desc,
-    scale: s.scale, archived: !!s.archived, added: s.added,
+    scale: s.scale, archived: !!s.archived, added: s.added, creator: s.creator,
     levels: SKILL_LEVELS.slice(0, s.scale).map((l) => l.label),
-    ratings: skRatings(s),
+    holders: skHolders(s).map((h) => ({ username: h.username, level: h.level, level_label: levelDef(h.level).label })),
   }));
   const blob = new Blob([JSON.stringify({ skills: out }, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -6663,56 +7500,67 @@ function exportSkills() {
   showMsg(skillsMsg(), `Exported ${out.length} skills`, "ok");
 }
 
-function openAddSkill() {
+// SK_EDIT_ID is the skill the sheet is editing, or null when creating one.
+let SK_EDIT_ID = null;
+
+// openSkillSheet serves both jobs. Passing a skill fills the form from it and
+// switches the sheet to editing; passing nothing opens a blank one.
+function openSkillSheet(s) {
+  SK_EDIT_ID = s ? s.id : null;
+  const set = (id, v) => { document.getElementById(id).value = v; };
   document.getElementById("create-skill-msg").innerHTML = "";
-  document.getElementById("new-skill-name").value = "";
-  document.getElementById("new-skill-desc").value = "";
+  document.getElementById("skill-sheet-title").textContent = s ? `Edit ${s.name}` : "New skill";
+  document.getElementById("create-skill").textContent = s ? "Save" : "Create";
+
+  set("new-skill-name", s ? s.name : "");
+  set("new-skill-desc", s ? (s.desc || "") : "");
+  set("new-skill-validity", String(s ? (s.validity_months || 0) : 0));
+  document.getElementById("new-skill-proof").checked = !!(s && s.requires_proof);
+  document.getElementById("new-skill-approval").checked = !!(s && s.requires_approval);
+
+  // The colour well cannot represent "inherit the category", so an unset colour
+  // shows the category's own -- which is what the badge renders anyway.
+  const color = s ? skColor(s) : "#4C82F7";
+  set("new-skill-color", color);
+  setSkillIcon(s && s.icon ? s.icon : "", s ? s.icon_style : "");
+  document.getElementById("new-skill-icon-preview").style.setProperty("--c", color);
+
+  // The category list is filled by renderSkFilters; select after, or the value
+  // would be set against an empty list.
+  if (s) {
+    const catSel = document.getElementById("new-skill-cat");
+    // Editing a skill whose category was archived after it was filed: the
+    // archived category is not in the picker, so add it back for this skill
+    // rather than silently snapping the value to a different one.
+    if (![...catSel.options].some((o) => o.value === s.cat)) {
+      const c = SKILL_CATS.find((x) => x.key === s.cat);
+      if (c) catSel.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(c.key)}">${escapeHtml(c.label)}</option>`);
+    }
+    catSel.value = s.cat;
+  }
+
   document.getElementById("add-skill-modal").hidden = false;
   document.getElementById("new-skill-name").focus();
 }
+
+// openAddSkill is the "Add skill" button's entry point.
+function openAddSkill() { openSkillSheet(null); }
+
 function closeAddSkill() { document.getElementById("add-skill-modal").hidden = true; }
 
-// skMark derives the square badge's letters: initials of the first two words, or
-// the first two characters of a single word.
-function skMark(name) {
-  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
-  const s = words.length >= 2 ? words[0][0] + words[1][0] : (words[0] || "?").slice(0, 2);
-  return s.toUpperCase();
-}
-// skNextId keeps the SKL-#### sequence going past whatever the fixture ends on.
-function skNextId() {
-  const max = SKILLS.reduce((a, s) => Math.max(a, Number((s.id.split("-")[1] || 0))), 0);
-  return "SKL-" + String(max + 1).padStart(4, "0");
-}
-
-function createSkill() {
-  const msg = document.getElementById("create-skill-msg");
-  const name = document.getElementById("new-skill-name").value.trim();
-  if (!name) { showMsg(msg, "Enter a skill name", "error"); return; }
-  if (SKILLS.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
-    showMsg(msg, "A skill with that name already exists", "error"); return;
-  }
-  const s = {
-    id: skNextId(), name, mark: skMark(name),
-    cat: document.getElementById("new-skill-cat").value,
-    desc: document.getElementById("new-skill-desc").value.trim(),
-    scale: 5, spread: 0, added: ymd(new Date()),
-  };
-  SKILLS.push(s);
-  closeAddSkill();
-  SK_SELECTED = s.id;
-  showMsg(skillsMsg(), `Created ${name}`, "ok");
-  renderSkills();
-}
-
-function initSkills() {
-  SKILLS = SAMPLE_SKILLS.map((s) => ({ ...s }));
-
-  const catOpts = SKILL_CATS.map((c) => `<option value="${c.key}">${escapeHtml(c.label)}</option>`).join("");
-  document.getElementById("sk-cat-filter").innerHTML = `<option value="">All categories</option>` + catOpts;
-  document.getElementById("new-skill-cat").innerHTML = catOpts;
-  document.getElementById("sk-level-filter").innerHTML = `<option value="">All levels</option>` +
-    SKILL_LEVELS.map((l) => `<option value="${l.n}">${l.n} · ${escapeHtml(l.label)}</option>`).join("");
+async function initSkills() {
+  // This page defines the catalogue, so it takes the capability. Users reach
+  // skills through My Skills, which only offers what is defined here.
+  if (!(await requireCap("skills.manage"))) return;
+  try {
+    const who = await apiFetch("whoami");
+    if (who.ok) {
+      const d = await who.json();
+      window.TT_USER = d.username;
+      window.TT_CAPS = d.caps || [];
+      window.TT_IS_CONTROLLER = !!d.is_controller;
+    }
+  } catch (e) { /* fall through: the page still renders, minus the "you" markers */ }
 
   const rerender = () => { SK_PAGE = 1; renderSkTable(); };
   document.getElementById("sk-search").addEventListener("input", rerender);
@@ -6723,6 +7571,7 @@ function initSkills() {
   document.getElementById("add-skill-btn").addEventListener("click", openAddSkill);
   document.getElementById("add-skill-cancel").addEventListener("click", closeAddSkill);
   document.getElementById("create-skill").addEventListener("click", createSkill);
+  wireIconPicker();
   document.getElementById("export-skills-btn").addEventListener("click", exportSkills);
   document.getElementById("add-skill-modal").addEventListener("click", (e) => {
     if (e.target.id === "add-skill-modal") closeAddSkill();
@@ -6731,7 +7580,890 @@ function initSkills() {
   // The row menus are popovers: any click elsewhere dismisses them.
   document.addEventListener("click", closeAllMenus);
 
-  renderSkills();
+  await refreshSkills();
+}
+
+// ---- My Skills --------------------------------------------------------------
+// The user-facing half of the feature. Skills are defined elsewhere (the Skills
+// section, gated on skills.manage); here you only pick from what exists: choose
+// a category, then a skill filed under it. That is the whole point of a
+// catalogue -- everyone's "Forklift" is the same Forklift, with the same renewal
+// period and the same evidence rules attached.
+//
+// A manager sees a second panel for the people in the groups they control:
+// assigning on their behalf, and clearing the approvals their claims are
+// waiting on.
+
+let MS_MINE = [];    // my assignments, joined to their catalog entry
+// MS_ROWS is every assignment on the server, one row per (person, skill), joined
+// to its catalog entry. The skills endpoint already returns the whole picture,
+// so the company-wide view costs no extra request -- what changes between the
+// two scopes is which rows are listed and which of them can be acted on.
+let MS_ROWS = [];
+let MS_SEL = null;    // "<username>|<skill_id>" of the selected row
+let MS_TARGET = null; // null = picking for myself, username = assigning to them
+
+function msMsg() { return document.getElementById("ms-msg"); }
+function msPickModal() { return document.getElementById("ms-pick-modal"); }
+
+// msJoin pairs one assignment with the catalog entry it points at. An
+// assignment whose skill has since been deleted is dropped rather than rendered
+// as a nameless row.
+function msJoin(holderRows) {
+  return holderRows
+    .map((h) => ({ ...h, skill: SKILLS.find((s) => s.id === h.skill_id) }))
+    .filter((r) => r.skill);
+}
+
+// msStatusBadge renders the three states an assignment can be in. Pending and
+// expired are both "not usable today", but for different reasons, so they read
+// differently rather than collapsing into one label.
+function msStatusBadge(r) {
+  if (r.status === "pending") return `<span class="badge warn">Awaiting approval</span>`;
+  if (r.expired) return `<span class="badge muted">Expired</span>`;
+  return `<span class="badge ok">Active</span>`;
+}
+
+function renderMsTiles() {
+  const active = MS_MINE.filter((r) => r.status !== "pending" && !r.expired);
+  const pending = MS_MINE.filter((r) => r.status === "pending");
+  const expired = MS_MINE.filter((r) => r.expired);
+  // Anything lapsing inside 60 days is worth chasing now: renewals usually need
+  // a course booked, not just a form filled in.
+  const soon = active.filter((r) => {
+    if (!r.expires_at) return false;
+    const days = (new Date(r.expires_at) - new Date()) / 86400000;
+    return days <= 60;
+  });
+  const tiles = [
+    { k: "Active skills", v: String(active.length), sub: `Of ${SKILLS.filter((s) => !s.archived).length} in the catalogue` },
+    { k: "Awaiting approval", v: String(pending.length), sub: pending.length ? "A manager needs to sign these off" : "Nothing waiting" },
+    { k: "Expiring soon", v: String(soon.length), sub: soon.length ? "Within 60 days" : "Nothing due", pos: soon.length === 0 },
+    { k: "Expired", v: String(expired.length), sub: expired.length ? "Renew to make these count again" : "None" },
+  ];
+  document.getElementById("ms-tiles").innerHTML = tiles.map((t) => `
+    <div class="tile">
+      <div class="k">${escapeHtml(t.k)}</div>
+      <div class="v">${escapeHtml(t.v)}</div>
+      <div class="sub${t.pos ? " pos" : ""}">${escapeHtml(t.sub)}</div>
+    </div>`).join("");
+}
+
+function renderMsTable() {
+  const body = document.getElementById("ms-body");
+  if (!MS_MINE.length) {
+    body.innerHTML = `<tr><td colspan="5" class="muted">You have no skills yet — use “Add skill” to pick one from the catalogue.</td></tr>`;
+    document.getElementById("ms-count").textContent = "";
+    return;
+  }
+  // Both tables feed the one side panel, so a row here selects the same way a
+  // team row does -- the actions live in the panel rather than in the row.
+  body.innerHTML = MS_MINE.map((r) => {
+    const c = catDef(r.skill.cat);
+    const sel = msRowKey(r) === MS_SEL ? " selected" : "";
+    return `<tr class="um-row${sel}" data-k="${escapeHtml(msRowKey(r))}">
+      <td>
+        <div class="um-user">
+          ${skIconHtml(r.skill)}
+          <span class="um-name">${escapeHtml(r.skill.name)}</span>
+        </div>
+      </td>
+      <td><span class="sk-cat"><span class="sk-dot" style="--c:${c.color}"></span>${escapeHtml(c.label)}</span></td>
+      <td>${escapeHtml(levelDef(r.level).label)}</td>
+      <td>${msStatusBadge(r)}</td>
+      <td class="muted">${r.expires_at ? escapeHtml(r.expires_at) : "—"}</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("ms-count").textContent =
+    `${MS_MINE.length} skill${MS_MINE.length === 1 ? "" : "s"}`;
+
+  body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", () => selectMsRow(tr.dataset.k)));
+}
+
+// selectMsRow drives the shared side panel from either table.
+function selectMsRow(key) {
+  MS_SEL = key;
+  renderMsTable();
+  renderMsTeam();
+  renderMsTeamDetails();
+}
+
+// renderMsTeam draws the manager panel: everyone in the groups they control,
+// their skills. A per-person list does not survive a real roster, so this is a
+// table with the same toolbar the Skills page uses -- search, category, status --
+// plus a scope switch. Acting on a row happens in the side panel, which keeps
+// the row itself readable at any width.
+
+// msCanManage reports whether the viewer may act on this person's assignments.
+// The server decides who that is (skills/manageable); the company-wide scope
+// lists everyone but only these rows carry actions.
+function msCanManage(username) { return SK_PEOPLE.includes(username); }
+
+// msRowKey identifies one assignment across renders.
+function msRowKey(r) { return `${r.username}|${r.skill_id}`; }
+
+// msScope is "team" (only people I manage) or "all" (everyone on the server).
+function msScope() { return document.getElementById("ms-scope").value; }
+
+// msPending counts the assignments waiting on this viewer specifically, which is
+// what the badge reports: a pending claim I cannot approve is not my queue.
+function msPending() {
+  return MS_ROWS.filter((r) => r.status === "pending" && msCanManage(r.username)).length;
+}
+
+// msVisibleRows applies the toolbar: scope, search, category and status.
+function msVisibleRows() {
+  const q = (document.getElementById("ms-search").value || "").trim().toLowerCase();
+  const cat = document.getElementById("ms-cat-filter").value;
+  const status = document.getElementById("ms-status-filter").value;
+  const scope = msScope();
+  return MS_ROWS.filter((r) => {
+    if (scope === "team" && !msCanManage(r.username)) return false;
+    if (cat && r.skill.cat !== cat) return false;
+    if (status === "pending" && r.status !== "pending") return false;
+    if (status === "active" && !(r.status === "active" && !r.expired)) return false;
+    if (status === "expired" && !r.expired) return false;
+    if (q) {
+      const name = displayName(r.username, skDirEntry(r.username).profile).toLowerCase();
+      if (!name.includes(q) && !r.username.toLowerCase().includes(q) &&
+          !r.skill.name.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderMsTeam() {
+  const panel = document.getElementById("ms-team-panel");
+  // A plain user manages nobody and sees no company data worth a panel until
+  // somebody else records a skill; hiding it keeps their page to just their own.
+  if (!SK_PEOPLE.length && MS_ROWS.every((r) => r.username === window.TT_USER)) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  // Somebody who manages nobody has no "my team" to speak of, so that option is
+  // dropped and the scope pinned to everyone -- otherwise the page would default
+  // them to a filter that can only ever be empty.
+  const scopeSel = document.getElementById("ms-scope");
+  const teamOpt = scopeSel.querySelector('option[value="team"]');
+  if (!SK_PEOPLE.length) {
+    teamOpt.hidden = true;
+    scopeSel.value = "all";
+  } else {
+    teamOpt.hidden = false;
+  }
+  const scope = msScope();
+  document.getElementById("ms-team-title").textContent =
+    scope === "team" ? "Team skills" : "Everyone's skills";
+  // Assigning is only meaningful for people the viewer manages.
+  document.getElementById("ms-assign-btn").hidden = !SK_PEOPLE.length;
+
+  const pending = msPending();
+  const badge = document.getElementById("ms-pending-badge");
+  badge.hidden = pending === 0;
+  badge.textContent = `${pending} awaiting you`;
+
+  const rows = msVisibleRows();
+  // A selection the filters have hidden is dropped, so the side panel never
+  // describes a row the reader can no longer see. My own skills count as
+  // visible whatever the team filters say -- they are listed in the other
+  // table, which these filters do not touch.
+  const shown = new Set([...rows, ...MS_MINE].map(msRowKey));
+  if (MS_SEL && !shown.has(MS_SEL)) MS_SEL = null;
+  const body = document.getElementById("ms-team-body");
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="5" class="muted">${MS_ROWS.length
+      ? "No skills match your filters."
+      : "No skills recorded yet."}</td></tr>`;
+  } else {
+    body.innerHTML = rows.map((r) => {
+      const d = skDirEntry(r.username);
+      const name = displayName(r.username, d.profile);
+      const sel = msRowKey(r) === MS_SEL ? " selected" : "";
+      return `<tr class="um-row${sel}" data-k="${escapeHtml(msRowKey(r))}">
+        <td>
+          <div class="um-user">
+            ${avatarHtml(r.username, d.profile, d.avatar)}
+            <span class="um-name">${escapeHtml(name)}</span>
+          </div>
+        </td>
+        <td>
+          <div class="um-user">
+            ${skIconHtml(r.skill)}
+            <span class="um-name">${escapeHtml(r.skill.name)}</span>
+          </div>
+        </td>
+        <td class="muted">${escapeHtml(levelDef(r.level).label)}</td>
+        <td>${msStatusBadge(r)}</td>
+        <td class="muted">${r.expires_at ? escapeHtml(r.expires_at) : "—"}</td>
+      </tr>`;
+    }).join("");
+  }
+  document.getElementById("ms-team-count").textContent =
+    `${rows.length} of ${MS_ROWS.filter((r) => scope === "all" || msCanManage(r.username)).length} assignment${rows.length === 1 ? "" : "s"}`;
+
+  body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", () => selectMsRow(tr.dataset.k)));
+}
+
+// renderMsTeamDetails is the side panel: everything about one assignment, and
+// the actions the viewer is allowed to take on it.
+function renderMsTeamDetails() {
+  const host = document.getElementById("ms-details");
+  const r = MS_ROWS.find((x) => msRowKey(x) === MS_SEL);
+  if (!r) {
+    host.classList.remove("filled");
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
+      <p>Select an entry to see its details${SK_PEOPLE.length ? " and approve it" : ""}.</p>
+    </div>`;
+    return;
+  }
+  host.classList.add("filled");
+  const d = skDirEntry(r.username);
+  const name = displayName(r.username, d.profile);
+  const own = r.username === window.TT_USER;
+  const manages = msCanManage(r.username);
+  const cat = catDef(r.skill.cat);
+
+  // What the viewer may do depends on whose entry it is.
+  //
+  // Your own: change the level or evidence, or drop the skill entirely.
+  //
+  // Someone you manage: approve or reject a pending claim, and nothing else.
+  // A manager vouches for a claim, they do not author it -- letting them edit
+  // the level or the certificate would make the record say something the holder
+  // never claimed, and quietly erase the distinction between what was submitted
+  // and what was approved.
+  //
+  // Anyone else: read-only.
+  let actions;
+  if (own) {
+    actions = `<div class="ud-danger">
+      <button class="secondary" id="ms-d-edit">Update my entry</button>
+      <button class="danger-btn" id="ms-d-remove">Remove</button>
+    </div>`;
+  } else if (manages && r.status === "pending") {
+    actions = `<div class="ud-danger">
+      <button id="ms-d-ok">Approve</button>
+      <button class="danger-btn" id="ms-d-no">Reject</button>
+    </div>
+    <p class="um-note muted" style="margin-top:8px">Approving records that you vouch for this. Only ${escapeHtml(name)} can change the level or the certificate.</p>`;
+  } else if (manages && r.expired) {
+    // The one thing a manager may write on somebody else's entry: fresh
+    // evidence for a ticket that has lapsed. The level is not theirs to touch.
+    actions = `<div class="ud-danger">
+      <button id="ms-d-renew">Record renewal</button>
+    </div>
+    <p class="um-note muted" style="margin-top:8px">This lapsed on ${escapeHtml(r.expires_at)}. You can record the new certificate; the level stays as ${escapeHtml(name)} recorded it.</p>`;
+  } else if (manages) {
+    actions = `<p class="um-note muted" style="margin-top:12px">Nothing to approve. Only ${escapeHtml(name)} can change this entry.</p>`;
+  } else {
+    actions = `<p class="um-note muted" style="margin-top:12px">You can see this, but only ${escapeHtml(name)}'s own manager can approve it.</p>`;
+  }
+
+  host.innerHTML = `
+    <div class="ud-head">
+      ${skIconHtml(r.skill, "lg")}
+      <div class="ud-id">
+        <div class="ud-name">${escapeHtml(r.skill.name)}</div>
+        <div class="sk-head-meta">
+          <span class="sk-cat"><span class="sk-dot" style="--c:${cat.color}"></span>${escapeHtml(cat.label)}</span>
+          ${msStatusBadge(r)}
+        </div>
+      </div>
+    </div>
+
+    ${udCard("Held by", `<div class="gr-person">
+      ${avatarHtml(r.username, d.profile, d.avatar)}
+      <span class="gr-person-text">
+        <span class="gr-person-name">${escapeHtml(name)}</span>
+        ${name !== r.username ? `<span class="gr-person-sub">${escapeHtml(r.username)}</span>` : ""}
+      </span>
+    </div>`)}
+
+    ${udCard("Assignment",
+      udRow("Level", escapeHtml(levelDef(r.level).label)) +
+      udRow("Recorded", escapeHtml(r.assigned_at || "—"), r.assigned_at ? "" : "ud-unset") +
+      udRow("By", escapeHtml(r.assigned_by || "—"), r.assigned_by ? "" : "ud-unset") +
+      udRow("Valid until", r.expires_at ? escapeHtml(r.expires_at) : "Never expires", r.expires_at ? "" : "ud-unset") +
+      (r.approved_by ? udRow("Approved by", escapeHtml(r.approved_by)) : ""))}
+
+    ${r.cert && (r.cert.number || r.cert.issuer || r.cert.issue_date)
+      ? udCard("Certificate",
+          udRow("Number", escapeHtml(r.cert.number || "—"), r.cert.number ? "" : "ud-unset") +
+          udRow("Issued by", escapeHtml(r.cert.issuer || "—"), r.cert.issuer ? "" : "ud-unset") +
+          udRow("Issue date", escapeHtml(r.cert.issue_date || "—"), r.cert.issue_date ? "" : "ud-unset"))
+      : ""}
+
+    ${actions}`;
+
+  const on = (sel, fn) => { const el = host.querySelector(sel); if (el) el.addEventListener("click", fn); };
+  on("#ms-d-edit", () => openMsPick(null, r));
+  on("#ms-d-remove", () => dropMySkill(r));
+  on("#ms-d-renew", () => openMsRenewal(r));
+  on("#ms-d-ok", () => decideSkill(r.skill, r.username, false, msTeamMsg));
+  on("#ms-d-no", () => decideSkill(r.skill, r.username, true, msTeamMsg));
+}
+
+function msTeamMsg() { return document.getElementById("ms-team-msg"); }
+
+// ---- picking from the catalogue ---------------------------------------------
+
+// openMsPick opens the picker. `target` is null when claiming for yourself or a
+// username when assigning; `existing` pre-fills it when updating a skill you
+// already hold.
+// MS_RENEW marks the one case where a manager may touch an entry somebody else
+// authored: a lapsed certificate that has been re-earned. The level is carried
+// over rather than re-entered, so the claim stays the holder's own.
+let MS_RENEW = false;
+
+// openMsRenewal records fresh evidence against an expired assignment.
+function openMsRenewal(r) { openMsPick(r.username, r, true); }
+
+function openMsPick(target, existing, renew = false) {
+  MS_TARGET = target;
+  MS_RENEW = !!renew;
+  const m = msPickModal();
+  const self = target === null;
+
+  const holderName = existing && !self
+    ? displayName(existing.username, skDirEntry(existing.username).profile)
+    : "";
+  m.querySelector("#ms-pick-title").textContent = renew
+    ? `Renew ${existing.skill.name}`
+    : existing ? `Update ${existing.skill.name}`
+    : self ? "Add a skill" : "Assign a skill";
+  m.querySelector("#ms-pick-sub").textContent = renew
+    ? `${holderName}'s certificate has expired. Record the new one — their level is unchanged.`
+    : self ? "Pick a category, then a skill from the catalogue."
+    : "Assigning counts as your approval.";
+  m.querySelector("#ms-pick-msg").innerHTML = "";
+
+  // The person is fixed for a renewal: it is a specific lapsed entry, not a
+  // free choice of who to assign to.
+  const whoRow = m.querySelector("#ms-who-row");
+  whoRow.hidden = self || renew;
+  if (!self && !renew) {
+    m.querySelector("#ms-who").innerHTML = MS_TEAM
+      .map((p) => `<option value="${escapeHtml(p.username)}">${escapeHtml(p.username)}</option>`).join("");
+  }
+
+  // Only categories that actually contain a pickable skill are offered: an
+  // empty category in the list is a dead end the user cannot act on.
+  const pickable = SKILLS.filter((s) => !s.archived);
+  const cats = SKILL_CATS.filter((c) => pickable.some((s) => s.cat === c.key));
+  const catSel = m.querySelector("#ms-cat");
+  catSel.innerHTML = cats.map((c) => `<option value="${escapeHtml(c.key)}">${escapeHtml(c.label)}</option>`).join("");
+  if (existing) catSel.value = existing.skill.cat;
+
+  // Updating an existing skill must not let the skill itself be swapped: that
+  // would be a different assignment, not an edit of this one.
+  catSel.disabled = !!existing;
+  m.querySelector("#ms-skill").disabled = !!existing;
+
+  renderMsSkillChoices(existing ? existing.skill.id : null);
+  const levelSel = m.querySelector("#ms-level");
+  if (existing) {
+    levelSel.value = String(existing.level);
+    // A renewal re-proves the existing claim, so the level is shown but not
+    // editable, and the certificate starts blank -- the point is the new one.
+    const blank = renew;
+    m.querySelector("#ms-cert-number").value = blank ? "" : (existing.cert && existing.cert.number) || "";
+    m.querySelector("#ms-cert-issuer").value = blank ? "" : (existing.cert && existing.cert.issuer) || "";
+    m.querySelector("#ms-cert-date").value = blank ? "" : (existing.cert && existing.cert.issue_date) || "";
+  }
+  levelSel.disabled = renew;
+  // A renewal is about the certificate, so those fields always show for it.
+  if (renew) m.querySelector("#ms-cert-block").hidden = false;
+  m.hidden = false;
+}
+
+// renderMsSkillChoices refills the skill picker for the chosen category, then
+// the level and certificate fields for the chosen skill. Chained rather than
+// independent: the level scale and the evidence rules are properties of the
+// skill, so they cannot be drawn until one is picked.
+function renderMsSkillChoices(preferID) {
+  const m = msPickModal();
+  const cat = m.querySelector("#ms-cat").value;
+  const inCat = SKILLS.filter((s) => !s.archived && s.cat === cat);
+  const skillSel = m.querySelector("#ms-skill");
+  skillSel.innerHTML = inCat.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join("");
+  if (preferID) skillSel.value = preferID;
+  renderMsSkillFields();
+}
+
+function renderMsSkillFields() {
+  const m = msPickModal();
+  const s = SKILLS.find((x) => x.id === m.querySelector("#ms-skill").value);
+  const desc = m.querySelector("#ms-skill-desc");
+  if (!s) { desc.textContent = ""; return; }
+
+  // Say up front what the skill will require, so nobody fills the form in and
+  // only then discovers it needs a certificate number they do not have to hand.
+  const notes = [];
+  if (s.desc) notes.push(s.desc);
+  if (s.validity_months) notes.push(`Renew every ${validityLabel(s.validity_months).toLowerCase()}.`);
+  if (s.requires_proof) notes.push("Certificate details required.");
+  if (s.requires_approval) notes.push("A manager must approve this.");
+  desc.textContent = notes.join(" ");
+
+  m.querySelector("#ms-level").innerHTML = SKILL_LEVELS.slice(0, s.scale)
+    .map((l) => `<option value="${l.n}">${l.n} · ${escapeHtml(l.label)}</option>`).join("");
+  m.querySelector("#ms-cert-block").hidden = !s.requires_proof;
+}
+
+function closeMsPick() { msPickModal().hidden = true; }
+
+async function submitMsPick() {
+  const m = msPickModal();
+  const msg = m.querySelector("#ms-pick-msg");
+  const self = MS_TARGET === null;
+  const skillID = m.querySelector("#ms-skill").value;
+  if (!skillID) { showMsg(msg, "Pick a skill", "error"); return; }
+  const s = SKILLS.find((x) => x.id === skillID);
+
+  const body = {
+    skill_id: skillID,
+    level: Number(m.querySelector("#ms-level").value),
+    cert: {
+      number: m.querySelector("#ms-cert-number").value.trim(),
+      issuer: m.querySelector("#ms-cert-issuer").value.trim(),
+      issue_date: m.querySelector("#ms-cert-date").value,
+    },
+  };
+  if (!self) {
+    body.username = MS_RENEW ? MS_TARGET : m.querySelector("#ms-who").value;
+    if (!body.username) { showMsg(msg, "Pick somebody to assign this to", "error"); return; }
+  }
+  const existed = self && MS_MINE.some((x) => x.skill_id === skillID);
+  const r = await apiFetch(self ? "skills/mine" : "skills/assign", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  closeMsPick();
+  // "Added" and "Updated" are different events to the reader, and the same call
+  // serves both -- so the wording follows whether they already held it.
+  const verb = existed ? "Updated" : "Added";
+  showMsg(msMsg(), self
+    ? (s.requires_approval && !existed
+        ? `Added ${s.name} — waiting for a manager to approve it`
+        : `${verb} ${s.name}`)
+    : MS_RENEW ? `Renewed ${s.name} for ${body.username}`
+    : `Assigned ${s.name} to ${body.username}`, "ok");
+  await refreshMySkills();
+}
+
+async function dropMySkill(r) {
+  if (!(await confirmModal({
+    title: `Remove ${r.skill.name}`,
+    body: "It stops counting towards your team's coverage. You can add it again later.",
+  }))) return;
+  const resp = await apiFetch("skills/mine", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ skill_id: r.skill_id, level: 0 }),
+  });
+  if (!resp.ok) { showMsg(msMsg(), await resp.text(), "error"); return; }
+  showMsg(msMsg(), `Removed ${r.skill.name}`, "ok");
+  await refreshMySkills();
+}
+
+// ---- load -------------------------------------------------------------------
+
+// refreshMySkills reads the one skills endpoint and splits it into the two
+// views this page shows: my own assignments, and (for a manager) those of the
+// people they control.
+async function refreshMySkills() {
+  if (!(await loadSkills())) return;
+
+  // One flat list of every assignment on the server, joined to its catalog
+  // entry. Both views read from it: mine is a filter on username, and the team /
+  // company table filters on scope. The endpoint already returns the lot, so
+  // widening the scope costs nothing extra.
+  MS_ROWS = msJoin(
+    Object.entries(SK_RATINGS).flatMap(([skillID, holders]) =>
+      holders.map((h) => ({ ...h, skill_id: skillID }))));
+  // Strongest and most urgent first: anything awaiting the viewer leads, then
+  // by person so one name's skills stay together.
+  MS_ROWS.sort((a, b) => {
+    const ap = a.status === "pending", bp = b.status === "pending";
+    if (ap !== bp) return ap ? -1 : 1;
+    const an = displayName(a.username, skDirEntry(a.username).profile);
+    const bn = displayName(b.username, skDirEntry(b.username).profile);
+    return an.localeCompare(bn) || a.skill.name.localeCompare(b.skill.name);
+  });
+
+  MS_MINE = MS_ROWS.filter((r) => r.username === window.TT_USER);
+
+  // A selection can vanish under you when a claim is approved elsewhere.
+  if (MS_SEL && !MS_ROWS.some((r) => msRowKey(r) === MS_SEL)) MS_SEL = null;
+
+  renderMsTiles();
+  renderMsTable();
+  renderMsCatFilter();
+  renderMsTeam();
+  renderMsTeamDetails();
+}
+
+// renderMsCatFilter fills the category dropdown from the categories actually in
+// use, preserving the current choice across refreshes.
+function renderMsCatFilter() {
+  const sel = document.getElementById("ms-cat-filter");
+  const keep = sel.value;
+  const used = [...new Set(MS_ROWS.map((r) => r.skill.cat))];
+  sel.innerHTML = `<option value="">All categories</option>` +
+    SKILL_CATS.filter((c) => used.includes(c.key))
+      .map((c) => `<option value="${escapeHtml(c.key)}">${escapeHtml(c.label)}</option>`).join("");
+  sel.value = keep;
+}
+
+async function initMySkills() {
+  try {
+    const who = await apiFetch("whoami");
+    if (who.ok) {
+      const d = await who.json();
+      window.TT_USER = d.username;
+      window.TT_CAPS = d.caps || [];
+      window.TT_IS_CONTROLLER = !!d.is_controller;
+    }
+  } catch (e) { /* the page still renders; the team panel just stays hidden */ }
+
+  document.getElementById("ms-add-btn").addEventListener("click", () => openMsPick(null, null));
+  document.getElementById("ms-assign-btn").addEventListener("click", () => openMsPick("", null));
+
+  // Toolbar. Repainting the details too, since a filter change can hide the
+  // selected row and the panel must not keep describing something off-screen.
+  const refilter = () => { renderMsTeam(); renderMsTeamDetails(); };
+  document.getElementById("ms-search").addEventListener("input", refilter);
+  document.getElementById("ms-scope").addEventListener("change", refilter);
+  document.getElementById("ms-cat-filter").addEventListener("change", refilter);
+  document.getElementById("ms-status-filter").addEventListener("change", refilter);
+  document.getElementById("ms-pick-cancel").addEventListener("click", closeMsPick);
+  document.getElementById("ms-pick-save").addEventListener("click", submitMsPick);
+  document.getElementById("ms-cat").addEventListener("change", () => renderMsSkillChoices(null));
+  document.getElementById("ms-skill").addEventListener("change", renderMsSkillFields);
+  msPickModal().addEventListener("click", (e) => {
+    if (e.target.id === "ms-pick-modal") closeMsPick();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMsPick(); });
+
+  await refreshMySkills();
+}
+
+// ---- Admin · Skill setup ----------------------------------------------------
+// The two axes of the skill catalog: the categories skills are filed under, and
+// the proficiency scale everyone rates against. Both are admin-owned because
+// they are the shared vocabulary -- reshaping them re-reads every existing
+// rating -- while the skills themselves are contributed by users on the Skills
+// page.
+//
+// Each list is edited as a draft and saved whole. The server replaces the list
+// in one write, so a partial-update protocol would buy nothing for arrays this
+// small, and editing in place keeps reordering trivial.
+
+let SC_CATS = [];   // draft [{key,label,color}]; key is "" for unsaved rows
+let SC_LEVELS = []; // draft [{n,label}]
+let SC_USED = {};   // category key -> how many skills use it
+
+function scCatsMsg() { return document.getElementById("sc-cats-msg"); }
+function scLevelsMsg() { return document.getElementById("sc-levels-msg"); }
+
+async function loadSkillAxes() {
+  const r = await apiFetch("admin/skill-axes");
+  if (!r.ok) { showMsg(scCatsMsg(), await r.text(), "error"); return false; }
+  const d = await r.json();
+  SC_CATS = (d.categories || []).map((c) => ({ ...c }));
+  SC_LEVELS = (d.levels || []).map((l) => ({ ...l }));
+  SC_USED = d.used || {};
+  return true;
+}
+
+// The categories page is a table with a side panel, the same shape as Users:
+// pick a category on the left, act on it on the right. Editing is one row at a
+// time through the per-item endpoint, so the list is the server's state rather
+// than a local draft.
+
+let SC_SELECTED = null; // key of the selected category
+
+function scCat(key) { return SC_CATS.find((c) => c.key === key) || null; }
+
+// scVisible applies the toolbar: search text and the archived switch.
+function scVisible() {
+  const q = (document.getElementById("sc-search").value || "").trim().toLowerCase();
+  const showArchived = document.getElementById("sc-show-archived").checked;
+  return SC_CATS.filter((c) => {
+    if (c.archived && !showArchived) return false;
+    if (q && !c.label.toLowerCase().includes(q) && !c.key.includes(q)) return false;
+    return true;
+  });
+}
+
+function renderScTable() {
+  const body = document.getElementById("sc-body");
+  const rows = scVisible();
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="4" class="muted">${SC_CATS.length ? "No categories match your search." : "No categories yet — add one to get started."}</td></tr>`;
+  } else {
+    body.innerHTML = rows.map((c) => {
+      const used = SC_USED[c.key] || 0;
+      const sel = c.key === SC_SELECTED ? " selected" : "";
+      return `<tr class="um-row${sel}" data-k="${escapeHtml(c.key)}">
+        <td>
+          <div class="um-user">
+            <span class="sc-swatch" style="--c:${escapeHtml(c.color)}"></span>
+            <span class="um-name">${escapeHtml(c.label)}</span>
+          </div>
+        </td>
+        <td class="muted">${used ? `${used} skill${used === 1 ? "" : "s"}` : "—"}</td>
+        <td>${c.archived ? `<span class="badge muted">Archived</span>` : `<span class="badge ok">Active</span>`}</td>
+        <td>
+          <div class="te-menu">
+            <button class="sc-menu-btn" aria-label="Actions">⋯</button>
+            <div class="menu-pop">
+              <button class="sc-m-edit">Edit</button>
+              <button class="sc-m-archive">${c.archived ? "Restore" : "Archive"}</button>
+              <button class="sc-m-delete danger-btn"${used ? " disabled title='In use — archive instead'" : ""}>Delete</button>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+  document.getElementById("sc-count").textContent =
+    `${rows.length} of ${SC_CATS.length} categor${SC_CATS.length === 1 ? "y" : "ies"}`;
+
+  body.querySelectorAll(".um-row").forEach((tr) => tr.addEventListener("click", () => selectScCat(tr.dataset.k)));
+  body.querySelectorAll(".sc-menu-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openRowMenu(btn, btn.nextElementSibling);
+  }));
+  const rowCat = (el) => scCat(el.closest(".um-row").dataset.k);
+  body.querySelectorAll(".sc-m-edit").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation(); closeAllMenus(); openScModal(rowCat(b));
+  }));
+  body.querySelectorAll(".sc-m-archive").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation(); closeAllMenus(); toggleScArchive(rowCat(b));
+  }));
+  body.querySelectorAll(".sc-m-delete").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (b.disabled) return;
+    closeAllMenus(); deleteScCat(rowCat(b));
+  }));
+}
+
+function selectScCat(key) {
+  SC_SELECTED = key;
+  renderScTable();
+  renderScDetails();
+}
+
+function renderScDetails() {
+  const host = document.getElementById("sc-details");
+  const c = scCat(SC_SELECTED);
+  if (!c) {
+    host.classList.remove("filled");
+    host.innerHTML = `<div class="um-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+      <p>Select a category to edit it, or add a new one.</p>
+    </div>`;
+    return;
+  }
+  host.classList.add("filled");
+  const used = SC_USED[c.key] || 0;
+
+  host.innerHTML = `
+    <div class="ud-head">
+      <span class="sc-swatch lg" style="--c:${escapeHtml(c.color)}"></span>
+      <div class="ud-id">
+        <div class="ud-name">${escapeHtml(c.label)}</div>
+        <span class="badge ${c.archived ? "muted" : "ok"}">${c.archived ? "Archived" : "Active"}</span>
+      </div>
+    </div>
+
+    ${udCard("Usage",
+      udRow("Skills filed here", used ? `${used}` : "None", used ? "" : "ud-unset") +
+      udRow("Key", escapeHtml(c.key)) +
+      (c.archived
+        ? `<p class="um-note muted" style="margin-top:8px">Hidden when adding a skill. Its ${used} skill${used === 1 ? "" : "s"} keep it.</p>`
+        : ""))}
+
+    <div class="ud-danger">
+      <button class="secondary" id="sc-d-edit">Edit category</button>
+      <button class="secondary" id="sc-d-archive">${c.archived ? "Restore" : "Archive"}</button>
+      <button class="danger-btn" id="sc-d-delete"${used ? " disabled" : ""}>Delete category</button>
+    </div>
+    ${used ? `<p class="um-note muted" style="margin-top:8px">In use, so it can't be deleted — archive it instead.</p>` : ""}`;
+
+  host.querySelector("#sc-d-edit").addEventListener("click", () => openScModal(c));
+  host.querySelector("#sc-d-archive").addEventListener("click", () => toggleScArchive(c));
+  const del = host.querySelector("#sc-d-delete");
+  if (!used) del.addEventListener("click", () => deleteScCat(c));
+}
+
+// ---- create / edit modal ----------------------------------------------------
+
+let SC_EDIT_KEY = null; // key being edited, or null when creating
+
+function scModal() { return document.getElementById("sc-modal"); }
+
+function openScModal(c) {
+  SC_EDIT_KEY = c ? c.key : null;
+  const m = scModal();
+  m.querySelector("#sc-modal-title").textContent = c ? `Edit ${c.label}` : "New category";
+  m.querySelector("#sc-name").value = c ? c.label : "";
+  m.querySelector("#sc-color").value = c ? c.color : "#4C82F7";
+  m.querySelector("#sc-archived-toggle").checked = !!(c && c.archived);
+  m.querySelector("#sc-modal-msg").innerHTML = "";
+  m.hidden = false;
+  m.querySelector("#sc-name").focus();
+}
+
+function closeScModal() { scModal().hidden = true; }
+
+async function saveScCat() {
+  const m = scModal();
+  const msg = m.querySelector("#sc-modal-msg");
+  const label = m.querySelector("#sc-name").value.trim();
+  if (!label) { showMsg(msg, "Enter a category name", "error"); return; }
+  const body = {
+    label,
+    color: m.querySelector("#sc-color").value,
+    archived: m.querySelector("#sc-archived-toggle").checked,
+  };
+  if (SC_EDIT_KEY) body.key = SC_EDIT_KEY;
+  const r = await apiFetch("admin/skill-cat", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { showMsg(msg, await r.text(), "error"); return; }
+  const d = await r.json();
+  closeScModal();
+  SC_SELECTED = d.key || SC_SELECTED;
+  showMsg(scCatsMsg(), SC_EDIT_KEY ? `Saved ${label}` : `Created ${label}`, "ok");
+  await refreshScCats();
+}
+
+// toggleScArchive flips one category's archived flag through the same save,
+// re-sending its label and colour unchanged.
+async function toggleScArchive(c) {
+  const r = await apiFetch("admin/skill-cat", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: c.key, label: c.label, color: c.color, archived: !c.archived }),
+  });
+  if (!r.ok) { showMsg(scCatsMsg(), await r.text(), "error"); return; }
+  showMsg(scCatsMsg(), c.archived ? `Restored ${c.label}` : `Archived ${c.label}`, "ok");
+  await refreshScCats();
+}
+
+async function deleteScCat(c) {
+  if (!(await confirmModal({
+    title: `Delete category "${c.label}"`,
+    body: "This cannot be undone. Categories in use can't be deleted — archive them instead.",
+  }))) return;
+  const r = await apiFetch("admin/skill-cat", {
+    method: "DELETE", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: c.key }),
+  });
+  if (!r.ok) { showMsg(scCatsMsg(), await r.text(), "error"); return; }
+  if (SC_SELECTED === c.key) SC_SELECTED = null;
+  showMsg(scCatsMsg(), `Deleted ${c.label}`, "ok");
+  await refreshScCats();
+}
+
+// refreshScCats re-reads the axes and repaints. Every mutation goes through it,
+// since the used-counts and the list both come from the one endpoint.
+async function refreshScCats() {
+  if (await loadSkillAxes()) {
+    renderScTable();
+    renderScDetails();
+  }
+}
+
+async function initSkillCats() {
+  if (!(await requireCap("skills.manage"))) return;
+
+  const rerender = () => renderScTable();
+  document.getElementById("sc-search").addEventListener("input", rerender);
+  document.getElementById("sc-show-archived").addEventListener("change", rerender);
+  document.getElementById("sc-add-btn").addEventListener("click", () => openScModal(null));
+  document.getElementById("sc-cancel").addEventListener("click", closeScModal);
+  document.getElementById("sc-save").addEventListener("click", saveScCat);
+  scModal().addEventListener("click", (e) => { if (e.target.id === "sc-modal") closeScModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeScModal(); });
+  document.addEventListener("click", closeAllMenus);
+
+  await refreshScCats();
+}
+
+function renderScLevels() {
+  const host = document.getElementById("sc-levels");
+  host.innerHTML = SC_LEVELS.map((l, i) => `
+    <div class="sd-lv sc-row" data-i="${i}">
+      <span class="n">${i + 1}</span>
+      <span class="sk-dot" style="--c:${scLvColor(i + 1)}"></span>
+      <input type="text" class="em-input sc-label" value="${escapeHtml(l.label)}" placeholder="Level name" autocomplete="off">
+      <button class="icon-btn sc-up" title="Move up" ${i === 0 ? "disabled" : ""}>
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+      <button class="icon-btn sc-del" title="Remove" ${SC_LEVELS.length <= 2 ? "disabled" : ""}>
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+      </button>
+    </div>`).join("");
+
+  host.querySelectorAll(".sc-row").forEach((row) => {
+    const i = Number(row.dataset.i);
+    row.querySelector(".sc-label").addEventListener("input", (e) => { SC_LEVELS[i].label = e.target.value; });
+    row.querySelector(".sc-up").addEventListener("click", () => {
+      if (i === 0) return;
+      [SC_LEVELS[i - 1], SC_LEVELS[i]] = [SC_LEVELS[i], SC_LEVELS[i - 1]];
+      renderScLevels();
+    });
+    row.querySelector(".sc-del").addEventListener("click", () => {
+      if (SC_LEVELS.length <= 2) return;
+      SC_LEVELS.splice(i, 1);
+      renderScLevels();
+    });
+  });
+}
+
+// scLvColor mirrors lvColor on the Skills page, so the scale previews here in
+// the same colours it renders there.
+function scLvColor(n) {
+  const span = Math.max(1, SC_LEVELS.length - 1);
+  const i = Math.min(5, Math.max(1, Math.round(1 + ((n - 1) / span) * 4)));
+  return `var(--lv-${i})`;
+}
+
+async function saveScLevels() {
+  const r = await apiFetch("admin/skill-levels", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ levels: SC_LEVELS.map((l) => ({ label: l.label })) }),
+  });
+  if (!r.ok) { showMsg(scLevelsMsg(), await r.text(), "error"); return; }
+  showMsg(scLevelsMsg(), "Proficiency levels saved", "ok");
+  if (await loadSkillAxes()) renderScLevels();
+}
+
+async function initSkillLevels() {
+  if (!(await requireCap("skills.manage"))) return;
+
+  document.getElementById("sc-add-level").addEventListener("click", () => {
+    if (SC_LEVELS.length >= 10) {
+      showMsg(scLevelsMsg(), "At most 10 levels are supported", "error");
+      return;
+    }
+    SC_LEVELS.push({ n: SC_LEVELS.length + 1, label: "" });
+    renderScLevels();
+    const rows = document.querySelectorAll("#sc-levels .sc-label");
+    if (rows.length) rows[rows.length - 1].focus();
+  });
+  document.getElementById("sc-save-levels").addEventListener("click", saveScLevels);
+
+  if (await loadSkillAxes()) renderScLevels();
 }
 
 // ---- Admin · Translations ---------------------------------------------------
@@ -6889,7 +8621,8 @@ function renderTrRows() {
            value="${escapeHtml(trOther(k.key))}" placeholder="${escapeHtml(t("Plural form"))}">`
       : "";
     return `<tr class="${val ? "" : "tr-missing"}">
-      <td class="tr-en"><span>${escapeHtml(k.key)}</span><span class="tr-ctx">${escapeHtml(k.ctx)}</span></td>
+      <td class="tr-en"><span>${escapeHtml(k.key)}</span>${k.other
+        ? `<span class="tr-en-other">${escapeHtml(k.other)}</span>` : ""}<span class="tr-ctx">${escapeHtml(k.ctx)}</span></td>
       <td>
         <input class="tr-input" data-key="${escapeHtml(k.key)}" data-form="one"
           value="${escapeHtml(val)}" placeholder="${escapeHtml(k.key)}">
@@ -6914,7 +8647,7 @@ function renderTrRows() {
 
 function renderTrDirty() {
   const n = Object.keys(TR_DIRTY).length;
-  document.getElementById("tr-dirty").textContent = n ? tn("{n} unsaved change", n) : "";
+  document.getElementById("tr-dirty").textContent = n ? tn("{n} unsaved change", "{n} unsaved changes", n) : "";
 }
 
 // trPayload folds the dirty edits into the {one, other} shape the API expects.
@@ -6943,7 +8676,7 @@ async function saveTranslations() {
     TR_DIRTY = {};
     showMsg(trMsg(), t("Translations saved"), "ok");
     if ((d.orphaned || []).length) {
-      showMsg(trMsg(), tn("{n} stored string is no longer used by the interface", d.orphaned.length), "");
+      showMsg(trMsg(), tn("{n} stored string is no longer used by the interface", "{n} stored strings are no longer used by the interface", d.orphaned.length), "");
     }
     await selectTrLang(TR_CODE);
     await loadTrLangs();
@@ -7035,9 +8768,9 @@ function importTrLang(code) {
     }
 
     const lines = [
-      tn("{n} new translation", added),
-      tn("{n} changed translation", changed),
-      tn("{n} key in the file is not used by this version of the interface", orphaned.length),
+      tn("{n} new translation", "{n} new translations", added),
+      tn("{n} changed translation", "{n} changed translations", changed),
+      tn("{n} key in the file is not used by this version of the interface", "{n} keys in the file are not used by this version of the interface", orphaned.length),
     ];
     if (orphaned.length) lines.push("", t("Unused keys are kept, not discarded:"), orphaned.slice(0, 10).join("\n"));
     if (!(await confirmModal({
@@ -7106,7 +8839,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (!getToken()) { location.href = PREFIX + "login"; return; }
   fillSidebar();
   if (document.getElementById("pl-grid")) return initShifts();
+  if (document.getElementById("ms-body")) return initMySkills();
   if (document.getElementById("skills-body")) return initSkills();
+  if (document.getElementById("sc-body")) return initSkillCats();
+  if (document.getElementById("sc-levels")) return initSkillLevels();
   if (document.getElementById("cal-grid")) return initDashboard();
   if (document.getElementById("week-days")) return initEntries();
   if (document.getElementById("ie-input")) return initImpExp();

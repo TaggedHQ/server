@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.2.7"
+var Version = "0.3.0"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -73,6 +73,22 @@ type Server struct {
 	// modulesMu guards modules, the optional feature modules that are switched on.
 	modulesMu sync.RWMutex
 	modules   map[string]bool
+
+	// skillsMu guards the skill catalog and its two admin-owned axes. The
+	// per-user ratings against these skills are not here: they live in each
+	// user's own store (store.TableSkills).
+	//
+	// skillWriteMu serialises the read-modify-write sequences that add to or
+	// edit the catalog. skillsMu alone is not enough: it is released between the
+	// read and the write (persistSetup re-acquires it), so two accounts adding a
+	// skill at the same moment would both start from the same list and the
+	// second save would drop the first. The catalog is open to every account, so
+	// that race is reachable in a way the admin-only lists are not.
+	skillWriteMu sync.Mutex
+	skillsMu     sync.RWMutex
+	skillCats    []skillCategory
+	skillLevels  []skillLevel
+	skills       []skill
 
 	// i18nMu guards the UI translations: the per-language catalogs, the revision
 	// id derived from them, and the cache of pages already rendered in a given
@@ -123,13 +139,32 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 	var oauthProviders []oauthProvider
 	var groups []group
+	var skills []skill
 	roles := defaultRoles()
+	// The skill axes fall back to the shipped defaults, so the page is never
+	// empty on a server that has not customised them. The catalog itself has no
+	// default: it starts empty and fills up as accounts contribute to it.
+	skillCats, skillLevels := defaultSkillCats(), defaultSkillLevels()
 	// Optional modules default to off, so a server that never opted in (or a
 	// setup.json written before they existed) does not gain pages on upgrade.
 	modules := map[string]bool{}
 	if saved != nil {
 		oauthProviders = saved.OAuth
 		groups = saved.Groups
+		// Membership is exclusive. A setup.json written before that was true, or
+		// edited by hand, can put somebody in two groups; keep the first and say
+		// so rather than booting with a broken invariant.
+		if trimmed := normalizeGroupMembership(groups); len(trimmed) > 0 {
+			log.Printf("groups: %v were in more than one group; kept their first membership "+
+				"(a user can belong to only one group)", trimmed)
+		}
+		skills = saved.Skills
+		if len(saved.SkillCats) > 0 {
+			skillCats = saved.SkillCats
+		}
+		if len(saved.SkillLevels) > 0 {
+			skillLevels = saved.SkillLevels
+		}
 		for key, on := range saved.Modules {
 			if validModule(key) {
 				modules[key] = on
@@ -173,6 +208,9 @@ func New(cfg *config.Config) (*Server, error) {
 		roles:            roles,
 		groups:           groups,
 		modules:          modules,
+		skillCats:        skillCats,
+		skillLevels:      skillLevels,
+		skills:           skills,
 		langs:            langs,
 		i18nRev:          i18nRevOf(langs),
 		htmlCache:        map[string][]byte{},
@@ -249,9 +287,13 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 		modules[k] = v
 	}
 	s.modulesMu.RUnlock()
+	s.skillsMu.RLock()
+	skillCats, skillLevels, skills := s.skillCats, s.skillLevels, s.skills
+	s.skillsMu.RUnlock()
 	return setupState{
 		Backend: kind, DBURL: dbURL, RegistrationOpen: &open,
 		OAuth: providers, RoleDefs: roles, Groups: groups, Modules: modules,
+		SkillCats: skillCats, SkillLevels: skillLevels, Skills: skills,
 	}
 }
 

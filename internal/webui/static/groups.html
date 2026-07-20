@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tagged · Groups</title>
+  <link rel="stylesheet" href="{{PREFIX}}css/all.min.css?v={{V}}">
   <link rel="stylesheet" href="{{PREFIX}}style.css?v={{V}}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{PREFIX}}images/favicon_light/favicon-32x32.png?v={{V}}">
   <meta name="tt-prefix" content="{{PREFIX}}">
@@ -33,9 +34,9 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="M8 14h3"/></svg>
           <span data-i18n="Shifts">Shifts</span>
         </a>
-        <a id="nav-skills" href="{{PREFIX}}skills" style="display:none">
+        <a id="nav-my-skills" href="{{PREFIX}}myskills" style="display:none">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
-          <span data-i18n="Skills">Skills</span>
+          <span data-i18n="My Skills">My Skills</span>
         </a>
         <a href="{{PREFIX}}impexp">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
@@ -49,6 +50,21 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
           <span data-i18n="About">About</span>
         </a>
+        <div id="nav-skills-section" class="nav-section" style="display:none">
+          <div class="nav-head" data-i18n="Skills">Skills</div>
+          <a id="nav-skills" href="{{PREFIX}}skills">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
+            <span data-i18n="Skills">Skills</span>
+          </a>
+          <a id="nav-skill-cats" href="{{PREFIX}}skillcats">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+            <span data-i18n="Categories">Categories</span>
+          </a>
+          <a id="nav-skill-levels" href="{{PREFIX}}skilllevels">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M8 19v-6"/><path d="M13 19v-10"/><path d="M18 19v-14"/></svg>
+            <span data-i18n="Skill Levels">Skill Levels</span>
+          </a>
+        </div>
         <div id="nav-admin" class="nav-section">
           <div class="nav-head" data-i18n="Admin">Admin</div>
           <a href="{{PREFIX}}users">
@@ -150,6 +166,18 @@
         <div class="sheet-label">Description <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="(optional)">(optional)</span></div>
         <input id="new-group-desc" class="em-input" type="text" placeholder="What this group is for" data-i18n-placeholder="What this group is for" autocomplete="off">
       </div>
+      <div class="sheet-section">
+        <div class="sheet-label" data-i18n="Icon">Icon <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="(optional)">(optional)</span></div>
+        <div class="sk-icon-field">
+          <button type="button" class="sk-icon-preview" id="new-group-icon-btn" aria-haspopup="true" aria-expanded="false">
+            <span class="sk-ic" id="new-group-icon-preview" style="--c:var(--accent)">?</span>
+            <span class="sk-icon-pick-label" id="new-group-icon-name" data-i18n="Choose an icon">Choose an icon</span>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <input type="hidden" id="new-group-icon">
+        <input type="hidden" id="new-group-icon-style">
+      </div>
       <div id="create-group-msg" class="msg"></div>
       <div class="sheet-actions">
         <button class="secondary" id="add-group-cancel" data-i18n="Cancel">Cancel</button>
@@ -198,6 +226,18 @@
         <div class="sheet-label">Description <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="(optional)">(optional)</span></div>
         <input id="eg-desc" class="em-input" type="text" placeholder="What this group is for" data-i18n-placeholder="What this group is for" autocomplete="off">
       </div>
+      <div class="sheet-section">
+        <div class="sheet-label" data-i18n="Icon">Icon <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="(optional)">(optional)</span></div>
+        <div class="sk-icon-field">
+          <button type="button" class="sk-icon-preview" id="eg-icon-btn" aria-haspopup="true" aria-expanded="false">
+            <span class="sk-ic" id="eg-icon-preview" style="--c:var(--accent)">?</span>
+            <span class="sk-icon-pick-label" id="eg-icon-name" data-i18n="Choose an icon">Choose an icon</span>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <input type="hidden" id="eg-icon">
+        <input type="hidden" id="eg-icon-style">
+      </div>
       <div id="eg-group-msg" class="msg"></div>
       <div class="sheet-actions">
         <button class="secondary" id="eg-group-cancel" data-i18n="Cancel">Cancel</button>
@@ -220,6 +260,52 @@
         <button class="secondary" id="dg-cancel" data-i18n="Cancel">Cancel</button>
         <button id="dg-save" data-i18n="Duplicate">Duplicate</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Icon picker. Full-screen because it browses ~2,000 icons: a dropdown
+       cannot show enough of them at once to choose by eye. -->
+  <div class="modal-overlay ip-overlay" id="icon-modal" hidden>
+    <div class="ip-sheet">
+      <header class="ip-head">
+        <div class="ip-head-text">
+          <div class="ip-title" data-i18n="Choose an icon">Choose an icon</div>
+          <p class="ip-sub muted" data-i18n="Pick a Font Awesome icon">Pick a Font Awesome icon</p>
+        </div>
+        <button class="icon-btn" id="ip-close" aria-label="Close" data-i18n-aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </header>
+
+      <div class="ip-body">
+        <aside class="ip-side">
+          <div class="search-field ip-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="ip-search" type="text" placeholder="Search icons…" data-i18n-placeholder="Search icons…" autocomplete="off">
+          </div>
+          <div class="ip-side-head" data-i18n="Style">Style</div>
+          <div id="ip-styles" class="ip-filters"></div>
+          <div class="ip-side-head" id="ip-cats-head" data-i18n="Categories" hidden>Categories</div>
+          <div id="ip-cats" class="ip-filters"></div>
+        </aside>
+
+        <section class="ip-main">
+          <div class="ip-main-head">
+            <span id="ip-count" class="muted"></span>
+          </div>
+          <div class="ip-grid" id="ip-grid"></div>
+          <div id="ip-more" class="ip-more muted" hidden></div>
+        </section>
+      </div>
+
+      <footer class="ip-foot">
+        <span class="muted ip-foot-label" data-i18n="Selected icon">Selected icon</span>
+        <span id="ip-chip" class="ip-chip-empty muted" data-i18n="None">None</span>
+        <div class="ip-foot-actions">
+          <button class="secondary" id="ip-cancel" data-i18n="Cancel">Cancel</button>
+          <button id="ip-apply" data-i18n="Apply">Apply</button>
+        </div>
+      </footer>
     </div>
   </div>
 

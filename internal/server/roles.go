@@ -36,6 +36,7 @@ const (
 	capOAuthManage  = "oauth.manage"  // identity provider configuration
 	capUsersActAs   = "users.actas"   // view/edit another user's data ("switch to")
 	capI18nManage   = "translations.manage"
+	capSkillsManage = "skills.manage" // skill categories and proficiency levels
 )
 
 // Role keys. Also persisted, also stable.
@@ -61,6 +62,7 @@ var allCaps = []capDef{
 	{capOAuthManage, "OAuth providers", "Configure external identity providers."},
 	{capUsersActAs, "Switch to users", "View and edit the data of users in the groups they control."},
 	{capI18nManage, "Translations", "Add languages and translate the interface."},
+	{capSkillsManage, "Manage skills", "Define the skill categories and proficiency levels everyone rates against."},
 }
 
 // roleDef describes one role. Operators can add their own, so the label and
@@ -91,7 +93,7 @@ func defaultRoles() []roleDef {
 			Caps: []string{}},
 		{Key: roleAdmin, Label: "Admin", System: true,
 			Desc: "Administers the server: users, roles, groups and settings.",
-			Caps: []string{capUsersManage, capRolesManage, capGroupsManage, capServerManage, capOAuthManage, capI18nManage}},
+			Caps: []string{capUsersManage, capRolesManage, capGroupsManage, capServerManage, capOAuthManage, capI18nManage, capSkillsManage}},
 		{Key: roleController, Label: "Controller",
 			Desc: "Oversees the users in the groups they control.",
 			Caps: []string{capUsersActAs}},

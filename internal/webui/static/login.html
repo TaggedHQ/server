@@ -15,31 +15,31 @@
       <div class="auth-head">
         <img class="auth-logo" src="{{PREFIX}}images/Taggd-Colored.svg?v={{V}}" alt="Tagged logo">
         <div class="brandmark lg">Tagged</div>
-        <p class="subtitle">Log in to your account</p>
+        <p class="subtitle" data-i18n="Log in to your account">Log in to your account</p>
       </div>
       <form id="login-form">
-        <label for="username">Username</label>
+        <label for="username" data-i18n="Username">Username</label>
         <input id="username" type="text" autocomplete="username" required>
-        <label for="password">Password</label>
+        <label for="password" data-i18n="Password">Password</label>
         <input id="password" type="password" autocomplete="current-password" required>
-        <button class="block" type="submit">Log in</button>
+        <button class="block" type="submit" data-i18n="Log in">Log in</button>
       </form>
       <button class="block secondary" id="passkey-login" type="button" hidden>
         <svg class="oauth-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>
         <span data-i18n="Sign in with a passkey">Sign in with a passkey</span>
       </button>
       <form id="mfa-form" hidden>
-        <label for="mfa-code">Authentication code</label>
-        <input id="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code or backup code" required>
-        <button class="block" type="submit">Verify</button>
-        <p class="alt"><a href="#" id="mfa-back">← Back to login</a></p>
+        <label for="mfa-code" data-i18n="Authentication code">Authentication code</label>
+        <input id="mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code or backup code" data-i18n-placeholder="6-digit code or backup code" required>
+        <button class="block" type="submit" data-i18n="Verify">Verify</button>
+        <p class="alt"><a href="#" id="mfa-back" data-i18n="← Back to login">← Back to login</a></p>
       </form>
       <div id="msg" class="msg"></div>
       <div id="oauth-section" class="oauth-section" hidden>
-        <div class="oauth-divider"><span>or</span></div>
+        <div class="oauth-divider"><span data-i18n="or">or</span></div>
         <div id="oauth-buttons" class="oauth-buttons"></div>
       </div>
-      <p class="alt" id="login-alt">No account? <a href="{{PREFIX}}register">Create one</a></p>
+      <p class="alt" id="login-alt">No account? <a href="{{PREFIX}}register" data-i18n="Create one">Create one</a></p>
     </div>
   </div>
   <script src="{{PREFIX}}app.js?v={{V}}"></script>

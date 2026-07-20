@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 CREATE INDEX IF NOT EXISTS idx_settings_user_st ON settings (username, st);
 
+CREATE TABLE IF NOT EXISTS skills (
+    username text NOT NULL,
+    key      text NOT NULL,
+    st       double precision,
+    _ob      jsonb NOT NULL,
+    PRIMARY KEY (username, key)
+);
+CREATE INDEX IF NOT EXISTS idx_skills_user_st ON skills (username, st);
+
 CREATE TABLE IF NOT EXISTS users (
     username text PRIMARY KEY,
     mtime    double precision
@@ -119,14 +128,15 @@ func (b *PostgresBackend) ListUsers() ([]UserMeta, error) {
 	return users, rows.Err()
 }
 
-// DeleteUser removes all of a user's rows across the four tables in one tx.
+// DeleteUser removes all of a user's rows across every table in one tx. Skills
+// are included: a deleted account drops out of the open skill list with it.
 func (b *PostgresBackend) DeleteUser(username string) error {
 	tx, err := b.db.Begin()
 	if err != nil {
 		return err
 	}
 	var affected int64
-	for _, table := range []string{TableRecords, TableSettings, TableUserinfo, "users"} {
+	for _, table := range []string{TableRecords, TableSettings, TableUserinfo, TableSkills, "users"} {
 		res, err := tx.Exec(`DELETE FROM `+table+` WHERE username = $1`, username)
 		if err != nil {
 			tx.Rollback()

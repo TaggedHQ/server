@@ -34,8 +34,8 @@ func MigrateSQLiteToPostgres(rootUserDir, dbURL string, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("migrate %q: %w", u.Username, err)
 		}
-		fmt.Fprintf(out, "migrated %-30s userinfo=%d records=%d settings=%d\n",
-			u.Username, counts[TableUserinfo], counts[TableRecords], counts[TableSettings])
+		fmt.Fprintf(out, "migrated %-30s userinfo=%d records=%d settings=%d skills=%d\n",
+			u.Username, counts[TableUserinfo], counts[TableRecords], counts[TableSettings], counts[TableSkills])
 	}
 	fmt.Fprintf(out, "done: %d user(s)\n", len(users))
 	return nil
@@ -49,7 +49,7 @@ func copyUser(sdb UserDB, dst Backend, username string) (map[string]int, error) 
 	defer ddb.Close()
 
 	counts := map[string]int{}
-	for _, table := range []string{TableUserinfo, TableRecords, TableSettings} {
+	for _, table := range []string{TableUserinfo, TableRecords, TableSettings, TableSkills} {
 		items, err := sdb.All(table)
 		if err != nil {
 			return nil, err

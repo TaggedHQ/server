@@ -81,6 +81,12 @@ func route(reqPath string) string {
 		return "shifts.html"
 	case "skills":
 		return "skills.html"
+	case "myskills":
+		return "myskills.html"
+	case "skillcats":
+		return "skillcats.html"
+	case "skilllevels":
+		return "skilllevels.html"
 	case "settings":
 		return "settings.html"
 	case "oauth":

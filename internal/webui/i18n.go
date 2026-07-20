@@ -24,6 +24,9 @@ type CatalogEntry struct {
 	Ctx string `json:"ctx"`
 	// Plural marks a key that carries separate singular and plural forms.
 	Plural bool `json:"plural"`
+	// Other is the English plural for a plural key, shown next to the singular
+	// so a translator can see which form is which.
+	Other string `json:"other,omitempty"`
 }
 
 var (

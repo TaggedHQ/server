@@ -491,12 +491,23 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
    their own cards, so they get more room than the plainer panels on the other
    admin pages. The track grows with the window rather than taking a fixed
    412px, which would squeeze the table on a 1280-wide screen. */
-#users-layout, #groups-layout, #roles-layout, #entries-layout, #oauth-layout { grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 412px); }
+#users-layout, #groups-layout, #roles-layout, #entries-layout, #oauth-layout,
+#skills-layout,
+#skillcats-layout,
+#myskills-layout { grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 412px); }
 .main-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 /* min-width: 0 so the column obeys its grid track. Without it a grid item keeps
    its min-content width, and one nowrap child (the OAuth redirect URL) widens
    the whole column past the track and scrolls the page sideways. */
 .side-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* The details panel follows a long table, so it sticks rather than scrolling
+   away: on a full roster you would otherwise lose the panel you are acting in.
+   It caps at the viewport and scrolls internally, so a tall panel still reaches
+   its own buttons. align-self keeps it from stretching to the row's height,
+   which would defeat sticky entirely. */
+@media (min-width: 1081px) {
+  .side-col { position: sticky; top: 22px; align-self: start; max-height: calc(100vh - 44px); overflow-y: auto; }
+}
 
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .page-head h1 { font-size: 1.35rem; margin: 0; font-weight: 600; }
@@ -648,6 +659,9 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .te-menu > button:hover { background: var(--surface); color: var(--text-1); filter: none; }
 .menu-pop { position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--surface); border: 1px solid var(--stroke-strong); border-radius: 10px; padding: 5px; min-width: 150px; z-index: 20; box-shadow: 0 8px 24px rgba(0,0,0,0.4); display: none; }
 .menu-pop.open { display: block; }
+/* Pinned by JS instead of by its parent, so a menu inside a scrolling table is
+   not clipped at the table's edge. See openRowMenu. */
+.menu-pop-fixed { position: fixed; right: auto; top: auto; margin-top: 0; z-index: 90; }
 .menu-pop button { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text-1); font-size: 0.82rem; padding: 8px 10px; border-radius: 7px; font-weight: 400; }
 .menu-pop button:hover { background: var(--surface-raised); filter: none; }
 .menu-pop button.danger { color: var(--danger); }
@@ -968,6 +982,11 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .page-sub { margin: 6px 0 0; color: var(--text-2); font-size: 0.82rem; }
 
 .um-panel { padding: 6px 6px 10px; }
+/* The 6px above assumes a .um-toolbar supplies the inner spacing. A panel that
+   leads with a heading instead has to put that spacing back, or the title sits
+   flush against the edge and the table below it has nothing to breathe into. */
+.um-panel > .panel-head { padding: 12px 12px 0; margin-bottom: 14px; }
+.um-panel > .panel-head + .table-wrap { padding-bottom: 4px; }
 .um-toolbar { display: flex; gap: 12px; padding: 12px 12px 14px; flex-wrap: wrap; }
 .search-field { position: relative; flex: 1 1 220px; min-width: 180px; }
 .search-field svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
@@ -1150,6 +1169,12 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
   background: var(--accent-dim); color: var(--accent);
   font-size: 0.98rem; font-weight: 600; letter-spacing: 0.02em;
 }
+/* A Font Awesome glyph reads small at the initials' font-size, so the icon is
+   sized on its own -- as in .sk-ic. */
+.gr-avatar i { font-size: 1.4rem; }
+/* A compact avatar for the group table row, where 48px would be too tall. */
+.gr-avatar.sm { width: 32px; height: 32px; border-radius: 9px; font-size: 0.68rem; }
+.gr-avatar.sm i { font-size: 0.95rem; }
 .gr-desc { font-size: 0.78rem; color: var(--text-2); line-height: 1.5; margin: 2px 0 0; }
 
 /* One person in the controllers / members card. */
@@ -1174,6 +1199,201 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .gr-result .um-avatar { width: 28px; height: 28px; font-size: 0.64rem; }
 /* Keeps the Add / Remove control from being squeezed by a long name. */
 .gr-person-btn { flex: none; }
+/* Warns that adding this person takes them off another group. Shrinks before
+   the name does, since the name is what identifies the row. */
+.gr-move-note {
+  flex: 0 1 auto; min-width: 0; font-size: 0.72rem; text-align: right;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---- Skills ---------------------------------------------------------------- */
+/* Two fields side by side in the new-skill sheet (icon + colour). */
+.sk-form-row { display: flex; gap: 12px; }
+.sk-form-row > * { flex: 1; min-width: 0; }
+/* A colour well should read as a swatch, not as a text field. */
+.sk-color-input { padding: 4px; height: 38px; cursor: pointer; }
+
+/* Icon picker trigger. The button is also the live preview of the finished
+   badge, so choosing an icon and choosing its colour give feedback together. */
+.sk-icon-field { display: flex; gap: 10px; align-items: center; }
+.sk-icon-field .sk-color-input { flex: none; width: 52px; }
+.sk-icon-preview {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
+  padding: 5px 10px 5px 5px; border-radius: 10px; cursor: pointer;
+  background: var(--surface-raised); border: 1px solid var(--stroke); color: var(--text-1);
+  font: inherit; text-align: left;
+}
+.sk-icon-preview:hover { border-color: var(--accent); }
+.sk-icon-pick-label {
+  flex: 1; min-width: 0; font-size: 0.82rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* The picker browses ~2,000 icons, so it takes the window rather than hanging
+   off the field: a dropdown cannot show enough at once to choose by eye. */
+/* Opened from inside the new-skill sheet, so it has to sit above it. The
+   backdrop is opaque enough to hide that sheet outright: showing it dimmed
+   behind a full-screen grid reads as two competing dialogs. */
+.ip-overlay { padding: 4vh 4vw; z-index: 110; background: rgba(0, 0, 0, 0.78); }
+.ip-sheet {
+  display: flex; flex-direction: column;
+  width: 100%; max-width: 1180px; height: 92vh; max-height: 92vh;
+  background: var(--surface); border: 1px solid var(--stroke);
+  border-radius: 18px; overflow: hidden;
+}
+.ip-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 18px 20px; border-bottom: 1px solid var(--stroke);
+}
+.ip-head-text { text-align: center; flex: 1; }
+.ip-title { font-size: 1.05rem; font-weight: 600; color: var(--text-1); }
+.ip-sub { font-size: 0.8rem; margin: 2px 0 0; }
+
+/* Sidebar + grid. min-height:0 on both so each scrolls inside the sheet rather
+   than growing it and pushing the footer off-screen. */
+.ip-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+.ip-side {
+  border-right: 1px solid var(--stroke); padding: 16px;
+  overflow-y: auto; min-height: 0;
+}
+.ip-search { margin-bottom: 16px; }
+.ip-side-head {
+  font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--text-3); margin: 14px 0 8px;
+}
+.ip-side-head:first-of-type { margin-top: 0; }
+.ip-filters { display: flex; flex-direction: column; gap: 2px; }
+.ip-filter {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 8px 10px; border-radius: 9px; cursor: pointer;
+  background: none; border: none; color: var(--text-2); font: inherit;
+  font-size: 0.82rem; text-align: left;
+}
+.ip-filter:hover { background: var(--surface-raised); color: var(--text-1); }
+.ip-filter.on { background: var(--accent-dim); color: var(--accent); }
+.ip-filter-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ip-filter-count { flex: none; font-size: 0.72rem; color: var(--text-3); }
+.ip-filter.on .ip-filter-count { color: inherit; }
+
+.ip-main { display: flex; flex-direction: column; min-height: 0; }
+.ip-main-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 10px; font-size: 0.78rem;
+}
+.ip-grid {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 0 18px 18px;
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  align-content: start;
+}
+.ip-card {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 6px; padding: 14px 8px; min-height: 96px;
+  border-radius: 12px; cursor: pointer; font: inherit;
+  background: var(--surface-raised); border: 1px solid var(--stroke); color: var(--text-1);
+}
+.ip-card:hover { border-color: var(--accent); }
+.ip-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.ip-card i { font-size: 1.5rem; }
+/* The name is the thing being chosen, so it may wrap; the style label under it
+   never does, since it is one short word. */
+.ip-card-name {
+  font-size: 0.7rem; color: var(--text-2); text-align: center;
+  line-height: 1.25; word-break: break-word;
+}
+.ip-card-style { font-size: 0.64rem; color: var(--text-3); text-transform: capitalize; }
+.ip-card-tick {
+  position: absolute; top: 6px; right: 6px; width: 16px; height: 16px;
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--accent); color: var(--surface);
+}
+.ip-card-tick svg { width: 10px; height: 10px; }
+.ip-more { padding: 0 18px 14px; font-size: 0.74rem; }
+
+.ip-foot {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px; border-top: 1px solid var(--stroke);
+}
+.ip-foot-label { font-size: 0.78rem; flex: none; }
+.ip-foot-actions { margin-left: auto; display: flex; gap: 8px; flex: none; }
+.ip-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 6px 6px 6px 11px; border-radius: 999px;
+  background: var(--surface-raised); border: 1px solid var(--stroke);
+  font-size: 0.8rem; color: var(--text-1);
+}
+.ip-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ip-chip-empty { font-size: 0.8rem; }
+.ip-chip-x {
+  flex: none; display: grid; place-items: center; width: 20px; height: 20px;
+  padding: 0; border: none; border-radius: 50%; cursor: pointer;
+  background: var(--surface); color: var(--text-3);
+}
+.ip-chip-x:hover { color: var(--text-1); }
+.ip-chip-x svg { width: 11px; height: 11px; }
+
+/* On a narrow screen the filter rail costs more than it gives: search alone is
+   the faster way through the list, so it collapses to a strip above the grid. */
+@media (max-width: 760px) {
+  .ip-overlay { padding: 0; }
+  .ip-sheet { height: 100vh; max-height: 100vh; border-radius: 0; border: none; }
+  .ip-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .ip-side { border-right: none; border-bottom: 1px solid var(--stroke); max-height: 34vh; }
+  .ip-filters { flex-direction: row; flex-wrap: wrap; }
+  .ip-filter { width: auto; }
+}
+/* A requirement that is switched on earns emphasis; "—" stays quiet. */
+.sd-req-on { color: var(--text-1); font-weight: 600; }
+/* Status chips inline with a name, so the row reads as one sentence. */
+.sd-inline-badge { margin-left: 6px; vertical-align: 1px; }
+/* Approve / Reject sit at the end of a holder row without squeezing the name. */
+.sd-approve { flex: none; display: flex; gap: 4px; align-items: center; }
+.sd-mine { display: flex; align-items: center; gap: 10px; }
+.sd-mine-lv { font-weight: 600; }
+/* The pending badge and the assign button share the team panel's header. */
+.ms-head-right { display: flex; align-items: center; gap: 10px; }
+/* Person and skill cells pair an avatar or badge with a name; keep the two
+   columns' rows the same height whichever is taller. */
+#ms-team-body .um-user { gap: 9px; }
+#ms-team-body .sk-ic { width: 28px; height: 28px; border-radius: 8px; }
+#ms-team-body .sk-ic i { font-size: 0.9rem; }
+#ms-team-body .um-avatar { width: 28px; height: 28px; font-size: 0.64rem; }
+
+/* One block per team member in the My Skills manager panel: a header row with
+   their avatar and name, then their skills indented beneath it. */
+.ms-person { padding: 14px 0; border-bottom: 1px solid var(--stroke); }
+.ms-person:first-child { padding-top: 4px; }
+.ms-person:last-child { border-bottom: none; padding-bottom: 4px; }
+.ms-person-head { display: flex; align-items: center; gap: 10px; }
+.ms-person-head .um-avatar { width: 32px; height: 32px; font-size: 0.68rem; }
+/* Skills line up under the name, not the avatar, so the block reads as "this
+   person, and what they hold". */
+.ms-person-empty, .ms-skill-list { margin: 8px 0 0 42px; }
+.ms-skill-list { display: flex; flex-direction: column; gap: 8px; }
+.ms-skill-row { display: flex; align-items: center; gap: 10px; font-size: 0.84rem; }
+.ms-skill-row .sk-ic { width: 26px; height: 26px; border-radius: 7px; }
+.ms-skill-row .sk-ic i { font-size: 0.86rem; }
+.ms-skill-name { color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The level sits to the right of the name; the status badge and any actions
+   pin to the far end, so a column forms even though the names vary in width. */
+.ms-skill-lv { color: var(--text-2); font-size: 0.78rem; margin-left: auto; }
+.ms-skill-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* A holder row in the skill detail panel: the group-page person row, plus the
+   level, status and expiry that say whether they can do the job today. Those
+   stack under the name inside the same column, since a ~400px side rail cannot
+   fit a name and three pieces of state on one line without them colliding. */
+.sk-person { align-items: flex-start; }
+.sk-person .gr-person-text { flex: 1; gap: 3px; }
+.sk-person-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px;
+}
+.sk-person-lv { font-size: 0.76rem; color: var(--text-2); }
+.sk-person-exp { font-size: 0.72rem; }
+/* Approve / Reject sit under the state they act on. */
+.sk-person .sd-approve { margin-top: 6px; }
+/* Category + status sit on one line under the skill name in the panel head. */
+.sk-head-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 3px 0 2px; }
 .danger-link {
   background: none; border: none; color: var(--text-3); font-size: 0.78rem;
   font-weight: 500; padding: 4px 8px; border-radius: 7px;
@@ -1211,7 +1431,10 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
      specificity, so without them those pages keep their two columns here and
      the table is squeezed into half a narrow screen. Any new id added to the
      wide rule above has to be added here too. */
-  .content, #users-layout, #groups-layout, #roles-layout, #entries-layout, #oauth-layout { grid-template-columns: minmax(0, 1fr); }
+  .content, #users-layout, #groups-layout, #roles-layout, #entries-layout, #oauth-layout,
+  #skills-layout,
+  #skillcats-layout,
+  #myskills-layout { grid-template-columns: minmax(0, 1fr); }
   .side-col { display: grid; grid-template-columns: repeat(2, 1fr); }
   /* Panels that are the only thing in their side column span both tracks,
      rather than sitting in one half with dead space beside them. */
@@ -1438,15 +1661,29 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 /* Square skill mark, coloured by category -- the round .avatar reads as a
    person, and a skill is not one. */
 .sk-ic {
-  width: 30px; height: 30px; flex: 0 0 auto;
-  border-radius: 8px;
+  width: 36px; height: 36px; flex: 0 0 auto;
+  border-radius: 9px;
   display: grid; place-items: center;
-  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em;
+  font-size: 0.66rem; font-weight: 600; letter-spacing: 0.02em;
   background: color-mix(in srgb, var(--c) 16%, transparent);
   color: var(--c);
   border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
 }
-.sk-ic.lg { width: 44px; height: 44px; border-radius: 10px; font-size: 0.8rem; }
+/* The two-letter mark tracks the box font-size, but a Font Awesome glyph is a
+   single character that reads as small at that size, so the icon is sized on its
+   own -- larger than the lettering, and scaled up again in the .lg badge. */
+.sk-ic i { font-size: 1.15rem; }
+.sk-ic.lg { width: 52px; height: 52px; border-radius: 12px; font-size: 0.92rem; }
+.sk-ic.lg i { font-size: 1.6rem; }
+
+/* A category's colour, shown as a filled chip in its table row and larger in
+   the detail panel. Uses the same --c custom property the skill badge does. */
+.sc-swatch {
+  flex: none; width: 22px; height: 22px; border-radius: 6px;
+  background: color-mix(in srgb, var(--c) 30%, transparent);
+  border: 1px solid var(--c);
+}
+.sc-swatch.lg { width: 44px; height: 44px; border-radius: 12px; }
 
 /* The global `label` rule is for form field captions and shouts in uppercase.
    This one captions a checkbox sitting in a toolbar, so it opts back out. */
@@ -1458,6 +1695,18 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
 .sk-check input { accent-color: var(--accent); width: 15px; height: 15px; }
 
 .sk-table td { vertical-align: middle; }
+/* These tables sit in a main column narrowed by a side panel, and six columns of
+   default padding tip them into a horizontal scrollbar. Tighter gutters plus
+   names that ellipsize keep them inside the panel at normal widths. */
+.sk-table th, .sk-table td { padding-left: 7px; padding-right: 7px; }
+.sk-table.um-table th:first-child, .sk-table.um-table td:first-child { padding-left: 12px; }
+.sk-table.um-table th:last-child, .sk-table.um-table td:last-child { padding-right: 12px; }
+.sk-table .um-user { min-width: 0; }
+.sk-table .um-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A table cell takes its content's natural width, so overflow:hidden alone will
+   not make a long name give ground. Capping the two name columns is what
+   actually lets them ellipsize instead of widening the table. */
+#ms-team-body td:nth-child(1), #ms-team-body td:nth-child(2) { max-width: 170px; }
 .sk-cat { display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-2); white-space: nowrap; }
 .sk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: 0 0 auto; }
 
@@ -1674,3 +1923,5 @@ button.block { width: 100%; margin-top: 22px; padding: 14px; }
   #i18n-layout { grid-template-columns: minmax(0, 1fr); }
   #tr-langs { grid-column: 1 / -1; }
 }
+/* The English plural for a plural key, so the second input box is not a mystery. */
+.tr-en-other { display: block; color: var(--text-2); }

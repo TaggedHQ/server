@@ -37,6 +37,17 @@ type setupState struct {
 	// is switched on. An absent map (older setup.json) or an absent key means
 	// off: modules are opt-in. Managed from the Admin · Settings page.
 	Modules map[string]bool `json:"modules,omitempty"`
+	// SkillCats and SkillLevels are the skill catalog's two admin-owned axes:
+	// the categories skills are filed under and the proficiency scale everyone
+	// rates against. Managed from the Admin · Skills page. Absent means the
+	// server has not been customised and the shipped defaults apply.
+	SkillCats   []skillCategory `json:"skill_cats,omitempty"`
+	SkillLevels []skillLevel    `json:"skill_levels,omitempty"`
+	// Skills is the shared catalog itself. Unlike the two above it is open: any
+	// account may add to it (see skillsHandler), so it is user-contributed data
+	// that happens to be server-wide. The per-user ratings against these skills
+	// live in each user's own store, not here.
+	Skills []skill `json:"skills,omitempty"`
 }
 
 const setupFile = "setup.json"

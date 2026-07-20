@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tagged · Users</title>
+  <title>Tagged · Categories</title>
+  <link rel="stylesheet" href="{{PREFIX}}css/all.min.css?v={{V}}">
   <link rel="stylesheet" href="{{PREFIX}}style.css?v={{V}}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{PREFIX}}images/favicon_light/favicon-32x32.png?v={{V}}">
   <meta name="tt-prefix" content="{{PREFIX}}">
@@ -55,7 +56,7 @@
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
             <span data-i18n="Skills">Skills</span>
           </a>
-          <a id="nav-skill-cats" href="{{PREFIX}}skillcats">
+          <a id="nav-skill-cats" class="active" href="{{PREFIX}}skillcats">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
             <span data-i18n="Categories">Categories</span>
           </a>
@@ -66,7 +67,7 @@
         </div>
         <div id="nav-admin" class="nav-section">
           <div class="nav-head" data-i18n="Admin">Admin</div>
-          <a class="active" href="{{PREFIX}}users">
+          <a href="{{PREFIX}}users">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span data-i18n="Users">Users</span>
           </a>
@@ -103,17 +104,17 @@
       </div>
     </aside>
 
-    <div class="content" id="users-layout">
+    <div class="content" id="skillcats-layout">
       <div class="main-col" style="width:100%">
         <div class="page-head">
           <div>
-            <h1 data-i18n="User Management">User Management</h1>
-            <p class="page-sub" data-i18n="Manage users, roles and permissions for your Tagged server.">Manage users, roles and permissions for your Tagged server.</p>
+            <h1 data-i18n="Categories">Categories</h1>
+            <p class="page-sub" data-i18n="How skills are filed. Every skill belongs to one category, which gives it its colour.">How skills are filed. Every skill belongs to one category, which gives it its colour.</p>
           </div>
           <div class="head-actions">
-            <button id="add-user-btn">
+            <button id="sc-add-btn">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              <span data-i18n="Add user">Add user</span>
+              <span data-i18n="Add category">Add category</span>
             </button>
           </div>
         </div>
@@ -122,122 +123,64 @@
           <div class="um-toolbar">
             <div class="search-field">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-              <input id="user-search" type="text" placeholder="Search users…" data-i18n-placeholder="Search users…" autocomplete="off">
+              <input id="sc-search" type="text" placeholder="Search categories…" data-i18n-placeholder="Search categories…" autocomplete="off">
             </div>
-            <!-- Options are filled in from the server's role list: roles are
-                 operator-editable, so a hardcoded set here would not match. -->
-            <select id="role-filter" class="um-select">
-              <option value="" data-i18n="All roles">All roles</option>
-            </select>
-            <select id="status-filter" class="um-select">
-              <option value="" data-i18n="All status">All status</option>
-              <option value="registered" data-i18n="Registered">Registered</option>
-              <option value="nopw" data-i18n="No password">No password</option>
-              <option value="disabled" data-i18n="Deactivated">Deactivated</option>
-            </select>
+            <label class="sk-check">
+              <input type="checkbox" id="sc-show-archived">
+              <span data-i18n="Show archived">Show archived</span>
+            </label>
           </div>
           <div class="table-wrap">
             <table class="utable um-table">
               <thead>
-                <tr><th data-i18n="User">User</th><th data-i18n="Role">Role</th><th data-i18n="Status">Status</th><th data-i18n="Storage">Storage</th><th data-i18n="Last active">Last active</th><th></th></tr>
+                <tr>
+                  <th data-i18n="Category">Category</th>
+                  <th data-i18n="Skills">Skills</th>
+                  <th data-i18n="Status">Status</th>
+                  <th></th>
+                </tr>
               </thead>
-              <tbody id="users-body">
-                <tr><td colspan="6" class="muted" data-i18n="Loading…">Loading…</td></tr>
+              <tbody id="sc-body">
+                <tr><td colspan="4" class="muted" data-i18n="Loading…">Loading…</td></tr>
               </tbody>
             </table>
           </div>
           <div class="um-foot">
-            <span id="users-count" class="muted"></span>
+            <span id="sc-count" class="muted"></span>
           </div>
-          <div id="users-msg" class="msg"></div>
+          <div id="sc-cats-msg" class="msg"></div>
         </div>
       </div>
 
       <aside class="side-col">
-        <div class="panel um-details" id="user-details">
-          <div class="um-empty">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
-            <p data-i18n="Select a user to view details, roles and actions.">Select a user to view details, roles and actions.</p>
-          </div>
-        </div>
+        <div class="panel um-details" id="sc-details"></div>
       </aside>
     </div>
   </div>
 
-  <!-- Add user modal -->
-  <div class="modal-overlay" id="add-user-modal" hidden>
-    <div class="sheet" style="max-width:440px">
-      <div class="sheet-title" data-i18n="Add user">Add user</div>
+  <!-- Create / edit category. One sheet for both. -->
+  <div class="modal-overlay" id="sc-modal" hidden>
+    <div class="sheet" style="max-width:420px">
+      <div class="sheet-title" id="sc-modal-title" data-i18n="New category">New category</div>
       <div class="sheet-section">
-        <div class="sheet-label" data-i18n="Username">Username</div>
-        <input id="new-username" class="em-input" type="text" placeholder="user@example.com" autocomplete="off">
+        <div class="sheet-label" data-i18n="Name">Name</div>
+        <input id="sc-name" class="em-input" type="text" placeholder="Equipment" autocomplete="off">
       </div>
       <div class="sheet-section">
-        <div class="sheet-label" data-i18n="Password">Password</div>
-        <input id="new-password" class="em-input" type="password" placeholder="min. 4 characters" data-i18n-placeholder="min. 4 characters" autocomplete="new-password">
+        <div class="sheet-label" data-i18n="Colour">Colour</div>
+        <input id="sc-color" class="em-input sk-color-input" type="color" value="#4C82F7">
       </div>
-      <div id="create-msg" class="msg"></div>
+      <div class="sheet-section">
+        <label class="sk-check">
+          <input type="checkbox" id="sc-archived-toggle">
+          <span data-i18n="Archived">Archived</span>
+        </label>
+        <p class="um-note muted" data-i18n="Archived categories are hidden when adding a skill, but keep the skills already filed under them.">Archived categories are hidden when adding a skill, but keep the skills already filed under them.</p>
+      </div>
+      <div id="sc-modal-msg" class="msg"></div>
       <div class="sheet-actions">
-        <button class="secondary" id="add-user-cancel" data-i18n="Cancel">Cancel</button>
-        <button id="create-user" data-i18n="Create user">Create user</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Edit profile modal (filled in by the details panel) -->
-  <div class="modal-overlay" id="edit-profile-modal" hidden>
-    <div class="sheet" style="max-width:520px">
-      <div class="sheet-title" data-i18n="Edit profile">Edit profile</div>
-      <div class="sheet-section">
-        <div class="pf-photo">
-          <span id="ep-avatar"></span>
-          <div class="pf-photo-actions">
-            <div class="pf-photo-label" data-i18n="Profile picture">Profile picture</div>
-            <div class="ud-actions">
-              <button class="secondary btn-sm" id="ep-pick" data-i18n="Upload picture">Upload picture</button>
-              <button class="secondary btn-sm danger-btn" id="ep-clear" hidden data-i18n="Remove">Remove</button>
-            </div>
-            <p class="muted um-note" data-i18n="JPEG or PNG. It is cropped to a square.">JPEG or PNG. It is cropped to a square.</p>
-          </div>
-        </div>
-        <div id="ep-fields"></div>
-        <input type="file" id="ep-file" accept="image/jpeg,image/png" hidden>
-      </div>
-      <div id="ep-msg" class="msg"></div>
-      <div class="sheet-actions">
-        <button class="secondary" id="ep-cancel" data-i18n="Cancel">Cancel</button>
-        <button id="ep-save" data-i18n="Save profile">Save profile</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Manage groups modal. A user can be in more than one, so these are checkboxes. -->
-  <div class="modal-overlay" id="edit-groups-modal" hidden>
-    <div class="sheet" style="max-width:480px">
-      <div class="sheet-title" data-i18n="Manage groups">Manage groups</div>
-      <p id="eg-intro" class="muted um-note" style="text-align:center;margin:-8px 0 16px"></p>
-      <div class="sheet-section">
-        <div id="eg-options" class="group-choices"></div>
-      </div>
-      <div id="eg-msg" class="msg"></div>
-      <div class="sheet-actions">
-        <button class="secondary" id="eg-cancel" data-i18n="Cancel">Cancel</button>
-        <button id="eg-save" data-i18n="Save groups">Save groups</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Manage roles modal -->
-  <div class="modal-overlay" id="edit-roles-modal" hidden>
-    <div class="sheet" style="max-width:480px">
-      <div class="sheet-title" data-i18n="Manage roles">Manage roles</div>
-      <div class="sheet-section">
-        <div id="er-options" class="role-choices"></div>
-      </div>
-      <div id="er-msg" class="msg"></div>
-      <div class="sheet-actions">
-        <button class="secondary" id="er-cancel" data-i18n="Cancel">Cancel</button>
-        <button id="er-save" data-i18n="Save roles">Save roles</button>
+        <button class="secondary" id="sc-cancel" data-i18n="Cancel">Cancel</button>
+        <button id="sc-save" data-i18n="Save">Save</button>
       </div>
     </div>
   </div>

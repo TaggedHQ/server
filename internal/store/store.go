@@ -90,6 +90,10 @@ const (
 	TableUserinfo = "userinfo"
 	TableRecords  = "records"
 	TableSettings = "settings"
+	// TableSkills holds one item per skill the user claims, keyed by skill id.
+	// Unlike the three above it has no counterpart in the Python schema: it is
+	// additive, so an older database file simply gains an empty table on open.
+	TableSkills = "skills"
 )
 
 // NewBackend constructs the configured backend. kind "" or "sqlite" selects the

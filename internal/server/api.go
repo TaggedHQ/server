@@ -154,6 +154,17 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 		}
 		return s.adminHandler(req, strings.TrimPrefix(path, "admin"), username, caps)
 	}
+	// The skill catalog is open to every account: anyone may add a skill, rate
+	// themselves, and see who holds what. Only the categories and the
+	// proficiency scale are admin-owned, and those live under admin/ above.
+	// Gated on the module switch, so a server that never opted in 404s here the
+	// same way its page does.
+	if path == "skills" || strings.HasPrefix(path, "skills/") {
+		if !s.moduleEnabled(moduleSkills) {
+			return textResp(404, "not found: the skills module is not enabled")
+		}
+		return s.skillsHandler(req, strings.TrimPrefix(path, "skills"), username, s.capsOf(username, db))
+	}
 	if path == "controller" || strings.HasPrefix(path, "controller/") {
 		if !s.hasCap(username, db, capUsersActAs) {
 			return textResp(403, "forbidden: controller access required")

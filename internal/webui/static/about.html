@@ -33,9 +33,9 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><path d="M8 14h3"/></svg>
           <span data-i18n="Shifts">Shifts</span>
         </a>
-        <a id="nav-skills" href="{{PREFIX}}skills" style="display:none">
+        <a id="nav-my-skills" href="{{PREFIX}}myskills" style="display:none">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
-          <span data-i18n="Skills">Skills</span>
+          <span data-i18n="My Skills">My Skills</span>
         </a>
         <a href="{{PREFIX}}impexp">
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
@@ -49,6 +49,21 @@
           <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
           <span data-i18n="About">About</span>
         </a>
+        <div id="nav-skills-section" class="nav-section" style="display:none">
+          <div class="nav-head" data-i18n="Skills">Skills</div>
+          <a id="nav-skills" href="{{PREFIX}}skills">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3z"/></svg>
+            <span data-i18n="Skills">Skills</span>
+          </a>
+          <a id="nav-skill-cats" href="{{PREFIX}}skillcats">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h8l10 10-8 8L3 11V3z"/><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+            <span data-i18n="Categories">Categories</span>
+          </a>
+          <a id="nav-skill-levels" href="{{PREFIX}}skilllevels">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M8 19v-6"/><path d="M13 19v-10"/><path d="M18 19v-14"/></svg>
+            <span data-i18n="Skill Levels">Skill Levels</span>
+          </a>
+        </div>
         <div id="nav-admin" class="nav-section" style="display:none">
           <div class="nav-head" data-i18n="Admin">Admin</div>
           <a href="{{PREFIX}}users">
@@ -90,14 +105,14 @@
 
     <div class="content single">
       <div class="main-col" id="about-content" style="width:100%">
-        <div class="page-head"><h1>About Tagged</h1></div>
+        <div class="page-head"><h1 data-i18n="About Tagged">About Tagged</h1></div>
 
         <div class="panel">
           <div class="about-meta">
-            <div><span class="k">Version</span><span class="v" id="ab-version">…</span></div>
-            <div><span class="k">Build Date</span><span class="v" id="ab-build">…</span></div>
-            <div><span class="k">Go Version</span><span class="v" id="ab-go">…</span></div>
-            <div id="ab-rev-row" hidden><span class="k">Revision</span><span class="v mono" id="ab-rev">…</span></div>
+            <div><span class="k" data-i18n="Version">Version</span><span class="v" id="ab-version">…</span></div>
+            <div><span class="k" data-i18n="Build Date">Build Date</span><span class="v" id="ab-build">…</span></div>
+            <div><span class="k" data-i18n="Go Version">Go Version</span><span class="v" id="ab-go">…</span></div>
+            <div id="ab-rev-row" hidden><span class="k" data-i18n="Revision">Revision</span><span class="v mono" id="ab-rev">…</span></div>
           </div>
           <div id="ab-note" class="about-note" hidden></div>
           <div class="about-repo">
@@ -109,31 +124,31 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Based on TimeTagger</h3></div>
+          <div class="panel-head"><h3 data-i18n="Based on TimeTagger">Based on TimeTagger</h3></div>
           <p class="hint">
-            Tagged is built on <b>TimeTagger</b> by Almar Klein — its data model and
+            Tagged is built on <b data-i18n="TimeTagger">TimeTagger</b> by Almar Klein — its data model and
             sync protocol — and stays compatible with it.
           </p>
           <div class="dep-row">
             <div class="dep-info">
-              <div class="dep-name">TimeTagger</div>
-              <div class="dep-desc">Open-source time tracker Tagged is based on.</div>
+              <div class="dep-name" data-i18n="TimeTagger">TimeTagger</div>
+              <div class="dep-desc" data-i18n="Open-source time tracker Tagged is based on.">Open-source time tracker Tagged is based on.</div>
               <div class="about-links">
-                <a class="link-accent" href="https://timetagger.app" target="_blank" rel="noopener">Website ↗</a>
+                <a class="link-accent" href="https://timetagger.app" target="_blank" rel="noopener" data-i18n="Website ↗">Website ↗</a>
                 <a class="link-accent" href="https://github.com/almarklein/timetagger" target="_blank" rel="noopener">
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.22-3.37-1.22-.46-1.18-1.11-1.5-1.11-1.5-.9-.64.07-.62.07-.62 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.55-1.14-4.55-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.36 9.36 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></svg>
-                  GitHub ↗
+                  <span data-i18n="GitHub ↗">GitHub ↗</span>
                 </a>
               </div>
             </div>
-            <span class="lic-badge">GPL-3.0</span>
+            <span class="lic-badge" data-i18n="GPL-3.0">GPL-3.0</span>
           </div>
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>Backend Dependencies</h3></div>
+          <div class="panel-head"><h3 data-i18n="Backend Dependencies">Backend Dependencies</h3></div>
           <div id="ab-deps">
-            <div class="hint">Loading…</div>
+            <div class="hint" data-i18n="Loading…">Loading…</div>
           </div>
         </div>
       </div>

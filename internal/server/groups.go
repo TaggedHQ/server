@@ -12,12 +12,31 @@ import (
 // only "switch to" (act as) users who are members of a group they control --
 // see controllerTargets. Groups are server-wide state and live in setup.json,
 // alongside the OAuth providers and the self-registration switch.
+//
+// Membership is exclusive: a regular user belongs to at most one group. That is
+// what lets the group answer "which team is this person on?" for the features
+// built on top of it -- a shift roster and a skill roll-up both need one
+// unambiguous team per person, and a user in two groups would be double-counted
+// by one and rostered twice by the other.
+//
+// Control is not exclusive: a controller oversees as many groups as needed, and
+// a group may have several. Only the member side is one-to-one.
+//
+// The invariant is enforced on every write (adminSaveGroup moves a member out of
+// their previous group, adminSetUserGroups refuses more than one) and repaired
+// on load, so a hand-edited setup.json cannot leave it violated.
 
 // group is one group as stored and as sent to the Admin - Groups page.
 type group struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Icon and IconStyle are a Font Awesome badge for the group, the same pair a
+	// skill carries (see normalizeIcon / normalizeIconStyle). Empty Icon means
+	// the avatar falls back to the group's initials, so a group always shows
+	// something whether or not one was chosen.
+	Icon        string   `json:"icon,omitempty"`
+	IconStyle   string   `json:"icon_style,omitempty"`
 	Members     []string `json:"members"`     // usernames of regular users
 	Controllers []string `json:"controllers"` // usernames holding the controller role
 }
@@ -32,6 +51,70 @@ var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 func slugify(name string) string {
 	s := nonSlug.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-")
 	return strings.Trim(s, "-")
+}
+
+// memberGroupOf returns the id of the group username is a member of, or "" if
+// they are in none. Membership is exclusive, so there is at most one.
+func memberGroupOf(groups []group, username string) string {
+	for _, g := range groups {
+		for _, m := range g.Members {
+			if m == username {
+				return g.ID
+			}
+		}
+	}
+	return ""
+}
+
+// takeMembers removes the given users from every group except keep, returning
+// the groups they were moved out of as username -> previous group id. It is how
+// adding somebody to a group works: membership is exclusive, so joining one
+// group is always leaving another.
+func takeMembers(groups []group, users []string, keep string) map[string]string {
+	want := make(map[string]bool, len(users))
+	for _, u := range users {
+		want[u] = true
+	}
+	moved := map[string]string{}
+	for i := range groups {
+		if groups[i].ID == keep {
+			continue
+		}
+		out := groups[i].Members[:0:0] // fresh backing array; never alias the input
+		for _, m := range groups[i].Members {
+			if want[m] {
+				moved[m] = groups[i].ID
+				continue
+			}
+			out = append(out, m)
+		}
+		groups[i].Members = out
+	}
+	return moved
+}
+
+// normalizeGroupMembership repairs a group list that puts somebody in more than
+// one group, keeping their first membership in list order and dropping the rest.
+// Only a hand-edited setup.json (or one written before membership became
+// exclusive) can be in that state; every write path maintains the invariant. It
+// returns the usernames it had to trim, for the startup log.
+func normalizeGroupMembership(groups []group) []string {
+	seen := map[string]bool{}
+	var trimmed []string
+	for i := range groups {
+		out := groups[i].Members[:0:0]
+		for _, m := range groups[i].Members {
+			if seen[m] {
+				trimmed = append(trimmed, m)
+				continue
+			}
+			seen[m] = true
+			out = append(out, m)
+		}
+		groups[i].Members = out
+	}
+	sort.Strings(trimmed)
+	return trimmed
 }
 
 // listGroups returns a deep copy of the configured groups. The member and
@@ -268,6 +351,8 @@ func (s *Server) adminSaveGroup(req *request) response {
 		ID          string   `json:"id"`
 		Name        string   `json:"name"`
 		Description string   `json:"description"`
+		Icon        string   `json:"icon"`
+		IconStyle   string   `json:"icon_style"`
 		Members     []string `json:"members"`
 		Controllers []string `json:"controllers"`
 	}
@@ -280,6 +365,14 @@ func (s *Server) adminSaveGroup(req *request) response {
 	}
 	if len(name) > 80 {
 		return textResp(400, "group name must be at most 80 characters")
+	}
+	icon := normalizeIcon(body.Icon)
+	if body.Icon != "" && icon == "" {
+		return textResp(400, "icon must be a Font Awesome name like people-group")
+	}
+	iconStyle := ""
+	if icon != "" {
+		iconStyle = normalizeIconStyle(body.IconStyle)
 	}
 	members, controllers, err := s.validateGroupUsers(body.Members, body.Controllers)
 	if err != nil {
@@ -295,6 +388,7 @@ func (s *Server) adminSaveGroup(req *request) response {
 		}
 		groups = append(groups, group{
 			ID: newID, Name: name, Description: strings.TrimSpace(body.Description),
+			Icon: icon, IconStyle: iconStyle,
 			Members: members, Controllers: controllers,
 		})
 		id = newID
@@ -314,13 +408,37 @@ func (s *Server) adminSaveGroup(req *request) response {
 		}
 		groups[idx].Name = name
 		groups[idx].Description = strings.TrimSpace(body.Description)
+		groups[idx].Icon = icon
+		groups[idx].IconStyle = iconStyle
 		groups[idx].Members = members
 		groups[idx].Controllers = controllers
 	}
+	// Membership is exclusive, so anyone named here leaves the group they were
+	// in. This is a move rather than a rejection: the admin edits one group at a
+	// time, and "add Bob to Support" reads as an instruction, not a question. The
+	// moves are reported back so the UI can say what else changed -- pulling
+	// somebody off another team is exactly the kind of side effect that must not
+	// happen silently.
+	moved := takeMembers(groups, members, id)
 	if err := s.saveGroups(groups); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
-	return jsonResp(200, map[string]any{"status": "ok", "id": id})
+	return jsonResp(200, map[string]any{"status": "ok", "id": id, "moved": movedList(groups, moved)})
+}
+
+// movedList renders takeMembers' result for the UI: who moved, and the name
+// (not the id) of the group they came from.
+func movedList(groups []group, moved map[string]string) []map[string]string {
+	names := map[string]string{}
+	for _, g := range groups {
+		names[g.ID] = g.Name
+	}
+	out := make([]map[string]string, 0, len(moved))
+	for user, from := range moved {
+		out = append(out, map[string]string{"username": user, "from": from, "from_name": names[from]})
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a]["username"] < out[b]["username"] })
+	return out
 }
 
 // adminSetUserGroups rewrites one user's group membership in a single save.
@@ -386,6 +504,17 @@ func (s *Server) adminSetUserGroups(req *request) response {
 		if !known[id] {
 			return textResp(404, "group not found: "+id)
 		}
+	}
+	// After the existence check, not before: naming a group that does not exist
+	// is the more fundamental mistake, and reporting the count rule instead
+	// would send the caller looking in the wrong place.
+	//
+	// Unlike adminSaveGroup, this call states a user's whole membership at once,
+	// so two groups is a contradiction rather than a move to interpret. Refusing
+	// keeps the caller honest about which group they meant. Controllers are
+	// unaffected: overseeing several groups is the normal case.
+	if !asController && len(want) > 1 {
+		return textResp(400, "a user can belong to only one group")
 	}
 
 	// Rebuild the one list this user belongs in, leaving the other untouched.

@@ -15,43 +15,43 @@
       <div class="auth-head">
         <img class="auth-logo" src="{{PREFIX}}images/Taggd-Colored.svg?v={{V}}" alt="Tagged logo">
         <div class="brandmark lg">Tagged</div>
-        <p class="subtitle">Welcome — let's set up your server</p>
+        <p class="subtitle" data-i18n="Welcome — let's set up your server">Welcome — let's set up your server</p>
       </div>
       <form id="setup-form">
         <div id="backend-choice">
-          <label>Server type</label>
+          <label data-i18n="Server type">Server type</label>
           <div class="opt-cards">
             <label class="opt">
               <input type="radio" name="backend" value="sqlite" checked>
               <span class="opt-body">
-                <span class="opt-title">Simple Server</span>
-                <span class="opt-desc">SQLite — zero setup, one file. Great for personal and small‑team use.</span>
+                <span class="opt-title" data-i18n="Simple Server">Simple Server</span>
+                <span class="opt-desc" data-i18n="SQLite — zero setup, one file. Great for personal and small‑team use.">SQLite — zero setup, one file. Great for personal and small‑team use.</span>
               </span>
             </label>
             <label class="opt">
               <input type="radio" name="backend" value="postgres">
               <span class="opt-body">
-                <span class="opt-title">Performance Server</span>
-                <span class="opt-desc">PostgreSQL — scalable and concurrent, for larger deployments.</span>
+                <span class="opt-title" data-i18n="Performance Server">Performance Server</span>
+                <span class="opt-desc" data-i18n="PostgreSQL — scalable and concurrent, for larger deployments.">PostgreSQL — scalable and concurrent, for larger deployments.</span>
               </span>
             </label>
           </div>
           <div id="pg-field" hidden>
-            <label for="db_url">PostgreSQL connection URL</label>
+            <label for="db_url" data-i18n="PostgreSQL connection URL">PostgreSQL connection URL</label>
             <input id="db_url" type="text" autocomplete="off" spellcheck="false"
                    placeholder="postgres://user:pass@host:5432/tagged?sslmode=disable">
-            <p class="hint">We'll test the connection before continuing.</p>
+            <p class="hint" data-i18n="We'll test the connection before continuing.">We'll test the connection before continuing.</p>
           </div>
         </div>
         <p id="backend-locked-note" class="hint" hidden></p>
 
-        <label for="username">Admin username</label>
+        <label for="username" data-i18n="Admin username">Admin username</label>
         <input id="username" type="text" autocomplete="username" required>
-        <label for="password">Password</label>
+        <label for="password" data-i18n="Password">Password</label>
         <input id="password" type="password" autocomplete="new-password" required>
-        <label for="password2">Confirm password</label>
+        <label for="password2" data-i18n="Confirm password">Confirm password</label>
         <input id="password2" type="password" autocomplete="new-password" required>
-        <button class="block" type="submit">Create admin &amp; finish</button>
+        <button class="block" type="submit" data-i18n="Create admin &amp; finish">Create admin &amp; finish</button>
       </form>
       <div id="msg" class="msg"></div>
     </div>

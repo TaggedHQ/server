@@ -22,7 +22,7 @@ import (
 //     element as the fallback. A test asserts the two copies agree.
 //   - JS: t("...") and tn("...", n) call sites. Extracting from call sites rather
 //     than from string literals in general is what keeps design fixtures
-//     (SAMPLE_GROUPS, SAMPLE_SKILLS) and technical tables (IE_HEADER_ALIASES) out
+//     (SAMPLE_GROUPS) and technical tables (IE_HEADER_ALIASES) out
 //     of the catalog automatically.
 
 var (
@@ -30,8 +30,10 @@ var (
 	// -aria-label, -alt). Values are single- or double-quoted.
 	reHTMLKey = regexp.MustCompile(`data-i18n(?:-[a-z-]+)?\s*=\s*"([^"]*)"|data-i18n(?:-[a-z-]+)?\s*=\s*'([^']*)'`)
 	// t("...") / t('...') / tn("...") -- a literal first argument only.
-	reJSKey  = regexp.MustCompile(`\bt\(\s*"((?:[^"\\]|\\.)*)"|\bt\(\s*'((?:[^'\\]|\\.)*)'`)
-	reJSNKey = regexp.MustCompile(`\btn\(\s*"((?:[^"\\]|\\.)*)"|\btn\(\s*'((?:[^'\\]|\\.)*)'`)
+	reJSKey = regexp.MustCompile(`\bt\(\s*"((?:[^"\\]|\\.)*)"|\bt\(\s*'((?:[^'\\]|\\.)*)'`)
+	// tn("singular", "plural", n): both English forms are captured, the first as
+	// the key and the second so a translator sees what the plural should say.
+	reJSNKey = regexp.MustCompile(`\btn\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"`)
 	// A t( whose first argument is not a string literal cannot be extracted, so
 	// it would silently never be translatable.
 	reDynamicT = regexp.MustCompile(`\bt\(\s*[^"')\s]`)
@@ -107,6 +109,7 @@ func ExtractCatalog() ([]CatalogEntry, error) {
 	type found struct {
 		ctx    string
 		plural bool
+		other  string // the English plural, for plural keys
 	}
 	keys := map[string]*found{}
 
@@ -125,6 +128,16 @@ func ExtractCatalog() ([]CatalogEntry, error) {
 			return
 		}
 		keys[key] = &found{ctx: ctx, plural: plural}
+	}
+
+	// notePlural records a tn() pair. The singular is the key; the plural is kept
+	// so the Translations page can show a translator both English forms, rather
+	// than a lone singular and an unexplained second input box.
+	notePlural := func(one, other, ctx string) {
+		note(one, ctx, true)
+		if e, ok := keys[NormalizeKey(one)]; ok && e.other == "" {
+			e.other = NormalizeKey(other)
+		}
 	}
 
 	err := fs.WalkDir(files, "static", func(p string, d fs.DirEntry, err error) error {
@@ -156,7 +169,7 @@ func ExtractCatalog() ([]CatalogEntry, error) {
 			note(unquoteJS(firstNonEmpty(m[1], m[2])), ctx, false)
 		}
 		for _, m := range reJSNKey.FindAllStringSubmatch(body, -1) {
-			note(unquoteJS(firstNonEmpty(m[1], m[2])), ctx, true)
+			notePlural(unquoteJS(m[1]), unquoteJS(m[2]), ctx)
 		}
 		return nil
 	})
@@ -166,7 +179,7 @@ func ExtractCatalog() ([]CatalogEntry, error) {
 
 	out := make([]CatalogEntry, 0, len(keys))
 	for k, f := range keys {
-		out = append(out, CatalogEntry{Key: k, Ctx: f.ctx, Plural: f.plural})
+		out = append(out, CatalogEntry{Key: k, Ctx: f.ctx, Plural: f.plural, Other: f.other})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Ctx != out[j].Ctx {
