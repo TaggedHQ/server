@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.3.0"
+var Version = "0.3.1"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -61,6 +61,11 @@ type Server struct {
 	// oauthMu guards oauthProviders, the configured external identity providers.
 	oauthMu        sync.RWMutex
 	oauthProviders []oauthProvider
+
+	// smtpMu guards smtp, the outbound mail relay settings. The password is held
+	// here in the clear and sealed on the way to setup.json.
+	smtpMu sync.RWMutex
+	smtp   smtpConfig
 
 	// rolesMu guards roles, the role -> capabilities permission matrix.
 	rolesMu sync.RWMutex
@@ -189,7 +194,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// rather than returned as an error: a bad catalog must not stop the server
 	// from booting.
 	langs := loadTranslations(rootTTDir)
-	return &Server{
+	srv := &Server{
 		cfg:              cfg,
 		rootTTDir:        rootTTDir,
 		rootUserDir:      rootUserDir,
@@ -214,7 +219,19 @@ func New(cfg *config.Config) (*Server, error) {
 		langs:            langs,
 		i18nRev:          i18nRevOf(langs),
 		htmlCache:        map[string][]byte{},
-	}, nil
+	}
+	// The SMTP password is sealed on disk, so it can only be opened once the
+	// server (and its derived key) exists. A password that will not open leaves
+	// the rest of the settings intact: the operator retypes it rather than losing
+	// the host and sender they configured.
+	if saved != nil && saved.SMTP != nil {
+		smtp := *saved.SMTP
+		if smtp.Password != "" {
+			smtp.Password, _ = srv.openSecret(smtp.Password)
+		}
+		srv.smtp = smtp
+	}
+	return srv, nil
 }
 
 // getStore returns the current backend under a read lock, so the setup wizard can
@@ -290,10 +307,25 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 	s.skillsMu.RLock()
 	skillCats, skillLevels, skills := s.skillCats, s.skillLevels, s.skills
 	s.skillsMu.RUnlock()
+	s.smtpMu.RLock()
+	mail := s.smtp
+	s.smtpMu.RUnlock()
+	// Seal the relay password on the way out. A failure to seal drops the
+	// password rather than writing it in the clear: the operator is told to
+	// retype it, which beats silently persisting a secret we meant to protect.
+	if mail.Password != "" {
+		if sealed, err := s.sealSecret(mail.Password); err == nil {
+			mail.Password = sealed
+		} else {
+			log.Printf("could not seal the SMTP password; storing it unset: %v", err)
+			mail.Password = ""
+		}
+	}
 	return setupState{
 		Backend: kind, DBURL: dbURL, RegistrationOpen: &open,
 		OAuth: providers, RoleDefs: roles, Groups: groups, Modules: modules,
 		SkillCats: skillCats, SkillLevels: skillLevels, Skills: skills,
+		SMTP: &mail,
 	}
 }
 

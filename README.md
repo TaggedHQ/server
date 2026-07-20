@@ -58,6 +58,11 @@ Track your time with tags, see where it goes, and own your data.
   approval. Expiry counts from the certificate's issue date, so a backdated
   ticket doesn't quietly gain a fresh term. Everyone can see who holds what
   across the company; only a holder's own manager can act on it.
+- ✉️ **E‑mail when it matters.** Point the server at an SMTP relay from
+  **Admin → Settings** and it tells people what they'd otherwise have to go
+  looking for: a manager hears that a skill is waiting on their approval, and the
+  holder hears what was decided. Off by default, and nothing is sent to anyone
+  without an e‑mail address in their profile.
 - 🪪 **Profiles & pictures.** First/last name, job, department, e‑mail, phone and
   mobile, plus a profile picture. Everyone edits their own from **Account**;
   admins edit anyone from **Admin → Users**, where the list is searchable across
@@ -225,11 +230,44 @@ Assignments live in each user's own store, not in `setup.json`, so they travel
 with the account and are deleted with it. The catalogue and the two axes are
 server‑wide and live alongside groups and roles.
 
+**Approval e‑mails.** With the **E‑mail** section below configured, a claim that lands
+pending notifies whoever can clear it — the holder's group controllers, or the
+`skills.manage` backstop for a holder in no group — and the manager's decision
+notifies the holder, approved or rejected. Recipients without an address in their
+profile are skipped, and a relay that is down never blocks the assignment itself:
+the claim is stored either way and the send is retried by nobody, so treat the
+mail as a nudge rather than the record.
+
 **Upgrading an existing install.** Like translations, the catalogue is gated on a
 new `skills.manage` capability, and roles are persisted — so the Admin role does
 **not** pick it up automatically. Tick it once under **Admin → Roles**, and grant
 it to whichever role you call "manager", or the Skills pages 403 and their nav
 entries stay hidden.
+
+## E‑mail
+
+**Admin → Settings → Email (SMTP)** points the server at a relay: host, port,
+STARTTLS/TLS/none, an optional username and password, and the address mail is
+sent from. **Send test email** proves the settings work before anything depends
+on them.
+
+It is off by default and sends nothing on its own — switching it on only makes
+the relay available. Today one feature uses it: the [skills](#skills) approval
+loop. Anywhere else that grows a notification will use the same settings.
+
+Two rules hold everywhere mail is sent:
+
+- **Only to a profile address.** The username is a login, not necessarily a
+  mailbox, so it is never used as a fallback. No address in the profile means no
+  e‑mail.
+- **Never in the way.** Sending happens off the request, so a relay that is slow,
+  down or misconfigured logs a line and is otherwise ignored — it can't turn a
+  successful action into a failed one.
+
+The relay password is encrypted at rest under `jwt.key`, like the TOTP secrets —
+see [Secrets at rest](#secrets-at-rest). The API never hands it back: reading the
+settings tells you *whether* a password is stored, not what it is, so saving an
+edited host does not require retyping it.
 
 ## Translations
 
@@ -276,7 +314,10 @@ Passwords and two‑factor backup codes are bcrypt hashes — they are never
 recoverable. A TOTP secret has to be, since the server reproduces the code from
 it, so from 0.2.4 it is encrypted with AES‑256‑GCM under a key derived from
 `jwt.key`. Existing plaintext secrets are re‑stored encrypted the first time
-their owner signs in; nothing needs to be done by hand.
+their owner signs in; nothing needs to be done by hand. From 0.3.1 the SMTP relay
+password in `setup.json` is sealed the same way — it is configured long before
+anything sends, so it would otherwise sit in backups unread. Losing `jwt.key`
+means retyping it; the rest of the mail settings survive.
 
 This protects a database seen on its own — a backup, a Postgres replica, a
 copied volume. It does **not** protect a stolen `datadir`, because the key is

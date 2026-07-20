@@ -130,6 +130,66 @@
           <div id="modules-list" class="muted" data-i18n="Loading…">Loading…</div>
           <div id="modules-msg" class="msg"></div>
         </div>
+
+        <div class="panel" id="smtp-panel">
+          <div class="panel-head">
+            <h3 data-i18n="Email (SMTP)">Email (SMTP)</h3>
+            <span class="sub" data-i18n="The relay the server sends mail through">The relay the server sends mail through</span>
+          </div>
+          <label class="setting-row" for="smtp-enabled">
+            <span class="setting-label">
+              <strong data-i18n="Send email from this server">Send email from this server</strong>
+              <span class="muted" data-i18n="When off, features that would email a user skip that step. Nothing is sent until a feature asks for it: turning this on only makes the relay available.">When off, features that would email a user skip that step. Nothing is sent until a feature asks for it: turning this on only makes the relay available.</span>
+            </span>
+            <span class="toggle">
+              <input type="checkbox" id="smtp-enabled">
+              <span class="slider"></span>
+            </span>
+          </label>
+
+          <div class="form-grid" id="smtp-grid">
+            <div>
+              <label for="smtp-host" data-i18n="Host">Host</label>
+              <input id="smtp-host" type="text" placeholder="smtp.example.com">
+            </div>
+            <div>
+              <label for="smtp-port" data-i18n="Port">Port</label>
+              <input id="smtp-port" type="number" min="1" max="65535" placeholder="587">
+            </div>
+            <div>
+              <label for="smtp-security" data-i18n="Security">Security</label>
+              <select id="smtp-security" class="um-select">
+                <option value="starttls">STARTTLS (587)</option>
+                <option value="tls">TLS (465)</option>
+                <option value="none" data-i18n="None (unencrypted)">None (unencrypted)</option>
+              </select>
+            </div>
+            <div>
+              <label for="smtp-username" data-i18n="Username">Username</label>
+              <input id="smtp-username" type="text" autocomplete="off" placeholder="Leave blank to send unauthenticated" data-i18n-placeholder="Leave blank to send unauthenticated">
+            </div>
+            <div>
+              <label for="smtp-password" data-i18n="Password">Password</label>
+              <input id="smtp-password" type="password" autocomplete="new-password">
+              <span class="muted" id="smtp-pw-hint"></span>
+            </div>
+            <div>
+              <label for="smtp-from-addr" data-i18n="From address">From address</label>
+              <input id="smtp-from-addr" type="email" placeholder="tagged@example.com">
+            </div>
+            <div>
+              <label for="smtp-from-name" data-i18n="From name">From name</label>
+              <input id="smtp-from-name" type="text" placeholder="Tagged">
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button id="smtp-save" type="button" data-i18n="Save">Save</button>
+            <input id="smtp-test-to" type="email" placeholder="you@example.com">
+            <button class="secondary" id="smtp-test" type="button" data-i18n="Send test email">Send test email</button>
+          </div>
+          <div id="smtp-msg" class="msg"></div>
+        </div>
       </div>
     </div>
   </div>

@@ -1087,6 +1087,11 @@ func (s *Server) writeAssignment(body assignBody, holder, actor string, byManage
 	if err := writeUserSkill(db, us); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
+	// Only a claim that actually landed pending is worth an email: a manager's
+	// own assignment is already approved, and nobody needs telling about it.
+	if us.Status == statusPending {
+		s.notifySkillPending(holder, target.Name)
+	}
 	return jsonResp(200, map[string]any{"status": "ok", "assignment": us})
 }
 
@@ -1136,6 +1141,16 @@ func (s *Server) approveSkill(req *request, manager string, caps map[string]bool
 	}
 	defer db.Close()
 
+	// The name is read before the write because rejecting clears the assignment,
+	// and the email still has to say which skill was turned down.
+	name := id
+	for _, sk := range s.listSkills() {
+		if sk.ID == id {
+			name = sk.Name
+			break
+		}
+	}
+
 	// Rejecting clears the assignment rather than parking it in a third state:
 	// the holder can re-claim it with better evidence, and a "rejected" row that
 	// nothing reads would only be clutter.
@@ -1143,6 +1158,7 @@ func (s *Server) approveSkill(req *request, manager string, caps map[string]bool
 		if err := writeUserSkill(db, userSkill{SkillID: id, Level: 0, Status: statusActive}); err != nil {
 			return textResp(500, "internal error: "+err.Error())
 		}
+		s.notifySkillDecision(holder, name, manager, false)
 		return jsonResp(200, map[string]any{"status": "ok", "rejected": true})
 	}
 	found.Status = statusActive
@@ -1151,6 +1167,7 @@ func (s *Server) approveSkill(req *request, manager string, caps map[string]bool
 	if err := writeUserSkill(db, *found); err != nil {
 		return textResp(500, "internal error: "+err.Error())
 	}
+	s.notifySkillDecision(holder, name, manager, true)
 	return jsonResp(200, map[string]any{"status": "ok", "assignment": found})
 }
 

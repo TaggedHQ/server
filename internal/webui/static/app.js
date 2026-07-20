@@ -5647,6 +5647,95 @@ async function initServers() {
   });
 
   loadModules();
+  initSMTP();
+}
+
+// ---- Email (SMTP) -----------------------------------------------------------
+// The relay the server sends mail through. Nothing sends yet; this configures it
+// so a feature that needs to email a user has somewhere to go.
+
+async function initSMTP() {
+  const panel = document.getElementById("smtp-panel");
+  if (!panel) return;
+  const msg = document.getElementById("smtp-msg");
+  const hint = document.getElementById("smtp-pw-hint");
+  const el = (id) => document.getElementById(id);
+  const fields = {
+    enabled: el("smtp-enabled"), host: el("smtp-host"), port: el("smtp-port"),
+    security: el("smtp-security"), username: el("smtp-username"),
+    password: el("smtp-password"), from_addr: el("smtp-from-addr"),
+    from_name: el("smtp-from-name"),
+  };
+
+  // The server never sends the stored password back, so the field starts blank
+  // and an empty save keeps whatever is stored. Say which of the two it is,
+  // otherwise a blank box looks like "no password set".
+  let passwordSet = false;
+  function refreshHint() {
+    hint.textContent = passwordSet
+      ? t("A password is stored. Leave blank to keep it.")
+      : t("No password stored.");
+  }
+
+  try {
+    const r = await apiFetch("admin/smtp");
+    if (!r.ok) { showMsg(msg, t("Could not load email settings"), "error"); return; }
+    const d = await r.json();
+    const c = d.smtp || {};
+    passwordSet = !!d.password_set;
+    fields.enabled.checked = !!c.enabled;
+    fields.host.value = c.host || "";
+    fields.port.value = c.port || "";
+    fields.security.value = c.security || "starttls";
+    fields.username.value = c.username || "";
+    fields.from_addr.value = c.from_addr || "";
+    fields.from_name.value = c.from_name || "";
+    refreshHint();
+  } catch (e) { showMsg(msg, t("Could not load email settings"), "error"); return; }
+
+  function collect() {
+    return {
+      enabled: fields.enabled.checked,
+      host: fields.host.value.trim(),
+      port: parseInt(fields.port.value, 10) || 0,
+      security: fields.security.value,
+      username: fields.username.value.trim(),
+      password: fields.password.value,
+      from_addr: fields.from_addr.value.trim(),
+      from_name: fields.from_name.value.trim(),
+    };
+  }
+
+  el("smtp-save").addEventListener("click", async () => {
+    showMsg(msg, "Saving…", "");
+    try {
+      const r = await apiFetch("admin/smtp", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(collect()),
+      });
+      if (!r.ok) { showMsg(msg, (await r.text()) || "Save failed", "error"); return; }
+      if (fields.password.value) passwordSet = true;
+      fields.password.value = ""; // never leave the secret sitting in the DOM
+      refreshHint();
+      showMsg(msg, t("Email settings saved."), "ok");
+    } catch (e) { showMsg(msg, t("Network error"), "error"); }
+  });
+
+  el("smtp-test").addEventListener("click", async () => {
+    const to = el("smtp-test-to").value.trim();
+    if (!to) { showMsg(msg, t("Enter an address to send the test to."), "error"); return; }
+    // The test sends with what is stored, not what is on screen, so unsaved
+    // edits would be tested silently against the old settings.
+    showMsg(msg, t("Sending…"), "");
+    try {
+      const r = await apiFetch("admin/smtp-test", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: to }),
+      });
+      if (!r.ok) { showMsg(msg, (await r.text()) || "Could not send", "error"); return; }
+      showMsg(msg, t("Test email sent to {addr}.", { addr: to }), "ok");
+    } catch (e) { showMsg(msg, t("Network error"), "error"); }
+  });
 }
 
 // ---- Modules ----------------------------------------------------------------

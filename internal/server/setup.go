@@ -23,6 +23,11 @@ type setupState struct {
 	// OAuth holds the configured external identity providers (client secrets
 	// included — hence the 0600 file). Managed from the Admin · OAuth page.
 	OAuth []oauthProvider `json:"oauth,omitempty"`
+	// SMTP holds the outbound mail relay settings. The password is sealed (see
+	// secrets.go) rather than stored in the clear like the OAuth secrets above:
+	// it is written here long before anything sends mail, so it sits in backups
+	// unused for a while. Managed from the Admin · Settings page.
+	SMTP *smtpConfig `json:"smtp,omitempty"`
 	// Roles is the legacy capability matrix: role key -> capabilities, for the
 	// three built-in roles. Only read now, and only when RoleDefs is absent, so
 	// a setup.json written before roles were addable keeps its edits.

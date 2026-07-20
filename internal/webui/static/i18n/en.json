@@ -420,7 +420,37 @@
     "plural": false
   },
   {
+    "key": "Email (SMTP)",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "From address",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "From name",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Host",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Leave blank to send unauthenticated",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
     "key": "Modules",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "None (unencrypted)",
     "ctx": "admin·settings",
     "plural": false
   },
@@ -430,7 +460,37 @@
     "plural": false
   },
   {
+    "key": "Port",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
     "key": "Registration",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Security",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Send email from this server",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "Send test email",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "The relay the server sends mail through",
+    "ctx": "admin·settings",
+    "plural": false
+  },
+  {
+    "key": "When off, features that would email a user skip that step. Nothing is sent until a feature asks for it: turning this on only makes the relay available.",
     "ctx": "admin·settings",
     "plural": false
   },
@@ -615,6 +675,11 @@
     "plural": false
   },
   {
+    "key": "A password is stored. Leave blank to keep it.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "A role name is required",
     "ctx": "app",
     "plural": false
@@ -740,6 +805,11 @@
     "plural": false
   },
   {
+    "key": "Could not load email settings",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Could not load server settings",
     "ctx": "app",
     "plural": false
@@ -825,6 +895,11 @@
     "plural": false
   },
   {
+    "key": "Email settings saved.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Enabled",
     "ctx": "app",
     "plural": false
@@ -851,6 +926,11 @@
   },
   {
     "key": "Enter a valid start and end time.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Enter an address to send the test to.",
     "ctx": "app",
     "plural": false
   },
@@ -1080,6 +1160,11 @@
     "plural": false
   },
   {
+    "key": "No password stored.",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "No saved tags",
     "ctx": "app",
     "plural": false
@@ -1255,6 +1340,11 @@
     "plural": false
   },
   {
+    "key": "Sending…",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "Sep",
     "ctx": "app",
     "plural": false
@@ -1306,6 +1396,11 @@
   },
   {
     "key": "Tag updated",
+    "ctx": "app",
+    "plural": false
+  },
+  {
+    "key": "Test email sent to {addr}.",
     "ctx": "app",
     "plural": false
   },

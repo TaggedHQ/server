@@ -89,6 +89,8 @@ var adminRouteCap = map[string]string{
 	"/group":        capGroupsManage,
 	"/user-groups":  capGroupsManage,
 	"/server":       capServerManage,
+	"/smtp":         capServerManage,
+	"/smtp-test":    capServerManage,
 	"/oauth":        capOAuthManage,
 	"/translations": capI18nManage,
 	"/skill-axes":   capSkillsManage,
@@ -205,6 +207,17 @@ func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[stri
 			return s.adminGetServer()
 		case "PUT", "POST":
 			return s.adminSetServer(req)
+		}
+	case "/smtp":
+		switch req.method() {
+		case "GET":
+			return s.adminGetSMTP()
+		case "PUT", "POST":
+			return s.adminSetSMTP(req)
+		}
+	case "/smtp-test":
+		if req.method() == "POST" {
+			return s.adminTestSMTP(req)
 		}
 	case "/oauth":
 		switch req.method() {
