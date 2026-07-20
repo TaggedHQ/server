@@ -221,3 +221,69 @@ func TestMigration(t *testing.T) {
 		t.Fatalf("after migration: %d records, err=%v", len(recs), err)
 	}
 }
+
+// TestSharedDB covers the cross-user store: a date-range scan narrowed by group,
+// read-your-writes inside a transaction, and the guarantee that the shared file
+// never shows up as an account.
+func TestSharedDB(t *testing.T) {
+	dir := t.TempDir()
+	b, err := NewSQLiteBackend(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	sdb, err := b.SharedDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sdb.Close()
+
+	put := func(key, gid, date string) {
+		if err := sdb.Write(func(tx WTx) error {
+			return tx.Upsert(TableShifts, Item{"key": key, "st": 1.0, "gid": gid, "date": date})
+		}); err != nil {
+			t.Fatalf("upsert %s: %v", key, err)
+		}
+	}
+	put("a", "support", "2026-07-13")
+	put("b", "support", "2026-07-15")
+	put("c", "support", "2026-07-25") // outside the week
+	put("d", "kitchen", "2026-07-15") // other group
+
+	week, err := sdb.InRange(TableShifts, "2026-07-13", "2026-07-19", []string{"support"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := keys(week); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("InRange(support) = %v, want [a b]", got)
+	}
+
+	// No group filter means every group.
+	all, err := sdb.InRange(TableShifts, "2026-07-13", "2026-07-19", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := keys(all); !reflect.DeepEqual(got, []string{"a", "b", "d"}) {
+		t.Errorf("InRange(all) = %v, want [a b d]", got)
+	}
+
+	// Upsert replaces by key, and Get reads it back.
+	put("a", "support", "2026-07-14")
+	it, err := sdb.Get(TableShifts, "a")
+	if err != nil || it == nil {
+		t.Fatalf("Get(a) = %v, err=%v", it, err)
+	}
+	if it["date"] != "2026-07-14" {
+		t.Errorf("date after upsert = %v, want 2026-07-14", it["date"])
+	}
+
+	// The shared file must not be mistaken for a user database.
+	users, err := b.ListUsers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 0 {
+		t.Errorf("ListUsers = %v, want none (shared file is not an account)", users)
+	}
+}

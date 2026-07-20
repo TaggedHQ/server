@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,13 @@ type SQLiteBackend struct {
 func NewSQLiteBackend(rootUserDir string) (*SQLiteBackend, error) {
 	return &SQLiteBackend{rootUserDir: rootUserDir}, nil
 }
+
+// sharedDBFile is the one file under rootUserDir that is not a user's database.
+// It holds the group-owned tables (see store.SharedDB). The name deliberately
+// cannot collide with a generated user filename -- those always contain a '~'
+// followed by base64 -- and ListUsers skips it by name so it never surfaces as
+// a phantom account in the admin list.
+const sharedDBFile = "_shared.db"
 
 func (b *SQLiteBackend) userDBPath(username string) string {
 	return util.User2Filename(b.rootUserDir, username)
@@ -55,6 +63,21 @@ func ensureAllTables(idb *ItemDB) error {
 	return idb.EnsureTable(TableSkills, "!key", "st")
 }
 
+// SharedDB opens (creating if needed) the shared file and ensures its tables
+// exist. It is a separate file rather than a table in each user's database
+// because its rows belong to a group, not to any one account.
+func (b *SQLiteBackend) SharedDB() (SharedDB, error) {
+	idb, err := Open(filepath.Join(b.rootUserDir, sharedDBFile))
+	if err != nil {
+		return nil, err
+	}
+	if err := idb.EnsureTable(TableShifts, "!key", "st", "gid", "date"); err != nil {
+		idb.Close()
+		return nil, err
+	}
+	return &sqliteSharedDB{idb: idb}, nil
+}
+
 // ListUsers enumerates the *.db files in rootUserDir.
 func (b *SQLiteBackend) ListUsers() ([]UserMeta, error) {
 	entries, err := os.ReadDir(b.rootUserDir)
@@ -66,6 +89,9 @@ func (b *SQLiteBackend) ListUsers() ([]UserMeta, error) {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".db") {
 			continue // skip -wal/-shm/-journal siblings and dirs
+		}
+		if name == sharedDBFile {
+			continue // group-owned data, not an account
 		}
 		username, err := util.Filename2User(name)
 		if err != nil {
@@ -181,6 +207,46 @@ func (t *sqliteTx) Get(table, key string) (Item, error) {
 
 func (t *sqliteTx) Upsert(table string, item Item) error {
 	return t.idb.Put(t.tx, table, item)
+}
+
+// sqliteSharedDB adapts *ItemDB to the SharedDB interface. It reuses sqliteTx
+// for writes: the write side of a shared table is the same upsert as a user's.
+type sqliteSharedDB struct {
+	idb *ItemDB
+}
+
+func (s *sqliteSharedDB) Close() error { return s.idb.Close() }
+
+func (s *sqliteSharedDB) Get(table, key string) (Item, error) {
+	return s.idb.SelectOne(s.idb.DB(), table, "key = ?", key)
+}
+
+func (s *sqliteSharedDB) All(table string) ([]Item, error) {
+	return s.idb.SelectAll(s.idb.DB(), table)
+}
+
+func (s *sqliteSharedDB) InRange(table, from, to string, gids []string) ([]Item, error) {
+	where := "date >= ? AND date <= ?"
+	args := []any{from, to}
+	if len(gids) > 0 {
+		where += " AND gid IN (" + strings.TrimSuffix(strings.Repeat("?,", len(gids)), ",") + ")"
+		for _, g := range gids {
+			args = append(args, g)
+		}
+	}
+	return s.idb.Select(s.idb.DB(), table, where, args...)
+}
+
+func (s *sqliteSharedDB) Write(fn func(WTx) error) error {
+	tx, err := s.idb.Begin()
+	if err != nil {
+		return err
+	}
+	if err := fn(&sqliteTx{idb: s.idb, tx: tx}); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 // escapeLike escapes the LIKE metacharacters (\, %, _) so a tag can be embedded

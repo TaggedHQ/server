@@ -27,7 +27,7 @@ import (
 // Version is Tagged's own version. It can be overridden at build time via
 // -ldflags "-X github.com/TaggedHQ/server/internal/server.Version=..."; the
 // release workflow stamps it with the git tag.
-var Version = "0.3.1"
+var Version = "0.3.2"
 
 // Server holds all shared state, replacing the module-level globals of the
 // Python server (CREDENTIALS, TRUSTED_PROXIES, JWT_KEY, config).
@@ -95,6 +95,15 @@ type Server struct {
 	skillLevels  []skillLevel
 	skills       []skill
 
+	// shiftsMu guards the shift catalog: the locations, working areas and roles
+	// a shift can refer to. The shifts themselves are not here -- they are
+	// group-owned rows in the shared store (store.TableShifts), which is the
+	// one table that is not per-user. See shifts.go.
+	shiftsMu       sync.RWMutex
+	shiftRoles     []shiftRole
+	shiftLocations []shiftLocation
+	shiftAreas     []shiftArea
+
 	// i18nMu guards the UI translations: the per-language catalogs, the revision
 	// id derived from them, and the cache of pages already rendered in a given
 	// language. Translations live in their own files under <datadir>/i18n, not
@@ -150,6 +159,13 @@ func New(cfg *config.Config) (*Server, error) {
 	// empty on a server that has not customised them. The catalog itself has no
 	// default: it starts empty and fills up as accounts contribute to it.
 	skillCats, skillLevels := defaultSkillCats(), defaultSkillLevels()
+	// Same for the shift roles: a planner with no roles to pick from cannot draw
+	// anything, so an uncustomised server gets the shipped set. Locations and
+	// working areas start empty -- both are optional on a shift, and inventing
+	// sites for somebody would be guessing at their operation.
+	shiftRoles := defaultShiftRoles()
+	var shiftLocations []shiftLocation
+	var shiftAreas []shiftArea
 	// Optional modules default to off, so a server that never opted in (or a
 	// setup.json written before they existed) does not gain pages on upgrade.
 	modules := map[string]bool{}
@@ -170,6 +186,11 @@ func New(cfg *config.Config) (*Server, error) {
 		if len(saved.SkillLevels) > 0 {
 			skillLevels = saved.SkillLevels
 		}
+		if len(saved.ShiftRoles) > 0 {
+			shiftRoles = saved.ShiftRoles
+		}
+		shiftLocations = saved.ShiftLocations
+		shiftAreas = saved.ShiftAreas
 		for key, on := range saved.Modules {
 			if validModule(key) {
 				modules[key] = on
@@ -216,6 +237,9 @@ func New(cfg *config.Config) (*Server, error) {
 		skillCats:        skillCats,
 		skillLevels:      skillLevels,
 		skills:           skills,
+		shiftRoles:       shiftRoles,
+		shiftLocations:   shiftLocations,
+		shiftAreas:       shiftAreas,
 		langs:            langs,
 		i18nRev:          i18nRevOf(langs),
 		htmlCache:        map[string][]byte{},
@@ -307,6 +331,9 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 	s.skillsMu.RLock()
 	skillCats, skillLevels, skills := s.skillCats, s.skillLevels, s.skills
 	s.skillsMu.RUnlock()
+	s.shiftsMu.RLock()
+	shiftRoles, shiftLocations, shiftAreas := s.shiftRoles, s.shiftLocations, s.shiftAreas
+	s.shiftsMu.RUnlock()
 	s.smtpMu.RLock()
 	mail := s.smtp
 	s.smtpMu.RUnlock()
@@ -325,6 +352,7 @@ func (s *Server) setupSnapshot(kind, dbURL string) setupState {
 		Backend: kind, DBURL: dbURL, RegistrationOpen: &open,
 		OAuth: providers, RoleDefs: roles, Groups: groups, Modules: modules,
 		SkillCats: skillCats, SkillLevels: skillLevels, Skills: skills,
+		ShiftRoles: shiftRoles, ShiftLocations: shiftLocations, ShiftAreas: shiftAreas,
 		SMTP: &mail,
 	}
 }

@@ -165,6 +165,16 @@ func (s *Server) apiHandlerTriage(req *request, path string, authInfo map[string
 		}
 		return s.skillsHandler(req, strings.TrimPrefix(path, "skills"), username, s.capsOf(username, db))
 	}
+	// The roster is open to every account, but scoped: getShifts returns only the
+	// groups the caller is in or controls, and each write route applies its own
+	// rule (a manager plans, a member picks up). Gated on the module switch the
+	// same way skills is.
+	if path == "shifts" || strings.HasPrefix(path, "shifts/") {
+		if !s.moduleEnabled(moduleShifts) {
+			return textResp(404, "not found: the shifts module is not enabled")
+		}
+		return s.shiftsHandler(req, strings.TrimPrefix(path, "shifts"), username)
+	}
 	if path == "controller" || strings.HasPrefix(path, "controller/") {
 		if !s.hasCap(username, db, capUsersActAs) {
 			return textResp(403, "forbidden: controller access required")

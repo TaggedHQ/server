@@ -53,6 +53,14 @@ type setupState struct {
 	// that happens to be server-wide. The per-user ratings against these skills
 	// live in each user's own store, not here.
 	Skills []skill `json:"skills,omitempty"`
+	// ShiftRoles, ShiftLocations and ShiftAreas are the shift planner's catalog:
+	// what a shift can say about where it is and what is being worked. Managed
+	// from the Admin - Shifts page. The shifts themselves are far too many and
+	// change far too often to live in this file; they are rows in the shared
+	// store instead (see store.SharedDB).
+	ShiftRoles     []shiftRole     `json:"shift_roles,omitempty"`
+	ShiftLocations []shiftLocation `json:"shift_locations,omitempty"`
+	ShiftAreas     []shiftArea     `json:"shift_areas,omitempty"`
 }
 
 const setupFile = "setup.json"

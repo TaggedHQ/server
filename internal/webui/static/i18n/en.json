@@ -1,5 +1,20 @@
 [
   {
+    "key": "About",
+    "ctx": "_sidebar",
+    "plural": false
+  },
+  {
+    "key": "Roles",
+    "ctx": "_sidebar",
+    "plural": false
+  },
+  {
+    "key": "Users",
+    "ctx": "_sidebar",
+    "plural": false
+  },
+  {
     "key": "About Tagged",
     "ctx": "about",
     "plural": false
@@ -1672,11 +1687,6 @@
     "plural": false
   },
   {
-    "key": "About",
-    "ctx": "common",
-    "plural": false
-  },
-  {
     "key": "Account",
     "ctx": "common",
     "plural": false
@@ -1967,11 +1977,6 @@
     "plural": false
   },
   {
-    "key": "Roles",
-    "ctx": "common",
-    "plural": false
-  },
-  {
     "key": "Save",
     "ctx": "common",
     "plural": false
@@ -2093,11 +2098,6 @@
   },
   {
     "key": "Username",
-    "ctx": "common",
-    "plural": false
-  },
-  {
-    "key": "Users",
     "ctx": "common",
     "plural": false
   },
@@ -2582,17 +2582,37 @@
     "plural": false
   },
   {
+    "key": "(comma-separated)",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Absence",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Assign to",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Day note",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
     "key": "Group status",
     "ctx": "shifts",
     "plural": false
   },
   {
-    "key": "Kind",
+    "key": "Legend",
     "ctx": "shifts",
     "plural": false
   },
   {
-    "key": "Legend",
+    "key": "Location",
     "ctx": "shifts",
     "plural": false
   },
@@ -2617,7 +2637,27 @@
     "plural": false
   },
   {
+    "key": "Shift",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Slots",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
     "key": "Team",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Type",
+    "ctx": "shifts",
+    "plural": false
+  },
+  {
+    "key": "Working area",
     "ctx": "shifts",
     "plural": false
   },

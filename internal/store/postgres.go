@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
@@ -61,6 +62,17 @@ CREATE TABLE IF NOT EXISTS users (
     username text PRIMARY KEY,
     mtime    double precision
 );
+
+-- shifts is the one table not keyed by username: its rows belong to a group.
+-- See the store.SharedDB doc for why shifts cannot live in a per-user store.
+CREATE TABLE IF NOT EXISTS shifts (
+    key  text PRIMARY KEY,
+    st   double precision,
+    gid  text,
+    date text,
+    _ob  jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shifts_gid_date ON shifts (gid, date);
 `
 
 // NewPostgresBackend dials dbURL, tunes the pool, and applies the schema.
@@ -256,6 +268,78 @@ func (t *pgTx) Get(table, key string) (Item, error) {
 func (t *pgTx) Upsert(table string, item Item) error {
 	t.wrote = true
 	return pgUpsert(t.tx, t.username, table, item)
+}
+
+// SharedDB returns a handle to the group-owned tables. Unlike the SQLite
+// backend there is no extra file to open: the shared table lives in the same
+// database as everything else, just without a username column.
+func (b *PostgresBackend) SharedDB() (SharedDB, error) {
+	return &pgSharedDB{db: b.db}, nil
+}
+
+// pgSharedDB is the cross-user view over the shared pool.
+type pgSharedDB struct {
+	db *sql.DB
+}
+
+func (s *pgSharedDB) Close() error { return nil } // the pool outlives the handle
+
+func (s *pgSharedDB) Get(table, key string) (Item, error) {
+	return pgSelectOne(s.db, `SELECT _ob FROM `+table+` WHERE key = $1`, key)
+}
+
+func (s *pgSharedDB) All(table string) ([]Item, error) {
+	return pgScan(s.db, `SELECT _ob FROM `+table)
+}
+
+func (s *pgSharedDB) InRange(table, from, to string, gids []string) ([]Item, error) {
+	where := "date >= $1 AND date <= $2"
+	args := []any{from, to}
+	if len(gids) > 0 {
+		var ph []string
+		for _, g := range gids {
+			args = append(args, g)
+			ph = append(ph, fmt.Sprintf("$%d", len(args)))
+		}
+		where += " AND gid IN (" + strings.Join(ph, ", ") + ")"
+	}
+	return pgScan(s.db, `SELECT _ob FROM `+table+` WHERE `+where, args...)
+}
+
+func (s *pgSharedDB) Write(fn func(WTx) error) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if err := fn(&pgSharedTx{tx: tx}); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// pgSharedTx is the write side of a shared-table transaction. There is no mtime
+// to bump: mtime drives the per-user /updates early-exit, and shared rows are
+// not part of any user's sync stream.
+type pgSharedTx struct {
+	tx *sql.Tx
+}
+
+func (t *pgSharedTx) Get(table, key string) (Item, error) {
+	return pgSelectOne(t.tx, `SELECT _ob FROM `+table+` WHERE key = $1`, key)
+}
+
+func (t *pgSharedTx) Upsert(table string, item Item) error {
+	blob, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	gid, _ := item["gid"].(string)
+	date, _ := item["date"].(string)
+	_, err = t.tx.Exec(fmt.Sprintf(`INSERT INTO %s (key, st, gid, date, _ob) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (key) DO UPDATE SET st = EXCLUDED.st, gid = EXCLUDED.gid, date = EXCLUDED.date, _ob = EXCLUDED._ob`, table),
+		item["key"], asFloat(item["st"]), gid, date, string(blob))
+	return err
 }
 
 // pgUpsert inserts or replaces one item, duplicating indexed fields into their

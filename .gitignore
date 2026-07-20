@@ -34,3 +34,6 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Local agent / preview harness config
+.claude/

@@ -97,6 +97,7 @@ var adminRouteCap = map[string]string{
 	"/skill-cats":   capSkillsManage,
 	"/skill-cat":    capSkillsManage,
 	"/skill-levels": capSkillsManage,
+	"/shift-axes":   capShiftsManage,
 }
 
 // adminHandler dispatches admin-only sub-routes. `sub` is the path after
@@ -200,6 +201,13 @@ func (s *Server) adminHandler(req *request, sub, adminUser string, caps map[stri
 	case "/skill-levels":
 		if req.method() == "PUT" || req.method() == "POST" {
 			return s.adminSetSkillLevels(req)
+		}
+	case "/shift-axes":
+		switch req.method() {
+		case "GET":
+			return s.adminGetShiftAxes()
+		case "PUT", "POST":
+			return s.adminSetShiftAxes(req)
 		}
 	case "/server":
 		switch req.method() {

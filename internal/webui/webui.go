@@ -104,6 +104,60 @@ func route(reqPath string) string {
 	}
 }
 
+// navKey maps a request path to the data-nav value of the sidebar entry that
+// leads to it, so Get can mark that entry active. It is deliberately the same
+// switch shape as route(): both answer "which page is this?", and a new page
+// that forgets one of them is easier to spot when they sit together.
+func navKey(reqPath string) string {
+	switch reqPath {
+	case "":
+		return "dashboard"
+	default:
+		return reqPath
+	}
+}
+
+// sidebarPartial is the shared sidebar markup, injected at the {{SIDEBAR}}
+// marker. Read once at init: it never changes for the life of the process, and
+// every signed-in page needs it.
+var sidebarPartial = mustReadPartial("static/_sidebar.html")
+
+func mustReadPartial(name string) string {
+	b, err := files.ReadFile(name)
+	if err != nil {
+		// The partial is embedded, so a failure here is a broken build rather
+		// than a runtime condition. Serving pages with no navigation would be a
+		// stranger failure than an empty string, but there is nothing to
+		// recover to, so keep it simple and let the pages render bare.
+		return ""
+	}
+	// Strip the leading explanatory comment: it is for whoever edits the file,
+	// not for every page's wire bytes.
+	s := string(b)
+	if i := strings.Index(s, "-->"); i >= 0 && strings.HasPrefix(strings.TrimSpace(s), "<!--") {
+		s = s[i+3:]
+	}
+	return strings.TrimLeft(s, "\n")
+}
+
+// injectSidebar replaces the {{SIDEBAR}} marker with the shared nav, marking
+// the entry for reqPath active. Pages that do not carry the marker (login,
+// register, setup) are returned untouched.
+func injectSidebar(body, reqPath string) string {
+	if !strings.Contains(body, "{{SIDEBAR}}") {
+		return body
+	}
+	nav := sidebarPartial
+	if key := navKey(reqPath); key != "" {
+		// Only ever one entry matches, and adding the class next to the
+		// attribute keeps the partial free of per-page state.
+		nav = strings.Replace(nav,
+			`data-nav="`+key+`"`,
+			`data-nav="`+key+`" class="active"`, 1)
+	}
+	return strings.ReplaceAll(body, "{{SIDEBAR}}", nav)
+}
+
 // Asset is a resolved static file ready to serve.
 type Asset struct {
 	Body        []byte
@@ -128,7 +182,10 @@ func Get(reqPath, prefix string) Asset {
 	isHTML := strings.HasSuffix(name, ".html")
 	switch {
 	case isHTML:
-		s := strings.ReplaceAll(string(body), "{{PREFIX}}", prefix)
+		// Sidebar first: it carries {{PREFIX}} and {{V}} of its own, so it has
+		// to be in place before those are substituted.
+		s := injectSidebar(string(body), reqPath)
+		s = strings.ReplaceAll(s, "{{PREFIX}}", prefix)
 		body = []byte(strings.ReplaceAll(s, "{{V}}", Version))
 	case strings.HasSuffix(name, ".css"):
 		// The stylesheet references the fonts itself, so it needs the version

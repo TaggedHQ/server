@@ -90,9 +90,11 @@ func ctxForFile(path string) string {
 		return "dashboard"
 	case "impexp":
 		return "import-export"
-	case "app.js":
-		return "app"
 	}
+	// Every script contributes to one "app" section, whichever file it now lives
+	// in. The scripts used to be a single app.js and are now core.js plus one
+	// file per page under js/; grouping them together keeps the Translations
+	// page's sections about the UI rather than about the source layout.
 	if strings.HasSuffix(name, ".js") {
 		return "app"
 	}
