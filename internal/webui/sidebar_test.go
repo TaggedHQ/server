@@ -25,10 +25,10 @@ func TestSidebarIsInjectedNotDuplicated(t *testing.T) {
 			t.Fatalf("page %q not found", page)
 		}
 		body := string(a.Body)
-		if !strings.Contains(body, `<aside class="sidebar">`) {
+		if !strings.Contains(body, `<aside class="sidebar"`) {
 			t.Errorf("page %q has no sidebar", page)
 		}
-		if n := strings.Count(body, `<aside class="sidebar">`); n != 1 {
+		if n := strings.Count(body, `<aside class="sidebar"`); n != 1 {
 			t.Errorf("page %q has %d sidebars, want 1", page, n)
 		}
 		if strings.Contains(body, "{{SIDEBAR}}") {
@@ -46,7 +46,7 @@ func TestSidebarIsInjectedNotDuplicated(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if strings.Contains(string(b), `<aside class="sidebar">`) {
+		if strings.Contains(string(b), `<aside class="sidebar"`) {
 			t.Errorf("%s carries its own sidebar markup; it should use {{SIDEBAR}}", p)
 		}
 		return nil
@@ -75,6 +75,25 @@ func TestSidebarMarksTheActiveEntry(t *testing.T) {
 		if n := strings.Count(body, `class="active"`); n != 1 {
 			t.Errorf("page %q has %d active nav entries, want 1", page, n)
 		}
+	}
+}
+
+// The collapse controls are wired in core.js by these hooks, so the markup has
+// to carry them: a rail toggle, and a section heading that is a button naming
+// its section. Losing any of them would leave the JS quietly wiring nothing.
+func TestSidebarCarriesCollapseControls(t *testing.T) {
+	body := string(Get("shifts", "/").Body)
+	if !strings.Contains(body, `id="side-rail"`) {
+		t.Error("sidebar has no rail toggle (#side-rail)")
+	}
+	for _, sec := range []string{"skills", "admin"} {
+		head := `class="nav-head" data-section="` + sec + `"`
+		if !strings.Contains(body, head) {
+			t.Errorf("section %q heading is not a data-section button", sec)
+		}
+	}
+	if n := strings.Count(body, `class="nav-caret"`); n != 2 {
+		t.Errorf("found %d section carets, want 2 (Skills and Admin)", n)
 	}
 }
 
@@ -208,7 +227,7 @@ func TestEachPageLoadsCoreAndOnePageScript(t *testing.T) {
 func TestPreAuthPagesHaveNoSidebar(t *testing.T) {
 	for _, page := range []string{"login", "register", "setup"} {
 		body := string(Get(page, "/").Body)
-		if strings.Contains(body, `<aside class="sidebar">`) {
+		if strings.Contains(body, `<aside class="sidebar"`) {
 			t.Errorf("page %q should not carry the sidebar", page)
 		}
 	}

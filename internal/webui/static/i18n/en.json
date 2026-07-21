@@ -5,6 +5,11 @@
     "plural": false
   },
   {
+    "key": "Menu",
+    "ctx": "_sidebar",
+    "plural": false
+  },
+  {
     "key": "Roles",
     "ctx": "_sidebar",
     "plural": false
@@ -970,6 +975,11 @@
     "plural": false
   },
   {
+    "key": "Expand sidebar",
+    "ctx": "app",
+    "plural": false
+  },
+  {
     "key": "FRI",
     "ctx": "app",
     "plural": false
@@ -1743,6 +1753,11 @@
   },
   {
     "key": "Close",
+    "ctx": "common",
+    "plural": false
+  },
+  {
+    "key": "Collapse sidebar",
     "ctx": "common",
     "plural": false
   },

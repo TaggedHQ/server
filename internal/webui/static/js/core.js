@@ -585,6 +585,8 @@ function oauthIcon(id) {
         '<path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.23 0 12 0A12 12 0 0 0 1.28 6.62l3.99 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>';
     case "github":
       return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.94c.58.1.79-.25.79-.56v-1.95c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.3-1.7-1.3-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.73-1.56-2.56-.29-5.26-1.28-5.26-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.4-5.28 5.69.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>';
+    case "azure":
+      return '<img src="/images/entra_icon.svg" width="20" height="20" alt="Microsoft Entra ID" aria-hidden="true">';
     default:
       return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 21 2"/><path d="M18 5l2 2"/><path d="M15 8l2 2"/></svg>';
   }
@@ -814,6 +816,33 @@ function initRegister() {
 
 // ---- Shared sidebar ---------------------------------------------------------
 
+// Collapse state lives in localStorage, so the choice survives the full reload
+// that every navigation is. RAIL is the whole-sidebar toggle; COLLAPSED holds
+// the section keys ("admin", "skills") the viewer has folded away.
+const SIDEBAR_RAIL_KEY = "tt_sidebar_rail";
+const NAV_COLLAPSED_KEY = "tt_nav_collapsed";
+
+// Apply the saved collapse state before the first paint. core.js is the last
+// thing in <body>, so .app and the sidebar already exist, and this runs during
+// the one synchronous pass before any paint -- setting the classes here rather
+// than in fillSidebar (which waits for DOMContentLoaded) keeps a sidebar
+// restored collapsed from flashing open on every navigation.
+(function applySidebarStateEarly() {
+  try {
+    const app = document.querySelector(".app");
+    if (!app) return; // pre-auth pages have no sidebar
+    if (localStorage.getItem(SIDEBAR_RAIL_KEY) === "1") app.classList.add("rail");
+    const collapsed = JSON.parse(localStorage.getItem(NAV_COLLAPSED_KEY) || "[]");
+    if (Array.isArray(collapsed)) {
+      for (const key of collapsed) {
+        const head = app.querySelector(`.nav-head[data-section="${key}"]`);
+        const sec = head && head.closest(".nav-section");
+        if (sec) { sec.classList.add("collapsed"); head.setAttribute("aria-expanded", "false"); }
+      }
+    }
+  } catch (e) { /* first paint proceeds expanded */ }
+})();
+
 function fillSidebar() {
   const user = localStorage.getItem(USER_KEY) || "";
   const nameEl = document.getElementById("side-user");
@@ -824,8 +853,86 @@ function fillSidebar() {
   if (avEl) avEl.textContent = initials(user);
   const lo = document.getElementById("logout");
   if (lo) lo.addEventListener("click", logout);
+  wireSidebarCollapse();
   setupSidebarTimer();
   revealChrome();
+}
+
+// wireSidebarCollapse hooks up the two collapse controls (their state is already
+// applied by applySidebarStateEarly above) and enables the open/close animation.
+function wireSidebarCollapse() {
+  const app = document.querySelector(".app");
+  if (!app) return;
+
+  // The rail toggle. Its label flips with the state so a screen reader and the
+  // tooltip both say what the click will do next, not what it just did.
+  const railBtn = document.getElementById("side-rail");
+  const syncRail = () => {
+    if (!railBtn) return;
+    const on = app.classList.contains("rail");
+    const label = on ? t("Expand sidebar") : t("Collapse sidebar");
+    railBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    railBtn.title = label;
+    railBtn.setAttribute("aria-label", label);
+  };
+  if (railBtn) {
+    railBtn.addEventListener("click", () => {
+      const on = app.classList.toggle("rail");
+      try { localStorage.setItem(SIDEBAR_RAIL_KEY, on ? "1" : "0"); } catch (e) { /* ignore */ }
+      syncRail();
+    });
+  }
+  syncRail();
+
+  // Each section heading folds its own entries away. The collapsed set is
+  // recomputed from the DOM on every toggle rather than tracked separately, so
+  // the store can never disagree with what is on screen.
+  app.querySelectorAll(".nav-head[data-section]").forEach((head) => {
+    head.addEventListener("click", () => {
+      const sec = head.closest(".nav-section");
+      const collapsed = sec.classList.toggle("collapsed");
+      head.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      const keys = [...app.querySelectorAll(".nav-section.collapsed .nav-head[data-section]")]
+        .map((h) => h.getAttribute("data-section"));
+      try { localStorage.setItem(NAV_COLLAPSED_KEY, JSON.stringify(keys)); } catch (e) { /* ignore */ }
+    });
+  });
+
+  // In the rail the labels are gone, so each icon carries its name as a tooltip.
+  app.querySelectorAll(".nav a").forEach((a) => {
+    const label = a.querySelector("span:not(.ic)");
+    if (label && !a.title) a.title = label.textContent.trim();
+  });
+
+  wireMobileDrawer(app);
+
+  // Turn the width transition on only after the restored state is in place, so a
+  // sidebar that loads collapsed does not animate itself open.
+  requestAnimationFrame(() => app.classList.add("chrome-ready"));
+}
+
+// wireMobileDrawer turns the sidebar into a slide-in drawer on narrow screens.
+// The layout switch is pure CSS (see the mobile media query); this only opens
+// and closes it. Below the breakpoint the sidebar cannot sit beside the content,
+// so the hamburger in the top bar reveals it over a backdrop.
+function wireMobileDrawer(app) {
+  const toggle = document.getElementById("mobile-nav-toggle");
+  const backdrop = document.getElementById("nav-backdrop");
+  const sidebar = document.getElementById("app-sidebar");
+  if (!toggle || !sidebar) return;
+
+  const setOpen = (open) => {
+    app.classList.toggle("nav-open", open);
+    document.body.classList.toggle("nav-locked", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  toggle.addEventListener("click", () => setOpen(!app.classList.contains("nav-open")));
+  if (backdrop) backdrop.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
+  // A tap on a destination closes the drawer. Navigation is a full reload so it
+  // would close anyway, but a link to the current page would otherwise leave it
+  // hanging open over the very content it meant to show.
+  sidebar.querySelectorAll("a[href]").forEach((a) => a.addEventListener("click", () => setOpen(false)));
 }
 
 // NAV_CAP maps each Admin nav entry (by its page) to the capability that unlocks

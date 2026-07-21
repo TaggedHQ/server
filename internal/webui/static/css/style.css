@@ -358,7 +358,25 @@ button.btn-round svg { width: 18px; height: 18px; }
   position: sticky;
   top: 0;
   height: 100vh;
+  /* The sidebar is pinned at a fixed viewport height. On a short window its own
+     items (every nav entry, the timer, the footer) can be taller than that, and
+     without this they spilled out below the 100vh box -- past where the
+     background paints -- so the footer sat on the bare page. Scroll them inside
+     the sidebar instead, keeping the fill edge-to-edge. The scrollbar itself is
+     hidden: it is chrome, not content, and would only clutter the narrow rail. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* old Edge */
 }
+.sidebar::-webkit-scrollbar { width: 0; height: 0; }   /* WebKit */
+
+/* Mobile chrome. The top bar and the backdrop exist on every page but do
+   nothing until the mobile breakpoint turns them on (see the media query at the
+   end of the file). Kept out of the desktop grid entirely so the two-column
+   layout is unaffected. */
+.mobile-topbar { display: none; }
+.nav-backdrop { display: none; }
 .side-brand {
   display: flex;
   align-items: center;
@@ -387,10 +405,71 @@ button.btn-round svg { width: 18px; height: 18px; }
 
 /* Admin nav section: a labelled group of sub-items (Users / Servers / OAuth). */
 .nav-section { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+/* The heading is a button: clicking it folds the section's entries away. Styled
+   to read as the quiet uppercase label it was before it became interactive. */
 .nav-section .nav-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; background: none; border: none; cursor: pointer;
+  font-family: inherit; text-align: left;
   font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.09em;
   color: var(--text-3); font-weight: 600; padding: 8px 10px 4px;
 }
+.nav-section .nav-head:hover { color: var(--text-2); }
+.nav-section .nav-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.nav-section .nav-caret { width: 13px; height: 13px; flex: 0 0 auto; transition: transform 0.15s; }
+.nav-section.collapsed .nav-caret { transform: rotate(-90deg); }
+/* Collapsed: the entries fold away, the heading stays as the handle to reopen. */
+.nav-section.collapsed a { display: none !important; }
+
+/* -------------------------------------------------------------------------
+   Rail mode: the whole sidebar collapsed to an icon-only strip (macOS style).
+   The class lives on .app so the grid track can shrink with the sidebar. A
+   transition is only enabled once .chrome-ready is set (after first paint), so
+   a sidebar restored collapsed does not animate open on load.
+
+   Scoped to desktop: below the mobile breakpoint the sidebar is already a
+   horizontal icon bar, so the rail (and the section folding above) would only
+   fight that layout. Confining them here means a state set on a wide screen
+   cannot strand entries on a narrow one, where the headings that reopen them
+   are hidden.
+   ------------------------------------------------------------------------- */
+.app.chrome-ready { transition: grid-template-columns 0.18s ease; }
+@media (min-width: 761px) {
+  .app.rail { grid-template-columns: 64px 1fr; }
+  .app.rail .sidebar { padding-left: 8px; padding-right: 8px; }
+  /* Everything that is text folds away; icons stay and centre. */
+  .app.rail .brandmark,
+  .app.rail .side-brand .logo,
+  .app.rail .nav a span:not(.ic),
+  .app.rail .nav-section .nav-head,
+  .app.rail .side-timer .tmr-clock,
+  .app.rail .tmr-start span,
+  .app.rail .switcher,
+  /* No room for the name-and-avatar link beside the log-out button in the rail;
+     drop it and leave just the one control, centred. */
+  .app.rail .side-user { display: none; }
+  .app.rail .side-brand { justify-content: center; padding: 6px 0 20px; }
+  .app.rail .nav a { justify-content: center; padding: 9px 0; gap: 0; }
+  .app.rail .nav-section { margin-top: 6px; border-top: 1px solid var(--stroke); padding-top: 6px; }
+  .app.rail .side-foot { justify-content: center; }
+  .app.rail .side-timer { align-items: center; }
+  /* A square button with the pill radius is a perfect circle. */
+  .app.rail .side-timer .tmr-start { width: 40px; height: 40px; padding: 0; justify-content: center; gap: 0; }
+}
+
+/* The rail toggle: quiet by default, pinned to the right of the wordmark, and
+   centred once the wordmark is gone. */
+.side-rail-btn {
+  margin-left: auto; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: none; border: none; border-radius: 8px;
+  color: var(--text-3); cursor: pointer;
+}
+.side-rail-btn:hover { background: var(--surface-raised); color: var(--text-1); }
+.side-rail-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side-rail-btn svg { width: 18px; height: 18px; }
+.app.rail .side-rail-btn { margin-left: 0; }
 
 /* Toggle switch + settings row (Admin · Servers). */
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 6px 0; cursor: pointer; }
@@ -1471,16 +1550,54 @@ button.btn-round svg { width: 18px; height: 18px; }
   .um-details, #oauth-help { position: static; grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
+  /* Single column: the content is all that sits in the grid, under a compact
+     top bar. The sidebar is lifted out of the flow into an off-canvas drawer. */
   .app { grid-template-columns: 1fr; }
-  .sidebar { position: static; height: auto; flex-direction: row; align-items: center; overflow-x: auto; }
-  .side-brand { padding: 6px 10px 6px 4px; }
-  .nav { flex-direction: row; }
-  .nav a span:not(.ic) { display: none; }
-  .nav-section { flex-direction: row; margin-top: 0; }
-  .nav-section .nav-head { display: none; }
-  .side-foot { margin-top: 0; padding-top: 0; border-top: none; border-left: 1px solid var(--stroke); padding-left: 8px; margin-left: auto; }
-  .side-user .name { display: none; }
-  .side-timer { display: none; }
+
+  .mobile-topbar {
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0; z-index: 40;
+    padding: 8px 12px;
+    background: var(--surface); border-bottom: 1px solid var(--stroke);
+  }
+  .mobile-nav-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; flex: 0 0 auto;
+    background: none; border: 1px solid var(--stroke); border-radius: 10px;
+    color: var(--text-1); cursor: pointer;
+  }
+  .mobile-nav-toggle:hover { background: var(--surface-raised); }
+  /* flex:0 0 auto or the icon, having no intrinsic width, is shrunk to zero
+     along the button's main axis and vanishes -- only the height survives. */
+  .mobile-nav-toggle svg { width: 20px; height: 20px; flex: 0 0 auto; }
+  .mtb-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; text-decoration: none; }
+  .mtb-brand .logo { width: 22px; height: 22px; }
+
+  /* The drawer: the full vertical sidebar, slid off the left edge until opened.
+     It keeps its normal desktop contents -- labels, sections, footer -- because
+     here there is room for them; only the desktop-only rail toggle stays gone. */
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: 264px; max-width: 84vw; height: 100vh;
+    padding: 18px 14px;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.4);
+  }
+  .app.nav-open .sidebar { transform: translateX(0); }
+  .side-rail-btn { display: none; }
+
+  .nav-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 55;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0; pointer-events: none; transition: opacity 0.22s ease;
+  }
+  .app.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
+  /* When the drawer is open the page beneath it must not scroll under the
+     backdrop. Paired with a body-level lock in core.js. */
+  body.nav-locked { overflow: hidden; }
+
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .side-col { grid-template-columns: 1fr; }
   .alloc { flex-direction: column; align-items: flex-start; }
